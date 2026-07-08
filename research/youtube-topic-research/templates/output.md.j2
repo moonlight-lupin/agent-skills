@@ -1,0 +1,69 @@
+{% macro freshness_badge(age_months, stale_months, aging_months) -%}
+{%- if age_months <= aging_months -%}🟢 Fresh
+{%- elif age_months <= stale_months -%}🟡 Aging
+{%- else -%}🔴 Stale
+{%- endif -%}
+{%- endmacro %}
+
+{% macro format_views(count) -%}
+{%- if count >= 1000000 -%}{{ (count / 1000000) | round(1) }}M
+{%- elif count >= 1000 -%}{{ (count / 1000) | round(1) }}K
+{%- else -%}{{ count }}
+{%- endif -%}
+{%- endmacro %}
+
+🎯 **Topic:** "{{ query }}"
+
+{% if results %}
+{% for r in results %}
+{% if loop.first %}
+## ✅ **Top Match**
+{% else %}
+## ✅ **Alternative {{ loop.index }}**
+{% endif %}
+
+**🔗 [{{ r.title }} ({{ r.duration }})]({{ r.url }})**
+*{{ r.uploader }} • {{ format_views(r.view_count) }} views • {{ r.published[:10] }}* {{ freshness_badge(r.age_months, r.stale_months, r.aging_months) }}
+
+**Why relevant:** {{ r.why_relevant }}
+
+**Transcript:** {{ r.transcript_status }}{% if r.transcript_error %} — {{ r.transcript_error }}{% endif %}
+{% if r.key_timestamps %}
+
+**Key timestamps:**
+{% for ts in r.key_timestamps %}
+• {{ ts.time }} — {{ ts.text }}
+{% endfor %}
+{% endif %}
+
+**Summary:**
+{% for bullet in r.summary_bullets %}
+• {{ bullet }}
+{% endfor %}
+
+**Watch if:**
+{% for w in r.watch_if %}
+• {{ w }}
+{% endfor %}
+
+**Skip if:**
+{% for s in r.skip_if %}
+• {{ s }}
+{% endfor %}
+
+---
+{% endfor %}
+{% else %}
+**No suitable videos found.**
+
+Raw search returned {{ raw_count }} YouTube candidate(s), but:
+{% for issue in issues %}
+• {{ issue }}
+{% endfor %}
+
+**Try:** Different keywords, broader topic, or check the raw list below:
+
+{% for v in raw_videos %}
+• [{{ v.title }}]({{ v.url }}) — {{ v.uploader }}, {{ v.duration }}, {{ v.view_count }} views
+{% endfor %}
+{% endif %}

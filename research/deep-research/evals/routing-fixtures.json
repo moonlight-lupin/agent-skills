@@ -1,0 +1,50 @@
+{
+  "skill_name": "deep-research",
+  "purpose": "Lightweight routing + output-contract fixtures. These are specs, not executed against a live model in CI. tests/test_routing_fixtures.py validates that each fixture is well-formed and routes to a real skill; they also serve as worked examples of when deep-research is (and is NOT) the right skill, and what its output must contain.",
+  "fixtures": [
+    {
+      "id": "dr-01-cited-report",
+      "request": "Write a thorough, cited report on the state of solid-state battery commercialization in 2026 — the key players, expected timelines, and the remaining technical barriers.",
+      "expected_routing": {
+        "skill": "deep-research",
+        "reason": "Open-ended multi-source synthesis into a single cited report. Not a recurring digest, not a dossier on one named entity, not Q&A over user-supplied sources.",
+        "not": ["news-monitoring", "entity-research", "notebooklm-mode"]
+      },
+      "required_output_fields": ["inline citations", "sources/references list", "research stats"],
+      "forbidden_patterns": ["(?i)as an ai language model", "(?i)i cannot (browse|access) the (web|internet)", "(?i)\\bi made (this|that|these) up\\b"]
+    },
+    {
+      "id": "dr-02-boundary-fact-check",
+      "request": "Is it true that more than half of new cars sold in Norway in 2025 were fully electric? Check this and show your sources.",
+      "expected_routing": {
+        "skill": "fact-checker",
+        "reason": "A single, specific claim to verify with a confidence rating goes to fact-checker; deep-research handles broad multi-question topics (its fact-check report category covers claims that surface DURING a wider report).",
+        "not": ["deep-research", "news-monitoring"]
+      },
+      "required_output_fields": ["verdict with confidence rating", "cited sources", "source independence assessment"],
+      "forbidden_patterns": ["(?i)as an ai language model", "(?i)i don't have access to", "(?i)\\bverdict: false\\b"]
+    },
+    {
+      "id": "dr-03-boundary-dossier",
+      "request": "Give me a background dossier on Acme Robotics Ltd — who owns it, any adverse media, and whether it has sanctions exposure.",
+      "expected_routing": {
+        "skill": "entity-research",
+        "reason": "Background/vetting of one named entity with ownership, adverse-media and sanctions signals is entity-research, not a general research report.",
+        "not": ["deep-research"]
+      },
+      "required_output_fields": ["entity identity", "ownership/management", "adverse media", "sanctions/PEP signals", "sources"],
+      "forbidden_patterns": ["(?i)\\bcleared\\b", "(?i)\\bno sanctions risk\\b", "(?i)compliance determination"]
+    },
+    {
+      "id": "dr-04-boundary-vault",
+      "request": "I'm going to paste five PDFs. Answer my questions strictly from those documents, with quotes, and tell me when they don't cover something.",
+      "expected_routing": {
+        "skill": "notebooklm-mode",
+        "reason": "Strictly-grounded Q&A over user-supplied sources is notebooklm-mode (vault), not open-web deep research.",
+        "not": ["deep-research"]
+      },
+      "required_output_fields": ["grounded answer", "verbatim quotes", "source attribution", "gaps identified"],
+      "forbidden_patterns": ["(?i)as an ai language model"]
+    }
+  ]
+}

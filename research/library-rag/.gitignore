@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment / secrets
+.env
+*.env
+
+# Bible-specific chunkers (local only, not in public repo)
+scripts/chunkers_bible.py
+
+# Generated index DB
+rag_index.db
+
+# Library content (copyrighted — users build their own)
+library/
+raw/
+text/
+markdown/

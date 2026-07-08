@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Scraper run output (don't commit harvested data / raw payloads)
+output/
+raw/
+*.jsonl.tmp

@@ -1,0 +1,7 @@
+step 1 action: opened search.aspx
+step 2 action: selected author = 'Albert Einstein' (CP1)
+step 3 action: tag dropdown repopulated via AJAX; selected tag = 'deep-thoughts' (CP2)
+step 4 action: submitted search; 1 result quote(s) displayed (CP3)
+
+FINAL_RESPONSE:
+  1. “The world as we have created it is a process of our thinking. It cannot be changed without changing our thinking.”  — Albert Einstein  tags=['deep-thoughts']

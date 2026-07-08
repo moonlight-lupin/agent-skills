@@ -1,0 +1,30 @@
+{
+  "snapshot_date": "2026-06",
+  "note": "Curated snapshot of provider config + a few representative models per provider. Intentionally carries NO live model COUNTS — those drift constantly and rot the docs. For the current, full inventory run `python3 scripts/compare.py --list-models <provider>` (needs that provider's API key); this file and `--list-models` are the source of truth for model inventories, while SKILL.md stays conceptual. The provider set here is kept in sync with `PROVIDERS` in scripts/compare.py by tests/test_providers_snapshot.py.",
+  "routing_order": ["ollama-cloud", "nvidia", "openrouter"],
+  "providers": {
+    "ollama-cloud": {
+      "env": "OLLAMA_API_KEY",
+      "cost": "free",
+      "endpoint": "https://ollama.com/v1/chat/completions",
+      "families": ["GLM", "Qwen", "Kimi", "Gemini", "Gemma"],
+      "example_models": ["glm-5.2", "kimi-k2.5", "qwen3-coder:480b", "gemini-3-flash-preview", "gemma3:27b", "deepseek-v3.2"]
+    },
+    "nvidia": {
+      "env": "NVIDIA_API_KEY",
+      "cost": "free",
+      "endpoint": "https://integrate.api.nvidia.com/v1/chat/completions",
+      "families": ["Yi", "Llama", "Nemotron"],
+      "example_models": ["meta/llama-3.1-70b-instruct", "meta/llama-3.3-70b-instruct", "01-ai/yi-large"],
+      "verify_alive": "NVIDIA's /v1/models lists many entries but most return 404/410 when called — verify a model with a simple completion first. See references/provider-tool-support.md."
+    },
+    "openrouter": {
+      "env": "OPENROUTER_API_KEY",
+      "cost": "paid",
+      "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+      "families": ["Claude", "GPT", "Gemini", "DeepSeek", "Llama", "Qwen", "Mistral"],
+      "example_models": ["anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.8", "openai/gpt-4o", "google/gemini-2.5-pro", "deepseek/deepseek-r1"],
+      "confirm_before_use": "Paid, per-token. Confirm with the user before any OpenRouter call."
+    }
+  }
+}

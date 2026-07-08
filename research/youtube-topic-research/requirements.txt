@@ -1,0 +1,4 @@
+ddgs>=6.0                     # DuckDuckGo search backend (primary)
+youtube-transcript-api<1.0    # transcript fetching — script uses the pre-1.0 get_transcript/list_transcripts API
+jinja2>=3.0                   # output templating
+pyyaml>=6.0                   # config / fast-moving-domains references

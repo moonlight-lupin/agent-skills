@@ -1,0 +1,10 @@
+# Source Record Template
+url: ""
+title: ""
+topic: ""
+source_type: "web"    # web|pdf|api|dataset|book|news|report
+accessed_at: ""       # ISO date
+notes: ""
+verified: true
+last_checked: ""
+session_id: ""

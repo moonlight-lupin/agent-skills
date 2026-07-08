@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-skills"
+version = "1.0.0"
+description = "A collection of AI agent skills built for Hermes Agent, organised by domain."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "moonlight-lupin" }]
+keywords = ["ai", "agent", "skills", "hermes", "llm"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+]
+
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"

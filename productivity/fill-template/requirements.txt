@@ -1,0 +1,2 @@
+python-docx>=1.1.0   # .docx template reading/writing (imported as `docx`)
+openpyxl>=3.1.0      # .xlsx template reading/writing

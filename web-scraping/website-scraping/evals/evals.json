@@ -1,0 +1,20 @@
+{
+  "skill_name": "website-scraping",
+  "notes": "Two test cases chosen for: ethical scraping (sites purpose-built for scraping practice), strategy coverage (T1 static HTML, T2 JS-rendered), reproducibility (sites are stable), speed (<1 min each).",
+  "evals": [
+    {
+      "id": 0,
+      "name": "books-static",
+      "prompt": "Extract every book on the first page of https://books.toscrape.com/ (~20 books). For each book, capture: title, price (in £, as float), availability text (the in-stock string), and star rating (1-5, as integer). Save the records as JSONL with one record per line, plus a manifest.json sidecar capturing run metadata. Use the lightest extraction approach that works.",
+      "expected_strategy": "Strategy 1 — static HTML parse via urllib + BeautifulSoup / html.parser. No JS needed.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "quotes-js",
+      "prompt": "Extract every quote on https://quotes.toscrape.com/js/ — this is the JavaScript-rendered version of the quotes site, so the quote data is NOT in the static HTML (it's rendered client-side from a JavaScript variable). For each quote on the page, capture: the quote text, the author name, and the list of tags. Save the records as JSONL with one record per line, plus a manifest.json sidecar capturing run metadata. There are ~10 quotes on page 1; pagination is optional but bonus if handled.",
+      "expected_strategy": "Strategy 3 (regex out the in-page JS var) OR Strategy 5 (Playwright). The JS variable approach is lighter; Playwright also works.",
+      "files": []
+    }
+  ]
+}

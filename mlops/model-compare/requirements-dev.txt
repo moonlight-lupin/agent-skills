@@ -1,0 +1,5 @@
+# Development / CI dependencies only.
+# The skill itself (scripts/compare.py, scripts/provider_health.py) is pure
+# stdlib and needs nothing installed to run. pytest is required only to run
+# the test suite in tests/.
+pytest>=7.0

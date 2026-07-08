@@ -1,0 +1,40 @@
+# Credentials — never commit real config
+.env
+*.env
+**/creds.txt
+**/odin_credentials.txt
+access/
+**/access/
+
+# Agent-specific configs & local memory
+.claude/
+**/.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Generated artifacts
+_falgen-costs.jsonl
+_falvid-costs.jsonl
+_workings/
+rag_index.db
+**/rag_index.db
+sources.db
+**/sources.db
+*.tar

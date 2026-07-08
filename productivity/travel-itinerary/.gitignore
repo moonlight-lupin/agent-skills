@@ -1,0 +1,8 @@
+# Python build artifacts
+__pycache__/
+*.py[cod]
+
+# Generated itinerary deliverables / scratch (don't commit trip data)
+*.ics
+out/
+scratch/

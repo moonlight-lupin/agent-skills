@@ -1,0 +1,144 @@
+# Canonical itinerary schema.
+# Use this structure internally when reasoning. Final output may be Markdown,
+# but the YAML is the source of truth.
+#
+# Conventions:
+#   * Dates: YYYY-MM-DD
+#   * Date-times: ISO 8601 with explicit timezone offset, e.g. 2026-06-12T08:10:00+09:00
+#   * Wall-clock times in Markdown rendering: 24-hour HH:MM
+#   * status: confirmed | tentative | cancelled | unknown
+#   * Coordinates: WGS-84 decimal degrees. Only fill lat/lon when resolved via a
+#     real geocoding tool (Nominatim/OSM, maps MCP, etc.). Never guess.
+#   * Costs: store as { amount, currency } in ISO 4217. Leave null if unknown.
+#   * Node objects may include type-specific fields from references/node-types.md.
+#     Do not drop those fields when updating, rendering, or merging YAML.
+
+trip:
+  id: optional-stable-slug
+  title: ""
+  purpose: ""
+  destination:
+    rough: ""
+    cities: []
+    country: ""
+  date_range:
+    start: YYYY-MM-DD
+    end: YYYY-MM-DD
+  timezone_default: ""        # IANA name, e.g. Asia/Tokyo. Used when a day has no local_timezone.
+  travel_party:
+    - name: ""
+      role: ""
+      email: ""
+      notes: ""
+  privacy:
+    sensitive_fields:
+      - payment_details
+      - personal_emails
+      - passport_numbers
+      - loyalty_numbers
+      - booking_pin
+    share_policy: hide sensitive fields in team-share export
+  source_items:
+    - source_id: ""
+      type: email|pdf|screenshot|manual_note
+      received_at: ""
+      subject: ""
+      sender: ""
+      ocr_quality: high|medium|low|unreadable   # for screenshots/scanned PDFs
+      ocr_uncertain_fields: []                  # field names the agent could not read confidently
+  cost_summary:                # optional rollup; computed, not authoritative
+    currency: ""               # primary trip currency for the rollup
+    estimated_total: null
+    by_category:
+      travel: null
+      stay: null
+      meals: null
+      events: null
+      other: null
+  days:
+    - date: YYYY-MM-DD
+      local_timezone: ""       # IANA name. Overrides trip.timezone_default for this day.
+      title: ""
+      overnight_stay:
+        node_id: ""
+        hotel_name: ""
+        address: ""
+        check_in: ""           # 24-hour HH:MM local
+        check_out: ""          # 24-hour HH:MM local
+        confirmation_ref: ""
+        shareable: true
+      day_notes: []
+      nodes:
+        - id: ""
+          type: travel|stay|meeting|poi|restaurant|transfer|event|admin|free_time|note
+          subtype: ""
+          title: ""
+          status: confirmed|tentative|cancelled|unknown
+          visibility: internal|team_share|private|admin_only   # export visibility; default internal
+          starts_at: ""        # ISO 8601 with offset
+          ends_at: ""          # ISO 8601 with offset
+          timezone: ""         # IANA name for the node's display timezone (overrides day default)
+          timezone_start: ""   # IANA name for departure/start, mainly for cross-timezone travel and .ics
+          timezone_end: ""     # IANA name for arrival/end, mainly for cross-timezone travel and .ics
+          location:
+            name: ""
+            address: ""
+            lat: null          # WGS-84 decimal degrees, only if geocoded
+            lon: null
+            osm_id: ""         # optional Nominatim ID for traceability
+          location_start:
+            name: ""
+            address: ""
+            code: ""           # IATA/station code if applicable
+            terminal: ""
+            lat: null
+            lon: null
+          location_end:
+            name: ""
+            address: ""
+            code: ""
+            terminal: ""
+            lat: null
+            lon: null
+          participants: []                      # travel/restaurant/event/transfer/free_time. NOT used for meeting nodes.
+          attending_from_travel_party: []       # meeting nodes only — required if known
+          meeting_with: []                      # meeting nodes only — external attendees / organisation
+          agenda: ""                            # meeting nodes only — optional
+          provider: ""
+          confirmation_ref: ""
+          # Type-specific extensions live on the node itself. Examples:
+          #   travel/flight: flight_number, airline, booking_ref, ticket_number,
+          #                  departure_airport, arrival_airport, baggage_allowance
+          #   travel/train:  train_number, operator, coach, seat, fare_class
+          #   stay:          property_name, check_in, check_out, nights,
+          #                  cancellation_deadline, guests
+          #   meeting:       host_contact, materials, dial_in
+          #   restaurant:    reservation_ref, party_size, under_name, dress_code
+          #   admin:         due_at, owner
+          cost:
+            amount: null
+            currency: ""        # ISO 4217, e.g. JPY, USD
+            payer: ""           # who/what entity paid
+            billable_to: ""     # client/cost-centre for expense routing
+            payment_method_redacted: ""   # e.g. "Visa **** 1234" — never full PAN
+          route:
+            mode: ""            # walking|transit|driving|taxi|ride_hail|private_car|shuttle|unknown
+            estimated_duration: ""
+            distance: ""
+            maps_url: ""        # prefer lat,lon endpoints when available
+            directions_summary: ""
+            checked_at: ""      # ISO 8601 when route was tool-resolved
+          notes: ""
+          private_notes: ""
+          source_refs: []
+      links:
+        - from_node_id: ""
+          to_node_id: ""
+          relationship: sequence|transfer|dependency|optional
+          route:
+            mode: walking|transit|driving|taxi|ride_hail|unknown
+            estimated_duration: ""
+            distance: ""
+            maps_url: ""
+            directions_summary: ""
+            checked_at: ""

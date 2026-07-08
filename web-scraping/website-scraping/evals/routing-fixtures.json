@@ -1,0 +1,50 @@
+{
+  "skill_name": "website-scraping",
+  "purpose": "Lightweight routing + output-contract fixtures for website-scraping. Specs, not executed live in CI; validated by tests/test_routing_fixtures.py. Complements evals/evals.json (which holds runnable end-to-end scraping tasks) by capturing routing boundaries and the required output contract. ",
+  "fixtures": [
+    {
+      "id": "ws-01-structured-extract",
+      "request": "Pull every product on the first page of example-shop.com — name, price, and product URL — into a file I can load later.",
+      "expected_routing": {
+        "skill": "website-scraping",
+        "reason": "Turning one or more URLs into clean structured records is the core website-scraping job.",
+        "not": ["people-enrichment", "entity-research"]
+      },
+      "required_output_fields": ["JSONL records (one per line)", "per-record fields", "run manifest"],
+      "forbidden_patterns": ["(?i)as an ai language model", "(?i)i cannot (access|browse)"]
+    },
+    {
+      "id": "ws-02-js-rendered",
+      "request": "Get all the quotes, authors, and tags from a JavaScript-rendered listing page and save them as records.",
+      "expected_routing": {
+        "skill": "website-scraping",
+        "reason": "Client-rendered extraction (escalate to in-page JSON or Playwright) is still website-scraping.",
+        "not": []
+      },
+      "required_output_fields": ["JSONL records (one per line)", "run manifest", "extraction strategy noted"],
+      "forbidden_patterns": ["(?i)as an ai language model"]
+    },
+    {
+      "id": "ws-03-boundary-entity",
+      "request": "Research the background and any adverse media on Acme Corp before we sign a contract.",
+      "expected_routing": {
+        "skill": "entity-research",
+        "reason": "Background/vetting of a named company is entity-research, not generic site scraping.",
+        "not": ["website-scraping"]
+      },
+      "required_output_fields": ["entity identity", "adverse media", "sources"],
+      "forbidden_patterns": ["(?i)\\bcleared\\b", "(?i)compliance determination"]
+    },
+    {
+      "id": "ws-04-boundary-enrichment",
+      "request": "I have a CSV of 200 people — add each person's current employer and LinkedIn URL.",
+      "expected_routing": {
+        "skill": "people-enrichment",
+        "reason": "Bulk person/company enrichment via a licensed data provider is people-enrichment, not DIY scraping (and LinkedIn scraping is out of scope).",
+        "not": ["website-scraping"]
+      },
+      "required_output_fields": ["per-person enriched fields", "styled .xlsx output"],
+      "forbidden_patterns": ["(?i)scrape linkedin", "(?i)as an ai language model"]
+    }
+  ]
+}

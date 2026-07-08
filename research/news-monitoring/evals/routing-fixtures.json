@@ -1,0 +1,50 @@
+{
+  "skill_name": "news-monitoring",
+  "purpose": "Lightweight routing + output-contract fixtures for news-monitoring. Specs, not executed live in CI; validated by tests/test_routing_fixtures.py. They capture when recurring/monitoring requests belong here vs. one-off research, and what a digest must contain.",
+  "fixtures": [
+    {
+      "id": "nm-01-recurring-digest",
+      "request": "Set up a digest of AI-policy news and send it to me every Monday morning.",
+      "expected_routing": {
+        "skill": "news-monitoring",
+        "reason": "Recurring, scheduled monitoring with delivery — the core of news-monitoring (cron + digest).",
+        "not": ["deep-research"]
+      },
+      "required_output_fields": ["dated items", "direct source links", "per-item summary", "dedup against previous digests"],
+      "forbidden_patterns": ["(?i)as an ai language model", "(?i)google news proxy url", "(?i)bing apiclick"]
+    },
+    {
+      "id": "nm-02-multilang-monitor",
+      "request": "Track Hong Kong student-housing news in both English and Chinese and give me the top items each fortnight.",
+      "expected_routing": {
+        "skill": "news-monitoring",
+        "reason": "Ongoing multi-language topic monitoring with periodic delivery.",
+        "not": ["deep-research", "website-scraping"]
+      },
+      "required_output_fields": ["dated items", "direct source links", "language coverage note"],
+      "forbidden_patterns": ["(?i)as an ai language model"]
+    },
+    {
+      "id": "nm-03-boundary-oneoff-report",
+      "request": "Give me a one-off, in-depth report on how AI regulation has evolved globally, with citations.",
+      "expected_routing": {
+        "skill": "deep-research",
+        "reason": "A single comprehensive cited report (not recurring) is deep-research, not monitoring.",
+        "not": ["news-monitoring"]
+      },
+      "required_output_fields": ["inline citations", "sources/references list", "research stats"],
+      "forbidden_patterns": ["(?i)as an ai language model"]
+    },
+    {
+      "id": "nm-04-boundary-youtube",
+      "request": "Find me good recent YouTube videos explaining the EU AI Act.",
+      "expected_routing": {
+        "skill": "youtube-topic-research",
+        "reason": "Finding/summarizing videos for a topic is youtube-topic-research, not text news monitoring.",
+        "not": ["news-monitoring"]
+      },
+      "required_output_fields": ["video title", "channel", "url", "summary"],
+      "forbidden_patterns": ["(?i)as an ai language model"]
+    }
+  ]
+}

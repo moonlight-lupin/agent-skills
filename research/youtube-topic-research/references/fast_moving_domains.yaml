@@ -1,0 +1,163 @@
+# Fast-Moving Domain Freshness Thresholds
+# Used to flag videos as Fresh (🟢), Aging (🟡), or Stale (🔴)
+# Matching: if query contains any keyword (case-insensitive), domain applies
+# Most specific match wins (longest keyword list)
+
+domains:
+  - name: ai_ml
+    display_name: "AI / ML / LLM"
+    keywords:
+      - "ai"
+      - "artificial intelligence"
+      - "machine learning"
+      - "ml"
+      - "llm"
+      - "large language model"
+      - "transformer"
+      - "gpt"
+      - "claude"
+      - "gemini"
+      - "llama"
+      - "fine-tuning"
+      - "finetuning"
+      - "rag"
+      - "retrieval augmented"
+      - "agents"
+      - "agentic"
+      - "embeddings"
+      - "vector database"
+      - "langchain"
+      - "llamaindex"
+      - "huggingface"
+      - "openai"
+      - "anthropic"
+    stale_months: 12
+    aging_months: 6
+
+  - name: crypto_defi
+    display_name: "Crypto / DeFi / Web3"
+    keywords:
+      - "crypto"
+      - "cryptocurrency"
+      - "bitcoin"
+      - "btc"
+      - "ethereum"
+      - "eth"
+      - "defi"
+      - "decentralized finance"
+      - "web3"
+      - "blockchain"
+      - "solana"
+      - "sol"
+      - "nft"
+      - "dao"
+      - "smart contract"
+      - "yield farming"
+      - "staking"
+      - "layer 2"
+      - "l2"
+      - "zero knowledge"
+      - "zk"
+    stale_months: 6
+    aging_months: 3
+
+  - name: web_frameworks
+    display_name: "Web Frameworks (React, Next.js, etc.)"
+    keywords:
+      - "react"
+      - "nextjs"
+      - "next.js"
+      - "vue"
+      - "nuxt"
+      - "svelte"
+      - "sveltekit"
+      - "angular"
+      - "remix"
+      - "astro"
+      - "tailwind"
+      - "vite"
+      - "webpack"
+      - "turbopack"
+      - "server components"
+      - "rsc"
+      - "hydration"
+      - "ssr"
+      - "csr"
+      - "ssg"
+    stale_months: 18
+    aging_months: 12
+
+  - name: cloud_devops
+    display_name: "Cloud / DevOps / Infrastructure"
+    keywords:
+      - "kubernetes"
+      - "k8s"
+      - "docker"
+      - "terraform"
+      - "aws"
+      - "amazon web services"
+      - "gcp"
+      - "google cloud"
+      - "azure"
+      - "ci/cd"
+      - "github actions"
+      - "gitlab ci"
+      - "argocd"
+      - "flux"
+      - "helm"
+      - "prometheus"
+      - "grafana"
+      - "observability"
+      - "service mesh"
+      - "istio"
+      - "linkerd"
+      - "serverless"
+      - "lambda"
+      - "cloudflare workers"
+    stale_months: 18
+    aging_months: 12
+
+  - name: programming_languages
+    display_name: "Programming Languages (Rust, Go, etc.)"
+    keywords:
+      - "rust"
+      - "golang"
+      - "go lang"
+      - "typescript"
+      - "python"
+      - "java"
+      - "kotlin"
+      - "swift"
+      - "zig"
+      - "carbon"
+      - "val lang"
+    stale_months: 36
+    aging_months: 24
+
+  - name: databases
+    display_name: "Databases"
+    keywords:
+      - "postgresql"
+      - "postgres"
+      - "mysql"
+      - "mongodb"
+      - "redis"
+      - "elasticsearch"
+      - "clickhouse"
+      - "timescaledb"
+      - "cockroachdb"
+      - "planetscale"
+      - "supabase"
+      - "vector database"
+      - "pinecone"
+      - "weaviate"
+      - "qdrant"
+      - "milvus"
+    stale_months: 24
+    aging_months: 18
+
+# Default for unmatched topics
+defaults:
+  stale_months: 36
+  aging_months: 24
+  display_name: "General"
