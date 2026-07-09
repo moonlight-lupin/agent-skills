@@ -38,7 +38,8 @@ agent_skills/
 │   ├── travel-itinerary/             ← business-trip itineraries: parse → structure → export
 │   ├── decision-log/                 ← ADR-style decision journal + superseding chains + cron reviews
 │   ├── document-converter/           ← wide-range format converter (Markdown↔HTML, CSV↔JSON, YAML↔TOML, PDF)
-│   └── scheduled-summary/            ← cron-driven cross-session digest for messaging platforms
+│   ├── scheduled-summary/            ← cron-driven cross-session digest for messaging platforms
+│   └── task-brief/                   ← goal/context/constraints brief compiled + confirmed before substantial tasks
 └── agent-ops/                        ← agent infrastructure and maintenance skills
     ├── claude-plugin-converter/      ← convert Claude Code plugins → self-contained Hermes plugins
     ├── skill-maintainer/             ← end-to-end skill library maintenance + upstream sync
@@ -71,6 +72,7 @@ New skills are added as folders under the relevant domain directory.
 | [decision-log](productivity/decision-log/) | productivity | ADR-style decision journal with superseding chains + cron review reminders | — |
 | [document-converter](productivity/document-converter/) | productivity | Wide-range format converter: Markdown↔HTML, CSV↔JSON, YAML↔TOML, PDF, Excel | fill-template |
 | [scheduled-summary](productivity/scheduled-summary/) | productivity | Cron-driven cross-session digest — surfaces activity invisible on chat platforms | decision-log, news-monitoring |
+| [task-brief](productivity/task-brief/) | productivity | Goal/context/constraints/tooling brief compiled and confirmed before substantial work starts | — |
 | [claude-plugin-converter](agent-ops/claude-plugin-converter/) | agent-ops | Two-phase converter: analyze Claude Code plugins → generate installable Hermes plugins | skill-maintainer |
 | [skill-maintainer](agent-ops/skill-maintainer/) | agent-ops | Skill library maintenance: author, curate, upstream drift tracking, publish | — |
 | [log-analyzer](agent-ops/log-analyzer/) | agent-ops | Log pattern detection: error clusters, rate limits, timeout clusters, tool failures | scheduled-summary |
@@ -101,6 +103,7 @@ New skills are added as folders under the relevant domain directory.
 | decision-log | Stable | ✓ | None (stdlib) |
 | document-converter | Stable | ✓ | pandoc (PDF), openpyxl (Excel), PyYAML (optional) |
 | scheduled-summary | Stable | ✓ | None (stdlib) |
+| task-brief | Beta | — | None (prompt-only) |
 | claude-plugin-converter | Beta | ✓ | None (stdlib) |
 | skill-maintainer | Beta | ✓ | None (stdlib; curl for GitHub API). Unix-first — cron, curl, `which`, shell loops. Windows via WSL/MSYS2 untested. |
 | log-analyzer | Stable | ✓ | None (stdlib) |
