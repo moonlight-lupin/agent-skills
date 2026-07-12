@@ -39,6 +39,7 @@ agent_skills/
 │   ├── decision-log/                 ← ADR-style decision journal + superseding chains + cron reviews
 │   ├── document-converter/           ← wide-range format converter (Markdown↔HTML, CSV↔JSON, YAML↔TOML, PDF)
 │   ├── scheduled-summary/            ← cron-driven cross-session digest for messaging platforms
+│   ├── file-organizer/               ← LLM-powered directory organizer: scan → propose → confirm → move
 │   └── task-brief/                   ← goal/context/constraints brief compiled + confirmed before substantial tasks
 └── agent-ops/                        ← agent infrastructure and maintenance skills
     ├── claude-plugin-converter/      ← convert Claude Code plugins → self-contained Hermes plugins
@@ -72,6 +73,7 @@ New skills are added as folders under the relevant domain directory.
 | [decision-log](productivity/decision-log/) | productivity | ADR-style decision journal with superseding chains + cron review reminders | — |
 | [document-converter](productivity/document-converter/) | productivity | Wide-range format converter: Markdown↔HTML, CSV↔JSON, YAML↔TOML, PDF, Excel | fill-template |
 | [scheduled-summary](productivity/scheduled-summary/) | productivity | Cron-driven cross-session digest — surfaces activity invisible on chat platforms | decision-log, news-monitoring |
+| [file-organizer](productivity/file-organizer/) | productivity | LLM-powered directory organizer: scan → propose structure → confirm → chunked moves | — |
 | [task-brief](productivity/task-brief/) | productivity | Goal/context/constraints/tooling brief compiled and confirmed before substantial work starts | — |
 | [claude-plugin-converter](agent-ops/claude-plugin-converter/) | agent-ops | Two-phase converter: analyze Claude Code plugins → generate installable Hermes plugins | skill-maintainer |
 | [skill-maintainer](agent-ops/skill-maintainer/) | agent-ops | Skill library maintenance: author, curate, upstream drift tracking, publish | — |
@@ -103,6 +105,7 @@ New skills are added as folders under the relevant domain directory.
 | decision-log | Stable | ✓ | None (stdlib) |
 | document-converter | Stable | ✓ | pandoc (PDF), openpyxl (Excel), PyYAML (optional) |
 | scheduled-summary | Stable | ✓ | None (stdlib) |
+| file-organizer | Stable | ✓ | None (stdlib); optional external LLM via urllib (deepseek/openrouter/ollama) |
 | task-brief | Beta | — | None (prompt-only) |
 | claude-plugin-converter | Beta | ✓ | None (stdlib) |
 | skill-maintainer | Beta | ✓ | None (stdlib; curl for GitHub API). Unix-first — cron, curl, `which`, shell loops. Windows via WSL/MSYS2 untested. |
