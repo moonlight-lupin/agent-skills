@@ -1,10 +1,6 @@
 ---
 name: skill-maintainer
-description: >
-  End-to-end skill library maintenance: author new skills, curate external
-  collections, track upstream drift with a manifest, run monthly sync audits,
-  scan engine dependencies, and publish to a repo. Includes manifest template
-  and cron script for automated drift detection.
+description: "Track upstream drift and sync adapted skill libraries"
 version: 1.0.1
 author: moonlight-lupin
 license: MIT
