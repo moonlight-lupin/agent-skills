@@ -10,14 +10,14 @@ description: >
   into X in depth", "write a report on X", or any question needing multi-source
   synthesis beyond a single search. For entity vetting/dossiers use entity-research;
   for news digests use news-monitoring; for source-grounded Q&A use notebooklm-mode.
-version: 1.0.0
+version: 1.3.0
 author: moonlight-lupin
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
     tags: [research, deep-research, report, synthesis, iterative, citations]
-    related_skills: [news-monitoring, entity-research, notebooklm-mode, youtube-topic-research, fact-checker, source-tracker]
+    related_skills: [news-monitoring, entity-research, notebooklm-mode, youtube-topic-research]
 ---
 
 # Deep Research — Iterative Research Engine
@@ -25,10 +25,27 @@ metadata:
 An autonomous, multi-step research engine that performs exhaustive information
 gathering and synthesis. Unlike a single `web_search`, this skill implements an
 iterative loop where the agent plans, searches, extracts, synthesizes, and
-decides when to stop — producing a cited report.
+decides when to stop — producing a cited report with structured evidence,
+source quality tiers, and explicit gaps/contradictions sections.
 
-Inspired by PewDiePie's Odysseus project and Alibaba/Tongyi's IterResearch
-approach, adapted for Hermes's tool architecture.
+Inspired by PewDiePie's Odysseus project, Alibaba/Tongyi's IterResearch
+approach, and the sn-deep-research evidence-structuring architecture
+(OpenSenseNova/SenseNova-Skills, MIT). The full 9-role sn pipeline was
+evaluated and intentionally NOT adopted — only the evidence.json layer and
+refute-polarity requirement were ported, based on empirical side-by-side
+testing (July 2026). See `references/structured-evidence-format.md`.
+
+**v1.2.0 changes (July 2026):** overview-first report structure (comparison
+table right after executive summary), language anchoring (BCP 47), structured
+evidence step (3e), refute polarity requirement, source quality classification,
+explicit contradictions + gaps sections. Architecture diagram corrected.
+
+**v1.3.0 changes (July 2026):** source quality ranking and weighting —
+primary (3×) > secondary (2×) > tertiary (1×). Conflict resolution by quality
+tier. Quality distribution check (healthy/acceptable/weak) before writing.
+Tertiary source overreliance pitfall. Source table now shows quality
+distribution summary. Prompted by user noting too many tertiary sources in
+the self-hosting vs API report.
 
 ## When to use
 
@@ -42,7 +59,6 @@ approach, adapted for Hermes's tool architecture.
 - **Entity vetting/dossiers** → use `entity-research` (has sanctions screening, structured lenses)
 - **Recurring news digests** → use `news-monitoring` (has cron, dedup, multi-language)
 - **Source-grounded Q&A from collected sources** → use `notebooklm-mode` (has vault + RAG)
-- **Verifying a single, specific claim** ("is it true that X?") → use `fact-checker` (confidence rubric, source-independence checks; never renders "false"). The fact-check *report category* below is for claims that surface during a broader research topic.
 - **Quick factual question** → just use `web_search` directly
 - **Single-source extraction** → use `web_search` + `web_extract`
 
@@ -50,17 +66,20 @@ approach, adapted for Hermes's tool architecture.
 
 ```
 User question
-  → Step 1: Plan (sub-questions, key topics, success criteria)
-  → Step 2: Date grounding
+  → Step 1: Plan (sub-questions, key topics, success criteria, category, language)
+  → Step 2: Date grounding + language anchor
   → Step 3: Iterative loop (max 5 rounds)
-      ├─ 3a: Generate gap-driven search queries
+      ├─ 3a: Generate gap-driven queries (incl. refute queries from round 2+)
       ├─ 3b: Search (web_search) + fetch (web_extract)
-      ├─ 3c: Quality filter + goal-based extraction
+      ├─ 3c: Quality filter + extraction + source quality classification
       ├─ 3d: Synthesize into cumulative research state
-      └─ 3e: Stopping check (LLM evaluates coverage)
-  → Step 4: Final report (category-specific format)
+      ├─ 3e: Structured evidence (optional: evidence.json for 5+ sources)
+      └─ 3f: Stopping check (LLM evaluates coverage)
+  → Step 4: Final report (overview-first structure, see template)
   → Step 5: Stats summary
 ```
+
+**Report output order (overview-first):** Executive Summary → comparison/overview table → detailed analysis per sub-question → contradictions → gaps → conclusion → source table. Readers get the answer and the at-a-glance comparison before the detailed reasoning.
 
 ## Step 1 — Research Plan
 
@@ -70,6 +89,7 @@ Before searching, break the question into a research plan. Output:
 ## Research Plan
 Question: [user's question]
 Date: [current date]
+Language: [BCP 47 tag — e.g. en, zh-Hans, ja. Detect from query; user's explicit language preference overrides. Use consistently throughout the report.]
 
 Sub-questions:
 1. [specific sub-question 1]
@@ -87,6 +107,8 @@ Success criteria:
 
 Report category: [factual | comparison | product | how-to | fact-check | explainer]
 ```
+
+**Language anchoring:** Detect the output language from the query and normalize to a BCP 47 tag (e.g. `en`, `zh-Hans`, `zh-Hant`, `ja`). Use it consistently throughout — executive summary, analysis, contradictions, gaps, conclusion. Source titles, URLs, proper nouns, and code may stay in their original language; search queries may use any language that helps evidence gathering. If the user explicitly switches language mid-research, update the anchor and use the new language for all subsequent output.
 
 **Report category detection:**
 - "vs", "compare", "better than" → **comparison**
@@ -122,6 +144,8 @@ Before generating queries, review:
 
 Generate queries that target the **gaps**, not repeat what's already found.
 
+**Refute polarity requirement:** Round 2+ must include at least one query targeting counter-evidence, opposing viewpoints, or criticisms of the leading hypothesis. If no counter-evidence is found after searching, note it explicitly in the synthesis — refute count = 0 usually means you didn't search well, not that no counter-evidence exists. This prevents confirmation-biased research.
+
 ### 3b — Search and Fetch
 
 ```
@@ -150,6 +174,7 @@ For each quality source, extract **goal-relevant facts**:
 - Ignore noise, navigation, ads, boilerplate
 - Prefer specific data, statistics, named sources, dates over vague claims
 - Record the source URL and title with each extracted fact
+- **Classify source quality** for each source: `primary` (official docs, model cards, SEC filings, original papers), `secondary` (tech journalism, analyst reports, reviews), `tertiary` (Wikipedia, aggregators, forum posts). This tier appears in the final source table and signals evidence strength to the reader.
 
 ### 3d — Synthesis
 
@@ -177,9 +202,34 @@ Synthesis rules:
 - **Inline citations** — every factual claim references its source: `(Source: URL, "Title")`
 - **Update gap list** — what sub-questions are still unanswered or thin?
 
-### 3e — Stopping Check
+### 3e — Structured Evidence (recommended for reports with 5+ sources)
 
-After synthesis, evaluate whether the report is comprehensive enough:
+Before writing the final report, structure the extracted evidence into a lightweight `evidence.json` intermediate. This separates evidence gathering from report writing and makes fabrication detectable. See `references/structured-evidence-format.md` for the schema, source quality ranking/weighting rules, and worked example.
+
+**When to use:** reports with 5+ sources, comparison/fact-check categories, or when the user may want to verify claims. Skip for quick 2-3 source reports.
+
+**Benefits validated in side-by-side testing** (July 2026):
+- Forced claim precision (every assertion gets a kind + polarity + snippet)
+- Refute polarity requirement surfaced counter-evidence the iterative loop missed
+- Source quality tiers revealed evidence-strength gaps (too many tertiary sources)
+- Explicit gaps + contradictions sections in the final report
+- Full traceability: claim ID → snippet → source URL
+
+**Source quality ranking and weighting** (see `references/structured-evidence-format.md` for full rules):
+- **primary** (3× weight): official docs, model cards, SEC filings, API pricing pages, original papers
+- **secondary** (2× weight): tech journalism, analyst reports, benchmark aggregators
+- **tertiary** (1× weight): Reddit, forums, Wikipedia, blog aggregators — useful for refute polarity and real-world anecdotes, but **never the sole support for a factual claim if a primary/secondary source exists**
+
+**Quality distribution check before writing the report:**
+- **Healthy**: ≥30% primary, ≤30% tertiary → proceed
+- **Acceptable**: ≥1 primary for key claims, <50% tertiary → note thin primary coverage as a gap
+- **Weak**: 0 primary, >50% tertiary → **flag in Gaps section** and attempt to fetch primary sources (official docs, model cards, pricing pages) before finalizing. If primary sources are unavailable, qualify tertiary-sourced claims explicitly ("community reports suggest..." not "X is true")
+
+**Conflict resolution by quality:** When sources disagree, primary > secondary > tertiary. 2 independent secondary sources ≈ 1 primary. Tertiary cannot override secondary/primary — it becomes refute counter-evidence or writing_context instead.
+
+### 3f — Stopping Check
+
+After synthesis (and optional evidence structuring), evaluate whether the report is comprehensive enough:
 
 > Given the research plan's success criteria:
 > - Are all key sub-questions addressed with at least one source?
@@ -203,6 +253,8 @@ After synthesis, evaluate whether the report is comprehensive enough:
 
 Produce the final report. Minimum 800 words (scale with topic complexity).
 
+**Output order is overview-first**: the reader gets the answer and the at-a-glance comparison *before* the detailed reasoning. Do not bury the comparison table after the per-topic analysis.
+
 ### Structure
 
 ```markdown
@@ -211,34 +263,46 @@ Produce the final report. Minimum 800 words (scale with topic complexity).
 > **Research date:** [date] · **Rounds:** [N] · **Sources:** [N] · **Category:** [type]
 
 ## Executive Summary
-[2-3 paragraph overview of key findings]
+[2-3 paragraph overview of key findings — the answer up front. If using structured evidence, note claim count and refute count here so the reader knows the evidence base.]
+
+## [Comparison Table | Overview | Key Findings at a Glance]
+[For comparison reports: a markdown table comparing options/entities across criteria. For factual/explainer reports: a numbered list of key findings with claim references. This section gives the reader the complete picture in one screen — the detailed analysis below is the supporting reasoning, not the main event. If using structured evidence, cite claim IDs like [c1], [c3] in table cells or list items.]
 
 ## [## Section per sub-question]
-[Detailed analysis with inline citations]
+[Detailed analysis with inline citations — this is the supporting reasoning for the overview above. Each section traces back to the overview claims.]
 
 ### [### Subsections as needed]
 [...]
 
+## Contradictions
+[If sources disagree, present both sides with attribution. Do not silently arbitrate. If no contradictions found, state "No direct contradictions between sources." This section is REQUIRED — its absence is a quality signal that counter-evidence wasn't searched.]
+
+## Gaps
+[What couldn't be determined from available sources. Each gap should note: what's unknown, why it matters, and whether it could be resolved with more research. If using structured evidence, reference the writing_context items. If no gaps, state "No significant gaps identified."]
+
 ## Conclusion
-[Synthesis of findings, implications, remaining uncertainties]
+[Synthesis of findings, implications, remaining uncertainties — ties back to the executive summary and overview. The conclusion confirms or qualifies the overview, it doesn't introduce new analysis.]
 
 ---
 ## Sources
-| # | Title | URL | Accessed |
-|---|-------|-----|----------|
-| 1 | [title] | [url] | [date] |
+
+**Quality distribution:** [N] primary · [N] secondary · [N] tertiary — [healthy/acceptable/weak]
+
+| # | Title | URL | Quality | Accessed |
+|---|-------|-----|---------|----------|
+| 1 | [title] | [url] | primary/secondary/tertiary | [date] |
 ```
 
-### Category-specific formats
+### Category-specific overview sections
 
-| Category | Format |
+| Category | Overview section format |
 |---|---|
-| **comparison** | Markdown table comparing options across criteria, pros/cons per option, verdict |
-| **product** | Ranked list with pros/cons, "where to buy" or availability, price range if found |
-| **how-to** | Numbered steps with prerequisites, common mistakes section, troubleshooting |
-| **fact-check** | Evidence for/against the claim, source credibility assessment, final verdict (True/False/Mixed/Unverified) |
-| **explainer** | Progressive depth — start simple, go deeper. Glossary of terms if technical. |
-| **factual** | Standard report structure above |
+| **comparison** | Markdown table comparing options across criteria, with a verdict row or column. The detailed sections below provide the reasoning per option. |
+| **product** | Ranked list with pros/cons, price range, and a "top pick" callout. Detailed sections cover each product. |
+| **how-to** | Numbered overview of the steps. Detailed sections cover prerequisites, execution, and troubleshooting per step. |
+| **fact-check** | Evidence for/against the claim in a two-column table, with a preliminary verdict. Detailed sections assess source credibility and reasoning. |
+| **explainer** | Numbered key findings or a "progressive depth" overview (simple → deep). Detailed sections go deeper per concept. Glossary if technical. |
+| **factual** | Numbered key findings with claim references. Detailed sections provide the supporting evidence per finding. |
 
 ### Fallback report
 
@@ -256,6 +320,32 @@ After the report, output a compact stats block:
 ---
 📊 Research stats: [duration] · [N] rounds · [N] queries · [N] URLs fetched · [N] sources cited
 ```
+
+## Follow-on Investment Analysis (optional)
+
+When the research report covers a real estate or investment question and the
+user subsequently provides specific deal parameters (price, area, location),
+build a quantitative pro-forma using `execute_code`. The pattern:
+
+1. **Benchmark the asking price** against recent transaction comparables
+   (Cushman & Wakefield, CBRE, Savills, JLL — cap rates + price per tsubo)
+2. **Model alternative uses** (e.g., office as-is vs hotel converted) with
+   full P&L: revenue → operating expenses → NOI
+3. **Estimate conversion costs** (per-tsubo renovation rates, per-room costs)
+4. **Compute return metrics**: NOI yield vs market cap rates, payback period
+5. **Sensitivity table**: 3 revenue scenarios × 3 cost scenarios
+6. **Break-even analysis**: what price/ADR/occupancy achieves market yield?
+
+**Critical:** Always model the as-is use case as a baseline. If the
+alternative-use NOI exceeds the converted-use NOI, the conversion destroys
+value at that acquisition price — say so clearly.
+
+See `references/real-estate-investment-analysis.md` for the full template,
+Japan-specific data sources, renovation cost benchmarks, and cap rate ranges.
+
+See `references/structured-evidence-format.md` for the evidence.json schema,
+claim rules, writing-context vs claims distinction, and the side-by-side test
+results that validated the structured-evidence approach (July 2026).
 
 ## Vault Integration (optional)
 
@@ -306,7 +396,14 @@ delegate_task(
 - **Synthesis failure produces nothing** — always use the fallback report if synthesis fails. Raw findings > no output.
 - **Ignoring contradictions** — if sources disagree, present both. Don't silently pick one.
 - **Fabricating sources** — never invent URLs, titles, or facts. If a sub-question can't be answered, document it as a gap.
+- **No counter-evidence search** — only searching for supporting evidence produces biased research. Round 2+ must include at least one counter-evidence query. If none found, say so explicitly.
+- **Missing gaps/contradictions sections** — the report must surface what's unknown and where sources disagree. Omitting these sections hides uncertainty from the reader and signals incomplete research.
+- **No source quality classification** — unclassified sources make it impossible to judge evidence strength. Always tag primary/secondary/tertiary in the source table.
+- **Tertiary source overreliance** — if 0 primary sources and >50% tertiary, the evidence base is weak. Flag it in the Gaps section and attempt to fetch primary sources (official docs, model cards, pricing pages) before finalizing. Tertiary sources are valuable for refute polarity and real-world anecdotes, but should never be the sole support for a factual claim when primary/secondary sources exist. Qualify tertiary-sourced claims: "Community reports suggest..." not "X is true."
+- **Conflating claims with context** — facts about the research subject (claims) vs boundary conditions (scope limits, methodology notes, availability gaps) are different things. Use the writing_context concept from the structured evidence format to separate them.
+- **Burying the comparison table** — the overview/comparison table goes right after the executive summary, not after the detailed analysis. Readers need the at-a-glance picture first; the detailed sections are supporting reasoning. Putting the table last forces readers to scroll through analysis before seeing the answer.
 - **Subagent synthesis** — never delegate the synthesis step. The orchestrator must see all findings to synthesize honestly.
+- **CBD rents for non-CBD locations** — when modeling real estate income, do not apply Marunouchi/Otemachi Grade A office rents (¥70K–100K/tsubo) to secondary locations like Koto-ku. Use submarket-appropriate rents (¥20K–30K/tsubo for mid-tier Koto-ku). This single mistake can inflate projected NOI by 3× and make a bad deal look good.
 
 ## Related Work
 
