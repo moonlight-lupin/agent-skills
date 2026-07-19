@@ -19,7 +19,7 @@ agent_skills/
 │   ├── clips-studio/                 ← staged fal.ai short-video generation/animation/camera moves
 │   └── pexels-stock-photos/          ← free real-world stock photo search + download (Pexels API)
 ├── research/                         ← source-grounded research, enrichment, and RAG skills
-│   ├── deep-research/                ← iterative research engine with structured evidence, source quality ranking, refute polarity
+│   ├── deep-research/                ← iterative research engine with structured evidence, source quality ranking, refute polarity, four-label evidence-basis discipline
 │   ├── entity-research/              ← cited entity/person background dossiers + sanctions signals
 │   ├── news-monitoring/              ← recurring news digests with cron delivery + multi-language
 │   ├── notebooklm-mode/              ← NotebookLM-style source vault + grounded answers
@@ -56,7 +56,7 @@ New skills are added as folders under the relevant domain directory.
 | [image-studio](creative/image-studio/) | creative | Staged fal.ai image gen/edit/upscale/cleanup with cost logging + `--dry-run` | pexels-stock-photos |
 | [clips-studio](creative/clips-studio/) | creative | Staged fal.ai short-video: text-to-video, animate still, camera moves | image-studio |
 | [pexels-stock-photos](creative/pexels-stock-photos/) | creative | Free real-world stock photos (Pexels API, 20k/month) with attribution handling | image-studio |
-| [deep-research](research/deep-research/) | research | Iterative research engine: structured evidence, source quality ranking (primary/secondary/tertiary), refute polarity, overview-first reports | fact-checker, source-tracker |
+| [deep-research](research/deep-research/) | research | Iterative research engine: structured evidence, source quality ranking (primary/secondary/tertiary), refute polarity, overview-first reports, four-label evidence-basis discipline ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]) | fact-checker, source-tracker |
 | [entity-research](research/entity-research/) | research | Cited company/person dossiers: ownership, adverse media, sanctions, litigation | deep-research |
 | [people-enrichment](research/people-enrichment/) | research | PDL person/company lookup → styled `.xlsx` | entity-research |
 | [library-rag](research/library-rag/) | research | Semantic search over personal library (bge-m3 + sqlite-vec) | notebooklm-mode |

@@ -159,6 +159,38 @@ A deeper test ran the v1.2.0 methodology end-to-end on a 5-dimension research qu
 
 **Cost overhead:** evidence.json was 18.6KB + report 14KB = ~33KB total, vs ~14KB for a single-pass report. ~2.4× overhead for materially higher quality (explicit gaps, forced counter-evidence, source quality awareness, full traceability). Worth it for research informing decisions; skip for quick lookups.
 
+## Third Validation: Source Quality Ranking Stress Test (July 2026)
+
+A third test ran the v1.3.0 methodology (with source quality ranking) on: *"Is RAG obsolete in 2026? Long-context windows vs retrieval-augmented generation for AI agents — when does each approach win?"*
+
+**Results:** 15 claims, 6 sources, 5 refute-polarity claims, 3 writing_context items. 3 research rounds, 7 queries, ~5 minutes.
+
+**Source quality distribution: 4 primary (67%), 2 secondary (33%), 0 tertiary (0%) — healthy.**
+
+This was the first test where the quality distribution check deliberately drove the search strategy. Knowing the check was coming, the search targeted arXiv papers and vendor research blogs first, not tech journalism. Results:
+
+| Metric | Test 1 (LLMs 5GB) | Test 2 (Self-host vs API) | Test 3 (RAG vs LC) |
+|---|---|---|---|
+| Primary sources | 1/9 (11%) | 0/10 (0%) | **4/6 (67%)** |
+| Secondary | 7/9 (78%) | 7/10 (70%) | 2/6 (33%) |
+| Tertiary | 1/9 (11%) | 3/10 (30%) | **0/6 (0%)** |
+| Distribution | Acceptable | **Weak** (flagged) | **Healthy** |
+| Refute claims | 1 | 4 | 5 |
+
+**What this validated:**
+
+1. **The quality distribution check actively steers search strategy.** When the agent knows it must report the distribution (healthy/acceptable/weak), it prioritizes primary sources (arXiv, vendor research) over secondary blogs. Test 2 landed at "weak" (0 primary); Test 3 landed at "healthy" (67% primary) because the search was deliberately structured to find primary sources.
+
+2. **Tertiary sources are not always needed.** Test 2 used Reddit for refute counter-evidence (appropriate). Test 3 found all refute evidence in primary research (Chroma's context rot, arXiv papers) — zero tertiary needed. The methodology doesn't force tertiary; it forces the right tier for each claim type.
+
+3. **Conflict resolution by quality applied in practice.** When NIAH scores (vendor-cited, secondary) conflicted with RULER scores (NVIDIA research, primary), the report presented RULER as the stronger finding and NIAH as the limited benchmark — per the "primary > secondary" rule. This wasn't abstract; it resolved a real source conflict.
+
+4. **Weighting notes per claim tier.** The report explicitly stated which claims rest on which tier: core accuracy findings on 3× primary arXiv papers, cost figures on 2× secondary (with a gap note that the exact 1,250× multiplier is secondhand). This gives the reader evidence-strength transparency that a flat source table doesn't.
+
+5. **Contextual AI bias acknowledged.** The "RAG is irreplaceable" claim came from Contextual AI (founded by the RAG inventor) — primary authority with an inherent pro-RAG bias. The report noted this and corroborated with independent arXiv papers and adoption data. Primary sources can be biased too; the weighting system handles this via corroboration requirements.
+
+**Key lesson:** The source quality ranking is not just a labeling exercise — it changes how the agent searches, how it resolves conflicts, and how it presents evidence strength. The distribution check (healthy/acceptable/weak) is the enforcement mechanism that makes the ranking actionable.
+
 ## What NOT to Adopt from sn-deep-research
 
 - **Full 9-role multi-agent dispatch** — 9 agent invocations = massive token/latency overhead. Our single-agent loop with evidence.json is sufficient.

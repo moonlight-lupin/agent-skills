@@ -10,7 +10,7 @@
         "reason": "Open-ended multi-source synthesis into a single cited report. Not a recurring digest, not a dossier on one named entity, not Q&A over user-supplied sources.",
         "not": ["news-monitoring", "entity-research", "notebooklm-mode"]
       },
-      "required_output_fields": ["inline citations", "sources/references list", "research stats"],
+      "required_output_fields": ["inline citations", "evidence-basis tags ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]) with an evidence key", "sources/references list with quality tiers", "research stats"],
       "forbidden_patterns": ["(?i)as an ai language model", "(?i)i cannot (browse|access) the (web|internet)", "(?i)\\bi made (this|that|these) up\\b"]
     },
     {
