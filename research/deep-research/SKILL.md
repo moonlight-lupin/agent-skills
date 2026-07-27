@@ -10,7 +10,7 @@ description: >
   into X in depth", "write a report on X", or any question needing multi-source
   synthesis beyond a single search. For entity vetting/dossiers use entity-research;
   for news digests use news-monitoring; for source-grounded Q&A use notebooklm-mode.
-version: 1.4.0
+version: 1.5.0
 author: moonlight-lupin
 license: MIT
 platforms: [linux, macos, windows]
@@ -47,6 +47,12 @@ Tertiary source overreliance pitfall. Source table now shows quality
 distribution summary. Prompted by user noting too many tertiary sources in
 the self-hosting vs API report.
 
+**v1.5.0 changes (July 2026):** adaptive depth (complexity-based round caps),
+optional clarification phase (Step 0), token budget awareness, numbered
+citations, progressive empty-search refinement, explicit synthesis prompt
+structure. Concepts adapted from DocsGPT's ResearchAgent (arc53/DocsGPT, MIT).
+See `references/docsgpt-concepts.md` for the concept mapping.
+
 ## When to use
 
 - User asks for "deep research", "research report", "comprehensive analysis"
@@ -66,20 +72,47 @@ the self-hosting vs API report.
 
 ```
 User question
-  → Step 1: Plan (sub-questions, key topics, success criteria, category, language)
+  → Step 0: Clarification (optional — assess if question is too vague)
+  → Step 1: Plan (sub-questions, key topics, success criteria, category, language, complexity)
   → Step 2: Date grounding + language anchor
-  → Step 3: Iterative loop (max 5 rounds)
-      ├─ 3a: Generate gap-driven queries (incl. refute queries from round 2+)
+  → Step 3: Iterative loop (max rounds = complexity cap: simple=2, moderate=3, complex=5)
+      ├─ 3a: Generate gap-driven queries (incl. refute queries from round 2+, empty-search refinement)
       ├─ 3b: Search (web_search) + fetch (web_extract)
-      ├─ 3c: Quality filter + extraction + source quality classification
-      ├─ 3d: Synthesize into cumulative research state
+      ├─ 3c: Quality filter + extraction + source quality classification + numbered citations
+      ├─ 3d: Synthesize into cumulative research state (with token budget check)
       ├─ 3e: Structured evidence (optional: evidence.json for 5+ sources)
-      └─ 3f: Stopping check (LLM evaluates coverage)
+      └─ 3f: Stopping check (LLM evaluates coverage + token budget)
   → Step 4: Final report (overview-first structure, see template)
   → Step 5: Stats summary
 ```
 
 **Report output order (overview-first):** Executive Summary → comparison/overview table → detailed analysis per sub-question → contradictions → gaps → conclusion → source table. Readers get the answer and the at-a-glance comparison before the detailed reasoning.
+
+## Step 0 — Clarification (optional)
+
+Before planning, assess whether the question is specific enough to research productively. This step prevents wasting rounds on a question that's too vague.
+
+**When to clarify:**
+- The question is 1-5 words with no scope ("research AI", "tell me about quantum computing")
+- The question could mean very different things depending on intent ("is X good?" — good for what? for whom?)
+- The question lacks a clear angle ("look into climate change" — scientific? policy? economic?)
+
+**When NOT to clarify:**
+- The question already has sub-questions or specific parameters
+- The user explicitly says "just research it" or "don't ask, just go"
+- The question is specific enough to generate productive search queries immediately
+- The question is a simple factual lookup ("what is the latest version of X?", "when did Y happen?") — even if short, if the intent is clear, proceed
+- The user is responding to a prior clarification (don't loop)
+
+**How:** Present 1-3 short questions to the user that would narrow the scope. Keep it brief — this is a scope check, not an interview:
+
+> "Before I start researching, I'd like to clarify:
+> 1. [narrowing question 1]
+> 2. [narrowing question 2]
+>
+> Please provide these details and I'll begin."
+
+If the question is already specific, skip this step entirely and proceed to Step 1.
 
 ## Step 1 — Research Plan
 
@@ -106,7 +139,20 @@ Success criteria:
 - [minimum: each sub-question has ≥1 source]
 
 Report category: [factual | comparison | product | how-to | fact-check | explainer]
+
+Complexity: [simple | moderate | complex]
 ```
+
+**Complexity assessment and adaptive depth:**
+Classify the question's complexity to determine the maximum number of research rounds. This prevents over-searching simple questions and under-searching complex ones.
+
+| Complexity | Max rounds | When to use |
+|---|---|---|
+| **simple** | 2 | Single-factual question, narrow scope, 1-2 sub-questions. Example: "What is the latest version of Python?" |
+| **moderate** | 3 | Multi-faceted question, 3-4 sub-questions, comparison or how-to. Example: "Compare Qdrant vs pgvector for RAG" |
+| **complex** | 5 | Broad scope, 5-6 sub-questions, requires deep synthesis across domains. Example: "Comprehensive analysis of the self-hosting vs managed API tradeoff for AI infrastructure" |
+
+The complexity cap is a **maximum**, not a target. The stopping check (Step 3f) still governs early termination. A simple question that finds comprehensive answers in 1 round should stop at 1 — the cap of 2 means it *can* go to 2 if needed, not that it *must*.
 
 **Language anchoring:** Detect the output language from the query and normalize to a BCP 47 tag (e.g. `en`, `zh-Hans`, `zh-Hant`, `ja`). Use it consistently throughout — executive summary, analysis, contradictions, gaps, conclusion. Source titles, URLs, proper nouns, and code may stay in their original language; search queries may use any language that helps evidence gathering. If the user explicitly switches language mid-research, update the anchor and use the new language for all subsequent output.
 
@@ -130,7 +176,7 @@ Inject the current date before any search. This is **mandatory** — LLMs defaul
 
 Each round follows: **Query → Search → Extract → Synthesize → Check Stop**
 
-Run **max 5 rounds**. Most topics converge in 2-3 rounds.
+Run **max N rounds** where N = complexity cap from Step 1 (simple=2, moderate=3, complex=5). Most topics converge in 2-3 rounds. The cap is a ceiling, not a target.
 
 ### 3a — Query Generation (gap-driven)
 
@@ -145,6 +191,11 @@ Before generating queries, review:
 Generate queries that target the **gaps**, not repeat what's already found.
 
 **Refute polarity requirement:** Round 2+ must include at least one query targeting counter-evidence, opposing viewpoints, or criticisms of the leading hypothesis. If no counter-evidence is found after searching, note it explicitly in the synthesis — refute count = 0 usually means you didn't search well, not that no counter-evidence exists. This prevents confirmation-biased research.
+
+**Progressive empty-search refinement:** When a search returns no useful results, escalate the refinement strategy across consecutive empty results:
+1. **First empty result:** Try a broader query or different keywords (synonyms, related terms, different phrasing)
+2. **Second consecutive empty:** Try a fundamentally different angle — different domain, different language, or reframe the sub-question entirely. Inject: *"Previous search also returned no results. Try a very different query with different keywords, or broaden your search terms."*
+3. **Third consecutive empty:** Move on. This sub-question may not have publicly searchable answers. Document it as a gap in the synthesis rather than burning more rounds on dead-end queries.
 
 ### 3b — Search and Fetch
 
@@ -173,7 +224,7 @@ For each quality source, extract **goal-relevant facts**:
 - What facts in this source address a sub-question from the research plan?
 - Ignore noise, navigation, ads, boilerplate
 - Prefer specific data, statistics, named sources, dates over vague claims
-- Record the source URL and title with each extracted fact
+- Record the source URL and title with each extracted fact. Assign each unique source a **numbered citation** `[1]`, `[2]`, etc. on first encounter — reuse the same number for subsequent facts from the same source. This produces cleaner inline citations than full URLs (especially on mobile/messaging platforms) and matches academic/magazine citation style. Deduplicate by URL: the same URL seen twice gets the same number.
 - **Classify source quality** for each source: `primary` (official docs, model cards, SEC filings, original papers), `secondary` (tech journalism, analyst reports, reviews), `tertiary` (Wikipedia, aggregators, forum posts). This tier appears in the final source table and signals evidence strength to the reader.
 - **Grade each fact's evidence basis** as you extract (see below) — you can't tag a report you didn't grade while reading
 
@@ -200,13 +251,17 @@ Rules:
 
 After extracting from all sources in the round, integrate findings into the **cumulative research state**:
 
+**Token budget awareness:** Track approximate context consumption across rounds. If the cumulative research state + extracted content is approaching the model's context window or a self-imposed budget (suggested: ~50K tokens for moderate, ~100K for complex), prioritize synthesis and stopping over gathering more sources. When the budget is tight, summarize earlier rounds' findings more aggressively rather than carrying full extracts forward.
+
+**Rough estimation heuristic:** You can't count tokens precisely, but you can estimate: each `web_extract` returning ~5K characters contributes ~1.5K tokens; the research state after N rounds with 3-5 sources per round is roughly N × 8-12K tokens. If you're on round 3+ of a complex topic and the last `web_extract` returned >10K characters, you're likely past 50K — summarize aggressively and head toward synthesis. When in doubt, treat any round-3+ complex research as budget-tight.
+
 ```
 ## Research State (after Round N)
 [evolving synthesis of all findings so far]
 
 ### Sub-question 1: [question]
 Status: [answered / partially answered / unanswered]
-Findings: [synthesized facts, each with an inline citation (Source: URL, "Title") and an evidence-basis tag, e.g. "adoption grew 40% in 2025 (Source: …) [VERIFIED]"]
+Findings: [synthesized facts, each with a numbered inline citation [N] matching the source table, and an evidence-basis tag, e.g. "adoption grew 40% in 2025 [1] [VERIFIED]"]
 
 ### Sub-question 2: [question]
 Status: [...]
@@ -219,7 +274,7 @@ Findings: [...]
 Synthesis rules:
 - **Deduplicate** — if multiple sources say the same thing, cite the best one (or cite both for corroboration)
 - **Resolve contradictions** — if sources disagree, present both with attribution. Do not arbitrate silently.
-- **Inline citations** — every factual claim references its source: `(Source: URL, "Title")`
+- **Inline citations** — every factual claim references its source using the numbered citation `[N]` assigned in §3c, matching the source table
 - **Evidence basis** — tag each material fact `[VERIFIED]` / `[SOURCED]` / `[REASONED]` / `[ESTIMATED]` (see §3c). A fact becomes `[VERIFIED]` only once ≥2 *independent* sources corroborate it; a single source is `[SOURCED]`. Corroboration during dedup is what promotes `[SOURCED]` → `[VERIFIED]`.
 - **Update gap list** — what sub-questions are still unanswered or thin?
 
@@ -256,13 +311,15 @@ After synthesis (and optional evidence structuring), evaluate whether the report
 > - Are all key sub-questions addressed with at least one source?
 > - Are there significant gaps or unanswered aspects?
 > - Is the evidence sufficient and corroborated?
+> - Am I approaching the token budget? (tight context = prioritize synthesis)
 >
 > Reply YES (stop) or NO (continue) + one-sentence reason.
 
 **Stop if:**
 - All sub-questions have ≥1 source → YES
-- 3+ rounds completed and remaining gaps are minor → YES
-- 5 rounds completed (hard limit) → YES
+- Most of the complexity cap used (e.g. round 2 of 2 for simple, round 3 of 3 for moderate) and remaining gaps are minor → YES
+- Complexity cap reached (simple=2, moderate=3, complex=5) → YES
+- Token budget approaching limit → YES (synthesize with what you have)
 - Web search returning diminishing returns (same URLs, no new info) → YES
 
 **Continue if:**
@@ -277,6 +334,8 @@ Produce the final report. Minimum 800 words (scale with topic complexity).
 **Output order is overview-first**: the reader gets the answer and the at-a-glance comparison *before* the detailed reasoning. Do not bury the comparison table after the per-topic analysis.
 
 Carry each material fact's **evidence-basis tag** inline (§3c), lead on `[VERIFIED]` / `[SOURCED]`, keep `[REASONED]` / `[ESTIMATED]` claims framed as indicative, and paste the **Evidence key** legend below the Sources table so the tags decode.
+
+**Synthesis prompt structure:** When writing the final report, explicitly consult: (1) the original question, (2) the research plan (sub-questions, success criteria), (3) the cumulative research state from all rounds, (4) the evidence.json if produced, and (5) the numbered source list. Do not rely on the cumulative state alone if it has been compressed across many rounds — go back to the per-round findings to verify key claims. This prevents detail loss when the research state was aggressively summarized due to token budget pressure.
 
 ### Structure
 
@@ -314,6 +373,8 @@ Carry each material fact's **evidence-basis tag** inline (§3c), lead on `[VERIF
 | # | Title | URL | Quality | Accessed |
 |---|-------|-----|---------|----------|
 | 1 | [title] | [url] | primary/secondary/tertiary | [date] |
+
+**Citation format:** Inline citations use `[N]` matching the source table above. On first mention of a source, include `[N]` — subsequent mentions may use `[N]` alone. For claims from the same source, cite the number once per paragraph unless the source is paginated.
 
 **Evidence key** — `[VERIFIED]` corroborated across ≥2 independent, cited, dated sources · `[SOURCED]` from one named source, not independently corroborated · `[REASONED]` analytical judgement / inference · `[ESTIMATED]` calculation or stated assumption.
 ```
@@ -405,7 +466,7 @@ delegate_task(
 
 - Fetch 3-5 URLs per round (not all 10 search results) to avoid rate-limiting
 - If `web_extract` fails on a URL, note it and move on — don't retry endlessly
-- If `web_search` returns no results, try rephrasing the query once, then move on
+- If `web_search` returns no results, apply the progressive empty-search refinement protocol (§3a) — first try broader keywords, then a fundamentally different angle, then move on
 - Track fetched URLs across rounds to avoid re-processing
 
 ## Pitfalls
@@ -413,11 +474,11 @@ delegate_task(
 - **Skipping the research plan** — without sub-questions, the loop has no direction and the stopping check has no baseline. Always plan first.
 - **Stale year in queries** — always inject date grounding. Models default to training-cutoff years.
 - **Re-fetching same URLs** — track analyzed URLs across rounds. Wastes time and tokens.
-- **Over-searching** — most topics converge in 2-3 rounds. Don't pad to 5 rounds if the stopping check says YES at round 2.
+- **Over-searching** — most topics converge in 2-3 rounds. Don't pad to the complexity cap if the stopping check says YES at round 1 or 2. The cap is a ceiling, not a target.
 - **Under-searching** — broad topics with 1 round produce shallow reports. If the stopping check says NO, continue.
 - **No quality filter** — including thin/irrelevant sources dilutes the report. Filter before extraction.
 - **Listing instead of synthesizing** — the report should synthesize findings, not list them. Resolve contradictions, identify themes, draw conclusions.
-- **Missing citations** — every factual claim in the final report must have an inline citation with URL + source title.
+- **Missing citations** — every factual claim in the final report must have an inline citation — either `[N]` matching the source table, or `(Source: URL, "Title")` for claims from sources not in the numbered table.
 - **Missing evidence-basis tags** — a material fact with a citation but no `[VERIFIED]`/`[SOURCED]`/`[REASONED]`/`[ESTIMATED]` tag is half-graded. Tag it, and include the Evidence key so the tags decode.
 - **Improvised evidence labels** — use only the four canonical tags. A synonym like `[Official]`, `[Confirmed]`, or `[Consensus]` breaks the discipline; map it to one of the four.
 - **Overclaiming basis** — don't tag a single-source fact `[VERIFIED]`, and don't restate precision the source didn't give. When torn between two labels, pick the weaker one.
@@ -432,10 +493,15 @@ delegate_task(
 - **Burying the comparison table** — the overview/comparison table goes right after the executive summary, not after the detailed analysis. Readers need the at-a-glance picture first; the detailed sections are supporting reasoning. Putting the table last forces readers to scroll through analysis before seeing the answer.
 - **Subagent synthesis** — never delegate the synthesis step. The orchestrator must see all findings to synthesize honestly.
 - **CBD rents for non-CBD locations** — when modeling real estate income, do not apply Marunouchi/Otemachi Grade A office rents (¥70K–100K/tsubo) to secondary locations like Koto-ku. Use submarket-appropriate rents (¥20K–30K/tsubo for mid-tier Koto-ku). This single mistake can inflate projected NOI by 3× and make a bad deal look good.
+- **Clarification loop** — if the user responds to a clarification with more vagueness, do not clarify again. Proceed to research with the best interpretation of intent. At most one clarification round.
+- **Complexity misclassification** — don't classify as "complex" just because the topic sounds impressive. A 6-sub-question plan on a narrow factual topic is "moderate." Complexity is about the breadth of synthesis needed, not the perceived importance of the topic.
+- **Token budget complacency** — the budget check is not a formality. On complex multi-round research with long web extractions, context can fill up before the complexity cap is reached. Summarize aggressively when the budget is tight.
 
 ## Related Work
 
 [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus) — PewDiePie's self-hosted AI workspace — includes a "Deep Research" feature with multi-step web research and source reading, conceptually similar to this skill's Think → Search → Extract → Synthesize → Stop loop. This skill is a pure-prompt workflow (no UI, no server) designed to run inside any agent's tool loop.
+
+[DocsGPT](https://github.com/arc53/DocsGPT) (arc53, MIT) — Private AI platform with a ResearchAgent (`application/agents/research_agent.py`) that implements a Plan → Research → Synthesize pipeline with adaptive depth (complexity caps), clarification phase, token budget tracking, citation deduplication, and progressive empty-search refinement. v1.5.0 of this skill adapted these concepts from DocsGPT's ResearchAgent; see `references/docsgpt-concepts.md` for the mapping.
 
 ## Evals
 

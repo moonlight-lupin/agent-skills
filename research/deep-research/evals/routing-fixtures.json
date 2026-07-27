@@ -10,7 +10,7 @@
         "reason": "Open-ended multi-source synthesis into a single cited report. Not a recurring digest, not a dossier on one named entity, not Q&A over user-supplied sources.",
         "not": ["news-monitoring", "entity-research", "notebooklm-mode"]
       },
-      "required_output_fields": ["inline citations", "evidence-basis tags ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]) with an evidence key", "sources/references list with quality tiers", "research stats"],
+      "required_output_fields": ["numbered inline citations [N] matching the source table", "evidence-basis tags ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]) with an evidence key", "sources/references list with quality tiers", "research stats"],
       "forbidden_patterns": ["(?i)as an ai language model", "(?i)i cannot (browse|access) the (web|internet)", "(?i)\\bi made (this|that|these) up\\b"]
     },
     {
@@ -45,6 +45,28 @@
       },
       "required_output_fields": ["grounded answer", "verbatim quotes", "source attribution", "gaps identified"],
       "forbidden_patterns": ["(?i)as an ai language model"]
+    },
+    {
+      "id": "dr-05-clarify-vague",
+      "request": "can you research AI for me please",
+      "expected_routing": {
+        "skill": "deep-research",
+        "reason": "Routes to deep-research, but the in-skill Step 0 clarification phase should trigger: the request is too vague (2 words, no scope) and should elicit a clarification before planning. The fixture asserts the skill is correct but the first agent output should be a clarification question, not a report.",
+        "not": ["news-monitoring", "entity-research", "notebooklm-mode"]
+      },
+      "required_output_fields": ["clarification question(s) before any research begins"],
+      "forbidden_patterns": ["(?i)as an ai language model"]
+    },
+    {
+      "id": "dr-06-skip-clarification-specific",
+      "request": "Write a comprehensive comparison of Qdrant vs pgvector for RAG applications — performance, scalability, ease of deployment, and cost.",
+      "expected_routing": {
+        "skill": "deep-research",
+        "reason": "Specific multi-faceted comparison question with clear scope. Step 0 clarification should NOT trigger — the question is specific enough to generate productive search queries immediately. Routes to deep-research and proceeds straight to planning.",
+        "not": ["news-monitoring", "entity-research", "notebooklm-mode"]
+      },
+      "required_output_fields": ["numbered inline citations [N] matching the source table", "evidence-basis tags ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]) with an evidence key", "comparison table", "sources/references list with quality tiers", "research stats"],
+      "forbidden_patterns": ["(?i)as an ai language model", "(?i)before i begin researching, i'd like to clarify"]
     }
   ]
 }
