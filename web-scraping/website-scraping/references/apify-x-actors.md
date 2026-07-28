@@ -73,12 +73,23 @@ Normalise Actor output into the caller's requested JSONL schema, but retain the 
 {
   "tool": "apify:xquik/x-tweet-scraper",
   "actor_store_url": "https://apify.com/xquik/x-tweet-scraper",
+  "actor_input": {
+    "mode": "profileTweets",
+    "twitterHandles": ["example_handle"],
+    "maxItems": 50,
+    "outputVariant": "rich",
+    "outputPreset": "nested",
+    "fieldStyle": "camelCase"
+  },
   "requested_max_items": 50,
   "status": "ok",
   "records_written": 50
 }
 ```
 
-Use `apify:xquik/x-follower-scraper` and its exact Actor Store URL for relationship runs. Mark partial runs honestly. Sample the output against a public X page when accessible, deduplicate by stable record or user id, and preserve the source URL and collection timestamp.
+Use `apify:xquik/x-follower-scraper`, its exact Actor Store URL, and the full
+non-secret follower input for relationship runs. Mark partial runs honestly.
+Sample the output against a public X page when accessible, deduplicate by
+stable record or user id, and preserve the source URL and collection timestamp.
 
 Xquik is an independent third-party service. Not affiliated with X Corp. "Twitter" and "X" are trademarks of X Corp.
