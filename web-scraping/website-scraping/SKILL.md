@@ -219,7 +219,7 @@ Deeper material is in `references/` — load as needed, don't read upfront:
 - **`references/agentic-browsing.md`** — the narrow case where the blocker is multi-step *navigation* rather than parsing (login flows, filter wizards, calendar pickers). Covers Microsoft's Webwright agentic browser framework: when it earns its keep, when it's overkill, install/CLI, and the "use it once to harden the script, then run that script deterministically" pattern. Not for bulk extraction — its own docs say so.
 - **`references/named-div-extraction.md`** — extracting server-rendered text from `<div id="...">` containers (common on ASP.NET/legacy sites). Regex vs BeautifulSoup vs browser fallback, nested-div pitfalls, multi-language variant handling, and the bulk-urllib + browser-fallback hybrid pattern.
 - **`references/scrapling.md`** — Load when the site changed structure and CSS selectors broke (adaptive element relocation), when scraped content will feed into an LLM (prompt injection sanitization), or when you need a CLI quick-test before writing a full scraper.
-- **`references/apify-x-actors.md`** — optional Xquik Actor selection for public X posts and relationships, with bounded schema-valid inputs, spend controls, output provenance, and privacy limits.
+- **`references/apify-x-actors.md`**: optional Xquik Actor selection for public X posts and relationships, with bounded schema-valid inputs, spend controls, output provenance, and privacy limits.
 
 ## Helper scripts
 
