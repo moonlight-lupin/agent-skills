@@ -225,6 +225,199 @@ class TestEnhanceGuard(unittest.TestCase):
         self.assertIn("flux-3/image-to-video", out)
 
 
+class TestCameraDryRun(unittest.TestCase):
+    """cmd_camera dry-run: should build a camera-move prompt and produce output."""
+
+    def _camera_args(self, **overrides):
+        defaults = dict(
+            prompt=None,
+            move="push-in",
+            static=False,
+            image="still.png",
+            duration=5,
+            resolution=None,
+            aspect="16:9",
+            audio=False,
+            seed=None,
+            model=None,
+            out_dir="_workings",
+            name="vid_camera",
+            arg=None,
+            arg_json=None,
+            cost_log=None,
+            run_log=None,
+            verbose=False,
+            dry_run=True,
+        )
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_camera_dry_run_uses_seedance_default(self):
+        args = self._camera_args()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falvid.cmd_camera(args)
+        out = buf.getvalue()
+        self.assertIn("DRY RUN", out)
+        self.assertIn("seedance/v1.5/pro/image-to-video", out)
+
+    def test_camera_move_in_prompt(self):
+        args = self._camera_args(move="push-in")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falvid.cmd_camera(args)
+        out = buf.getvalue()
+        self.assertIn("push-in", out.lower())
+
+    def test_camera_static_adds_camera_fixed(self):
+        args = self._camera_args(static=True, move=None, prompt="a calm scene")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falvid.cmd_camera(args)
+        out = buf.getvalue()
+        # Seedance supports camera_fixed, so it should be set
+        self.assertIn("camera_fixed", out)
+
+    def test_camera_static_non_seedance_uses_prompt_language(self):
+        args = self._camera_args(
+            static=True, move=None, prompt="a calm scene",
+            model="fal-ai/veo3.1/image-to-video",
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falvid.cmd_camera(args)
+        out = buf.getvalue()
+        self.assertIn("Static shot", out)
+        self.assertNotIn("camera_fixed", out)
+
+    def test_camera_invalid_move_exits(self):
+        args = self._camera_args(move="teleport")
+        with self.assertRaises(SystemExit):
+            falvid.cmd_camera(args)
+
+    def test_camera_no_move_no_prompt_exits(self):
+        args = self._camera_args(move=None, prompt=None)
+        with self.assertRaises(SystemExit):
+            falvid.cmd_camera(args)
+
+
+class TestCmdCosts(unittest.TestCase):
+    """cmd_costs: cost log reading, reset, and empty log handling."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.cost_log = str(Path(self._tmp.name) / "costs.jsonl")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _costs_args(self, **overrides):
+        defaults = dict(cost_log=self.cost_log, reset=False)
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_costs_no_log_prints_message(self):
+        args = self._costs_args()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falvid.cmd_costs(args)
+        out = buf.getvalue()
+        self.assertIn("No cost log", out)
+
+    def test_costs_reset_clears_log(self):
+        # Write a fake cost log
+        Path(self.cost_log).write_text('{"cost": 0.85, "currency": "USD", "command": "generate", "model": "test", "basis": "5s x $0.17/s", "time": "2026-01-01 00:00:00"}\n')
+        args = self._costs_args(reset=True)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falvid.cmd_costs(args)
+        out = buf.getvalue()
+        self.assertIn("cleared", out)
+        self.assertFalse(Path(self.cost_log).exists())
+
+    def test_costs_displays_entries_and_total(self):
+        import json as _json
+        entries = [
+            {"cost": 0.30, "currency": "USD", "command": "generate", "model": "flux3-draft", "basis": "5s x $0.06/s", "time": "2026-01-01 10:00:00"},
+            {"cost": 0.85, "currency": "USD", "command": "generate", "model": "flux3-full", "basis": "5s x $0.17/s", "time": "2026-01-01 11:00:00"},
+        ]
+        with open(self.cost_log, "w") as f:
+            for e in entries:
+                f.write(_json.dumps(e) + "\n")
+        args = self._costs_args()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falvid.cmd_costs(args)
+        out = buf.getvalue()
+        self.assertIn("flux3-draft", out)
+        self.assertIn("flux3-full", out)
+        self.assertIn("TOTAL", out)
+        self.assertIn("$1.15", out)
+
+
+class TestBuildVideoArgs(unittest.TestCase):
+    """_build_video_args: correct key mapping for different models."""
+
+    def test_kling_v3_uses_start_image_url(self):
+        args = argparse.Namespace(
+            image="still.png", duration=5, resolution=None, aspect="16:9",
+            audio=False, seed=None, arg=None, arg_json=None,
+        )
+        _, built, _ = falvid._build_video_args(args, "fal-ai/kling-video/v3/pro/image-to-video", "test", dry_run=True)
+        self.assertIn("start_image_url", built)
+        self.assertNotIn("image_url", built)
+
+    def test_non_kling_uses_image_url(self):
+        args = argparse.Namespace(
+            image="still.png", duration=5, resolution=None, aspect="16:9",
+            audio=False, seed=None, arg=None, arg_json=None,
+        )
+        _, built, _ = falvid._build_video_args(args, "fal-ai/veo3.1/image-to-video", "test", dry_run=True)
+        self.assertIn("image_url", built)
+        self.assertNotIn("start_image_url", built)
+
+    def test_kling_duration_is_string(self):
+        args = argparse.Namespace(
+            image="still.png", duration=5, resolution=None, aspect="16:9",
+            audio=False, seed=None, arg=None, arg_json=None,
+        )
+        _, built, _ = falvid._build_video_args(args, "fal-ai/kling-video/v3/pro/image-to-video", "test", dry_run=True)
+        self.assertEqual(built["duration"], "5")
+
+    def test_non_kling_duration_is_int(self):
+        args = argparse.Namespace(
+            image="still.png", duration=5, resolution=None, aspect="16:9",
+            audio=False, seed=None, arg=None, arg_json=None,
+        )
+        _, built, _ = falvid._build_video_args(args, "fal-ai/veo3.1/image-to-video", "test", dry_run=True)
+        self.assertEqual(built["duration"], 5)
+
+    def test_audio_flag_added_for_audio_models(self):
+        args = argparse.Namespace(
+            image="still.png", duration=5, resolution=None, aspect="16:9",
+            audio=True, seed=None, arg=None, arg_json=None,
+        )
+        _, built, _ = falvid._build_video_args(args, "fal-ai/veo3.1/image-to-video", "test", dry_run=True)
+        self.assertTrue(built["generate_audio"])
+
+    def test_audio_flag_omitted_for_non_audio_models(self):
+        args = argparse.Namespace(
+            image="still.png", duration=5, resolution=None, aspect="16:9",
+            audio=True, seed=None, arg=None, arg_json=None,
+        )
+        _, built, _ = falvid._build_video_args(args, "fal-ai/wan/v2.2-a14b/text-to-video", "test", dry_run=True)
+        self.assertNotIn("generate_audio", built)
+
+    def test_flux3_audio_flag_added(self):
+        args = argparse.Namespace(
+            image="still.png", duration=5, resolution=None, aspect="16:9",
+            audio=True, seed=42, arg=None, arg_json=None,
+        )
+        _, built, _ = falvid._build_video_args(args, "fal-ai/blackforestlabs/flux-3/image-to-video", "test", dry_run=True)
+        self.assertTrue(built["generate_audio"])
+        self.assertEqual(built["seed"], 42)
+
+
 class TestExtractFalKey(unittest.TestCase):
     """Tests for _extract_fal_key — content-based key detection from file text."""
 

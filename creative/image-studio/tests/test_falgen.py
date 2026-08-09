@@ -139,6 +139,159 @@ class TestDryRun(unittest.TestCase):
             falgen.cmd_edit(args)
 
 
+class TestUpscaleDryRun(unittest.TestCase):
+    """cmd_upscale dry-run: should use the default upscaler and show cost."""
+
+    def _upscale_args(self, **overrides):
+        defaults = dict(
+            image="photo.png",
+            factor=None,
+            model=None,
+            out_dir="_workings",
+            name="image_upscaled",
+            arg=None,
+            arg_json=None,
+            cost_log=None,
+            run_log=None,
+            verbose=False,
+            dry_run=True,
+        )
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_upscale_dry_run_uses_default_model(self):
+        args = self._upscale_args()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falgen.cmd_upscale(args)
+        out = buf.getvalue()
+        self.assertIn("DRY RUN", out)
+        self.assertIn("upscale", out.lower())
+
+    def test_upscale_dry_run_with_custom_model(self):
+        args = self._upscale_args(model="fal-ai/clarity-upscaler")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falgen.cmd_upscale(args)
+        out = buf.getvalue()
+        self.assertIn("clarity-upscaler", out)
+
+    def test_upscale_dry_run_with_factor(self):
+        args = self._upscale_args(factor=2)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falgen.cmd_upscale(args)
+        out = buf.getvalue()
+        self.assertIn("upscale_factor", out)
+        self.assertIn("2", out)
+
+    def test_upscale_dry_run_no_factor(self):
+        args = self._upscale_args(factor=None)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falgen.cmd_upscale(args)
+        out = buf.getvalue()
+        self.assertNotIn("upscale_factor", out)
+
+
+class TestRemovebgDryRun(unittest.TestCase):
+    """cmd_removebg dry-run: should use the default background removal model."""
+
+    def _removebg_args(self, **overrides):
+        defaults = dict(
+            image="photo.png",
+            model=None,
+            out_dir="_workings",
+            name="image_nobg",
+            arg=None,
+            arg_json=None,
+            cost_log=None,
+            run_log=None,
+            verbose=False,
+            dry_run=True,
+        )
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_removebg_dry_run_uses_default_model(self):
+        args = self._removebg_args()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falgen.cmd_removebg(args)
+        out = buf.getvalue()
+        self.assertIn("DRY RUN", out)
+        self.assertIn("removebg", out.lower())
+
+    def test_removebg_dry_run_with_custom_model(self):
+        args = self._removebg_args(model="fal-ai/birefnet/v2")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falgen.cmd_removebg(args)
+        out = buf.getvalue()
+        self.assertIn("birefnet", out)
+
+    def test_removebg_dry_run_shows_image(self):
+        args = self._removebg_args(image="my_photo.jpg")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falgen.cmd_removebg(args)
+        out = buf.getvalue()
+        self.assertIn("my_photo.jpg", out)
+
+
+class TestCmdCosts(unittest.TestCase):
+    """cmd_costs: cost log reading, reset, and empty log handling."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.cost_log = str(Path(self._tmp.name) / "costs.jsonl")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _costs_args(self, **overrides):
+        defaults = dict(cost_log=self.cost_log, reset=False)
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_costs_no_log_prints_message(self):
+        args = self._costs_args()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falgen.cmd_costs(args)
+        out = buf.getvalue()
+        self.assertIn("No cost log", out)
+
+    def test_costs_reset_clears_log(self):
+        import json as _json
+        Path(self.cost_log).write_text(_json.dumps({"cost": 0.03, "currency": "USD", "command": "generate", "model": "test", "basis": "1 image", "time": "2026-01-01 00:00:00"}) + "\n")
+        args = self._costs_args(reset=True)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falgen.cmd_costs(args)
+        out = buf.getvalue()
+        self.assertIn("cleared", out)
+        self.assertFalse(Path(self.cost_log).exists())
+
+    def test_costs_displays_entries_and_total(self):
+        import json as _json
+        entries = [
+            {"cost": 0.003, "currency": "USD", "command": "generate", "model": "flux-schnell", "basis": "1 image", "time": "2026-01-01 10:00:00"},
+            {"cost": 0.15, "currency": "USD", "command": "edit", "model": "nano-banana-pro", "basis": "1 image", "time": "2026-01-01 11:00:00"},
+        ]
+        with open(self.cost_log, "w") as f:
+            for e in entries:
+                f.write(_json.dumps(e) + "\n")
+        args = self._costs_args()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falgen.cmd_costs(args)
+        out = buf.getvalue()
+        self.assertIn("flux-schnell", out)
+        self.assertIn("nano-banana-pro", out)
+        self.assertIn("TOTAL", out)
+
+
 class TestExtractFalKey(unittest.TestCase):
     """Tests for _extract_fal_key — content-based key detection from file text."""
 
