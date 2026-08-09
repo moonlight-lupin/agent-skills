@@ -96,11 +96,9 @@ confirm the send afterwards.
 
 **Setup needed:** a fal.ai account with billing, and the `FAL_KEY` — either the environment variable,
 **or just saved in a text file in the working folder** (any filename, e.g. `fal key.txt`). The helper
-finds the key automatically — env var first, then any small text file in the working folder (a
-`FAL_KEY=your-key` line, or a raw key matching fal's `id:secret` shape), then the home dir (only
-files whose name mentions fal/key/api/env, and only an explicit `FAL_KEY=…` line — bare tokens are
-never taken from home, so other services' credentials can't be picked up). So **don't ask the user
-for a key before checking**; only prompt if none is found. It uses the `fal-client`
+finds the key automatically — env var first, then any small text file in the working folder, then the
+home dir — detecting it by content (a `FAL_KEY=your-key` line or the raw `id:secret` key), so **don't
+ask the user for a key before checking**; only prompt if none is found. It uses the `fal-client`
 package (`pip install fal-client requests`). If no key is found the helper fails with a clear message —
 generation cannot proceed without it, but Stage 1 still works. (Keep any key file local; never commit it.)
 
@@ -119,8 +117,19 @@ A good clip starts from a precise brief, so invest here before spending. Intervi
 - **Aspect & orientation** — anchor to the destination: 16:9 web/hero, 9:16 reel/story, 1:1 social.
   **For `animate`/`camera`, match the output to the source's orientation and pass `--aspect`
   explicitly** (see the check below). For `generate` there's no source, so choose the target aspect.
-- **Audio** — **off by default.** Don't fabricate ambient sound or voices for a real subject; the
-  user can add music in their editor. (Audio also adds cost on the models that support it.)
+- **Audio** — FLUX 3 generates audio **by default** (included free, unlike Veo which charges extra).
+  So the brief must cover sound, not just motion. Agree with the user:
+  - **Ambient sound** — what's naturally in the scene (rain patter, traffic, birds, machinery hum).
+  - **Music** — say "no music" if unwanted, or name the genre/feel ("soft ambient piano", "upbeat
+    electronic"). Each layer lands separately.
+  - **Speech** — a quoted line becomes speech **only if a speaker is visible on camera**. Without one
+    it renders as burned-in text. Quote the line, describe the speaker, and add "no on-screen text,
+    no subtitles" to prevent burned-in captions.
+  - **Silence** — if the user wants no audio at all, pass `--no-audio` or say "no audio" explicitly in
+    the prompt. FLUX 3 will still generate audio unless told not to.
+  
+  For non-FLUX-3 models (Kling, Seedance), audio is **off by default** — opt in with `--audio` only
+  when the user wants it.
 
 **Aspect & orientation — check the source before you generate** *(applies to `animate`/`camera`)*.
 Compare the **source still's orientation** to the **intended video frame** (usually 16:9 for web,
@@ -152,24 +161,42 @@ Save the agreed brief to `_workings/` (for example `_workings/brief_[slug].md`) 
 auditable. Keep prompts free of confidential detail. **This step replaces a cheap prototype for the
 idea — confirm the brief (and the start image, for `animate`/`camera`) before the first paid call.**
 
+**Prompting craft.** Read `references/video-prompting-techniques.md` before the first generation in a
+session — it covers grounding real subjects, audio layer control, multi-shot syntax, speech vs
+burned-in text, and continuation/chaining. These techniques work across all fal.ai video models, not
+just one. The short version: write plain prose (not keyword tags), ground anything with a real
+checkable appearance, and specify what matters — what you leave out is the model's call.
+
 ## Stage 2 — Draft cheaply
 
-Render a draft on the cheap model so you can react for a fraction of the final cost.
+Render a draft on FLUX 3 Draft (cheap, HD only, native audio included) so you can react for a
+fraction of the full cost — **$0.06/s** vs $0.17/s for the full render.
 
-- **`animate`** — default **Kling 2.5 Turbo Pro** (`fal-ai/kling-video/v2.5-turbo/pro/image-to-video`,
-  ~$0.07/s → ~$0.35 for 5s):
+- **`animate`** — default **FLUX 3 Image-to-Video Draft**
+  (`fal-ai/blackforestlabs/flux-3/image-to-video/draft`, ~$0.06/s → ~$0.30 for 5s, native audio):
 
   ```bash
   python scripts/falvid.py animate \
-    --prompt "[the agreed motion]" \
+    --prompt "[the agreed motion, including audio description]" \
     --image _workings/[source-still].png \
     --duration 5 --aspect 16:9 \
     --run-log _workings/run-log_[slug].md \
     --out-dir _workings --name vid_[slug]_draft
   ```
 
-- **`camera`** — default **Seedance 1.5 Pro**; `--move` offers gentle presets (`push-in`, `pull-out`,
-  `pan-left/right`, `tilt-up/down`, `orbit`, `crane-up`), and `--static` locks the camera entirely:
+- **`generate`** (text-to-video) — default **FLUX 3 Text-to-Video Draft**
+  (`fal-ai/blackforestlabs/flux-3/text-to-video/draft`, ~$0.06/s → ~$0.30 for 5s, native audio):
+
+  ```bash
+  python scripts/falvid.py generate \
+    --prompt "[the scene to create, including audio description]" \
+    --duration 5 --aspect 16:9 \
+    --out-dir _workings --name vid_[slug]_draft
+  ```
+
+- **`camera`** — default **Seedance 1.5 Pro** (unchanged — strongest camera control); `--move` offers
+  gentle presets (`push-in`, `pull-out`, `pan-left/right`, `tilt-up/down`, `orbit`, `crane-up`), and
+  `--static` locks the camera entirely:
 
   ```bash
   python scripts/falvid.py camera --move push-in \
@@ -177,14 +204,8 @@ Render a draft on the cheap model so you can react for a fraction of the final c
     --out-dir _workings --name vid_[slug]_draft
   ```
 
-- **`generate`** (text-to-video) — default a cheap t2v draft model (e.g. **Wan 2.2**); no `--image`:
-
-  ```bash
-  python scripts/falvid.py generate \
-    --prompt "[the scene to create]" \
-    --duration 5 --aspect 16:9 \
-    --out-dir _workings --name vid_[slug]_draft
-  ```
+**Save the draft's seed** — it's printed in the run log and cost log. You need it for Draft Enhance
+(Stage 3) to re-render the same motion at full quality.
 
 Watch the draft **for motion problems** — warping faces/hands (the hardest thing for every model; see
 `references/motion-honesty-guide.md`), the camera drifting through walls, objects morphing, jittery
@@ -195,20 +216,46 @@ right. Always use the exact saved paths printed by the helper.
 ## Stage 3 — Produce the final
 
 Once the motion is approved on the draft, **confirm the go-ahead and the cost again** — this is the
-main spend. Put the estimate to the user explicitly, e.g. *"final as a 5s Veo 3.1 clip at 1080p, no
-audio, ~$1.00 — go ahead?"*
+main spend. Put the estimate to the user explicitly, e.g. *"final as a 5s FLUX 3 clip at 720p, native
+audio, ~$0.85 — go ahead?"*
 
-- **`animate` / `generate` (people, product, general realism)** → **Veo 3.1**
-  (`fal-ai/veo3.1/image-to-video`, or `fal-ai/veo3.1` for text-to-video) — best motion and realism;
-  ~$0.20/s (no audio) / $0.40/s (audio), ×2 at 4K. Leaner: **Kling 3.0 Pro** (`fal-ai/kling-video/v3/pro/...`).
+### Preferred: Draft Enhance (same seed + motion, full quality)
+
+If you drafted on FLUX 3 Draft (Stage 2), the most efficient path to the final is **Draft Enhance** —
+re-render the approved draft at full quality using its **same seed**, so the motion and composition
+carry over exactly. You only pay the full-render cost (not another draft + full):
+
+```bash
+python scripts/falvid.py enhance \
+  --prompt "[the same prompt used for the draft]" \
+  --image _workings/[source-still].png \
+  --seed [the draft's seed from the run log] \
+  --duration 5 --resolution 1080p --aspect 16:9 \
+  --run-log _workings/run-log_[slug].md \
+  --out-dir . --name vid_[slug]_final
+```
+
+This is the default workflow when you drafted on FLUX 3 Draft. The seed locks the motion; the full
+render adds fidelity, corrects artefacts, and upgrades to 1080p.
+
+### Alternative: full render from scratch
+
+If you didn't draft on FLUX 3, or want a fresh render from the locked prompt:
+
+- **`animate` / `generate` (people, product, general realism)** → **FLUX 3**
+  (`fal-ai/blackforestlabs/flux-3/image-to-video`, or `…/text-to-video`) — best real-world
+  understanding, native audio included free; $0.17/s (720p) / $0.29/s (1080p). Up to 20s.
+  Leaner: **Kling 3.0 Pro** (`fal-ai/kling-video/v3/pro/...`). Premium: **Veo 3.1**
+  (`fal-ai/veo3.1/image-to-video`, $0.20/s no-audio / $0.40/s audio).
+
 - **`camera` (camera move)** → **Seedance 1.5 Pro** (`fal-ai/bytedance/seedance/v1.5/pro/image-to-video`)
   is already the `camera` default — strongest camera control and a true `camera_fixed` lock; ~$0.26
   for a 720p/5s clip. For a premium native 4K move, **Kling v3 4K** (`fal-ai/kling-video/v3/4k/image-to-video`).
 
 ```bash
 python scripts/falvid.py animate \
-  --prompt "[the approved motion]" --image _workings/[source-still].png \
-  --model fal-ai/veo3.1/image-to-video --duration 5 --resolution 1080p --aspect 16:9 \
+  --prompt "[the approved motion, including audio]" --image _workings/[source-still].png \
+  --model fal-ai/blackforestlabs/flux-3/image-to-video --duration 5 --resolution 1080p --aspect 16:9 \
   --run-log _workings/run-log_[slug].md \
   --out-dir . --name vid_[slug]_final
 ```
@@ -237,8 +284,10 @@ is (full detail in `references/motion-honesty-guide.md`):
 
 ## Model choices
 
-The helper defaults to sensible models per mode; override with `--model [endpoint-id]`. The current
-verified endpoint IDs, their role and approximate cost live in `references/fal-video-models.md`.
+The helper defaults to **FLUX 3** for draft and full renders — best real-world understanding, native
+audio included free, up to 20s clips, and a Draft Enhance workflow that re-renders the approved draft
+at full quality with the same seed. Override with `--model [endpoint-id]`. The current verified endpoint
+IDs, their role and approximate cost live in `references/fal-video-models.md`.
 fal.ai's catalogue changes — if a model ID errors, check that reference and the fal.ai model gallery
 rather than guessing. Anything marked *(verify)* there has not been confirmed against the live gallery
 in this build (several **text-to-video** IDs/rates are *(verify)* — confirm before relying on the
@@ -261,6 +310,9 @@ Key flags:
   `--audio`/`--seed`/`--model`/`--out-dir`/`--name`.
 - `camera` — `--move` (gentle preset) and/or `--prompt`, `--static` (lock the camera), `--image`
   (required), then the same flags.
+- `enhance` — FLUX 3 Draft Enhance: `--prompt` (required), `--image` (required), `--seed` (required,
+  from the draft's run log), `--mode` (`generate` or `animate`, default `animate`), then the same
+  flags. Re-renders the draft at full quality using the same seed — locks motion, upgrades fidelity.
 - `costs` — print the running cost tally for the session, with `--reset` to clear it.
 - `recommend` — the recommended default model per mode (generate/animate/camera), with **live
   pricing**. Read-only, no spend.

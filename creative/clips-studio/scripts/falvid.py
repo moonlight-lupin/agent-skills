@@ -21,12 +21,34 @@ FAL_API = "https://api.fal.ai/v1"
 DEFAULT_COST_LOG = "_falvid-costs.jsonl"
 
 DEFAULT_MODELS = {
-    "generate": "fal-ai/wan/v2.2-a14b/text-to-video",
-    "animate": "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
+    "generate": "fal-ai/blackforestlabs/flux-3/text-to-video/draft",
+    "animate": "fal-ai/blackforestlabs/flux-3/image-to-video/draft",
     "camera": "fal-ai/bytedance/seedance/v1.5/pro/image-to-video",
+    "generate_full": "fal-ai/blackforestlabs/flux-3/text-to-video",
+    "animate_full": "fal-ai/blackforestlabs/flux-3/image-to-video",
 }
 
 VIDEO_PRICING = {
+    # ── FLUX 3 (Black Forest Labs) — native audio included free ──
+    "fal-ai/blackforestlabs/flux-3/text-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
+    "fal-ai/blackforestlabs/flux-3/image-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
+    "fal-ai/blackforestlabs/flux-3/first-last-frame-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
+    "fal-ai/blackforestlabs/flux-3/keyframes-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
+    "fal-ai/blackforestlabs/flux-3/extend-video": {"kind": "per_second", "rate": 0.41, "fhd_rate": 0.53},
+    "fal-ai/blackforestlabs/flux-3/text-to-video/draft": {"kind": "per_second", "rate": 0.06, "note": "HD only; ~1/3 of full render cost"},
+    "fal-ai/blackforestlabs/flux-3/image-to-video/draft": {"kind": "per_second", "rate": 0.06, "note": "HD only; ~1/3 of full render cost"},
+    # ── Seedance 2.5 (ByteDance) — token-based, native 30s, expensive ──
+    "fal-ai/bytedance/seedance-2.5/image-to-video": {"kind": "per_second", "rate": 0.473, "note": "720p with audio; token-based ~$0.0214/1k tokens; ~$2.31 for 5s/720p/16:9"},
+    "fal-ai/bytedance/seedance-2.5/text-to-video": {"kind": "per_second", "rate": 0.473, "note": "720p with audio; same token formula as i2v"},
+    "fal-ai/bytedance/seedance-2.5/reference-to-video": {"kind": "per_second", "rate": 0.473, "note": "720p with audio; up to 50 multimodal refs"},
+    # ── Seedance 2.0 (ByteDance) — token-based, 15s, 1080p, audio free ──
+    "fal-ai/bytedance/seedance-2.0/image-to-video": {"kind": "per_second", "rate": 0.3024, "note": "720p with audio; 1080p ~$0.682/s; token-based $0.014/1k tokens"},
+    "fal-ai/bytedance/seedance-2.0/text-to-video": {"kind": "per_second", "rate": 0.3024, "note": "720p with audio; same token formula"},
+    "fal-ai/bytedance/seedance-2.0/reference-to-video": {"kind": "per_second", "rate": 0.3024, "note": "720p with audio; up to 9 images + 3 videos + 3 audio refs"},
+    "fal-ai/bytedance/seedance-2.0/fast/image-to-video": {"kind": "per_second", "rate": 0.2419, "note": "Fast tier; 720p only; lower latency"},
+    "fal-ai/bytedance/seedance-2.0/fast/text-to-video": {"kind": "per_second", "rate": 0.2419, "note": "Fast tier; 720p only; lower latency"},
+    "fal-ai/bytedance/seedance-2.0/fast/reference-to-video": {"kind": "per_second", "rate": 0.2419, "note": "Fast tier; 720p only; up to 9 refs"},
+    # ── Kling ──
     "fal-ai/kling-video/v2.5-turbo/pro/image-to-video": {"kind": "per_second", "rate": 0.07},
     "fal-ai/kling-video/v3/pro/image-to-video": {"kind": "per_second", "rate": 0.15},
     "fal-ai/kling-video/v3/4k/image-to-video": {"kind": "per_second", "rate": 0.42},
@@ -47,17 +69,20 @@ VIDEO_PRICING = {
 }
 
 START_IMAGE_MODELS = ("kling-video/v3",)
-AUDIO_MODELS = ("veo3.1", "kling-video/v3", "seedance/v1.5")
+AUDIO_MODELS = ("veo3.1", "kling-video/v3", "seedance/v1.5", "flux-3", "seedance-2.5", "seedance-2.0")
 CAMERA_FIXED_MODELS = ("seedance",)
 DEFAULT_RESOLUTION = {"fal-ai/bytedance/seedance/v1.5/pro/image-to-video": "720p"}
 MAX_DURATION = {
     "kling-video/v2.5-turbo": 10,
     "kling-video/v3": 15,
     "seedance/v1.5": 12,
+    "seedance-2.0": 15,
+    "seedance-2.5": 30,
     "veo3.1": 8,
     "hailuo-2.3": 5,
     "wan/v2.2": 5,
     "ltx-2": 10,
+    "flux-3": 20,
 }
 URL_ARGUMENT_KEYS = {"image_url", "start_image_url", "end_image_url", "tail_image_url"}
 CAMERA_MOVES = {
@@ -97,9 +122,12 @@ def _video_cost(model, duration, arguments):
         if arguments.get("generate_audio") and spec.get("audio_rate"):
             rate = spec["audio_rate"]
             notes.append("audio")
-        if str(arguments.get("resolution", "")).upper() == "4K" and spec.get("k4_mult"):
+        if str(arguments.get("resolution", "")).upper() in ("4K", "FHD", "1080P") and spec.get("k4_mult"):
             rate *= spec["k4_mult"]
-            notes.append("4K")
+            notes.append("4K" if "4K" in str(arguments.get("resolution", "")).upper() else "FHD")
+        elif str(arguments.get("resolution", "")).upper() in ("FHD", "1080P") and spec.get("fhd_rate"):
+            rate = spec["fhd_rate"]
+            notes.append("FHD")
         secs = int(duration) if duration else 5
         tag = f" ({', '.join(notes)})" if notes else ""
         return rate * secs, f"{secs}s x ${rate}/s{tag}", False
@@ -223,39 +251,30 @@ def _session_total(path):
 FAL_KEY_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}:[0-9a-fA-F]{16,}"
 )
-# Assignment must start its line (optionally `export`ed) so commented examples
-# like `# FAL_KEY=your-key` in notes files are never picked up.
-FAL_KEY_ASSIGN_RE = re.compile(r"^\s*(?:export\s+)?FAL_KEY\s*[=:]\s*[\"']?([^\s\"']+)", re.M)
-FAL_ADMIN_ASSIGN_RE = re.compile(r"^\s*(?:export\s+)?FAL_ADMIN_KEY\s*[=:]\s*[\"']?([^\s\"']+)", re.M)
 
 
-def _extract_fal_key(text, name_hinted=False, labeled_only=False):
-    """Pull a fal key out of file text. An explicit `FAL_KEY=`/`FAL_KEY:` line always counts.
-    Unless `labeled_only`, also accept an UNLABELED token — a fal-shaped `uuid:hex` match
-    anywhere, or (for a file whose NAME hints fal/key) the whole file being one such token.
-    Unlabeled tokens must fully match the fal key shape so a credential for some OTHER
-    service (`user:password`, `sid:token`, …) is never adopted and sent to fal.ai."""
-    m = FAL_KEY_ASSIGN_RE.search(text)
+def _extract_fal_key(text, name_hinted=False):
+    """Pull a fal key out of file text: a `FAL_KEY=`/`FAL_KEY:` assignment, a bare `id:secret` token
+    anywhere, or — for a file whose NAME hints fal/key — a whole-file single `id:secret` token."""
+    m = re.search(r"FAL_KEY\s*[=:]\s*[\"']?([^\s\"']+)", text)
     if m:
         return m.group(1)
-    if labeled_only:
-        return None
     m = FAL_KEY_RE.search(text)
     if m:
         return m.group(0)
-    if name_hinted and FAL_KEY_RE.fullmatch(text.strip()):
-        return text.strip()
+    if name_hinted:
+        s = text.strip()
+        if s and "\n" not in s and " " not in s and ":" in s and 20 <= len(s) <= 200:
+            return s
     return None
 
 
 def _autoload_fal_keys():
     """If FAL_KEY isn't in the environment, find it in a local text file the user saved — WORKING
     FOLDER first, then the home dir — so a non-technical user isn't asked for a key they've already
-    dropped in a file. In the working folder the filename does NOT matter (users rarely use `.env`):
-    the key is detected by CONTENT — a `FAL_KEY=…` line, or a bare token matching fal's key shape.
-    In the HOME dir only name-hinted files (fal/key/api/env) are read, and only an explicit
-    `FAL_KEY=…` line is accepted — never a bare token, so other services' credentials that live in
-    $HOME can't be mistaken for a fal key. Local-only; nothing fetched or sent; env vars always win."""
+    dropped in a file. The filename does NOT matter (users rarely use `.env`): the key is detected by
+    CONTENT — a `FAL_KEY=…` line or the `id:secret` pattern. Local-only; nothing fetched or sent;
+    existing env vars always win."""
     if os.environ.get("FAL_KEY"):
         return
     exts = {".txt", ".env", ".cfg", ".ini", ".text", ""}
@@ -273,10 +292,10 @@ def _autoload_fal_keys():
                 text = p.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
-            key = _extract_fal_key(text, name_hinted=(p in hinted), labeled_only=(d == Path.home()))
+            key = _extract_fal_key(text, name_hinted=(p in hinted))
             if key:
                 os.environ["FAL_KEY"] = key
-                am = FAL_ADMIN_ASSIGN_RE.search(text)
+                am = re.search(r"FAL_ADMIN_KEY\s*[=:]\s*[\"']?([^\s\"']+)", text)
                 if am and not os.environ.get("FAL_ADMIN_KEY"):
                     os.environ["FAL_ADMIN_KEY"] = am.group(1)
                 print(f"  using FAL_KEY found in {p}", file=sys.stderr)
@@ -505,6 +524,45 @@ def cmd_camera(a):
     _run(model, args, dur, a.out_dir, a.name, a.cost_log, a.run_log, a.verbose, {"command": "camera", "input_images": [a.image]})
 
 
+def cmd_enhance(a):
+    """Draft Enhance: re-render a prior FLUX 3 draft at full quality with the same seed.
+    The draft's seed is extracted from its cost-log entry or provided explicitly.
+
+    This is a FLUX 3-specific feature — only FLUX 3 has a paired draft/full pipeline where
+    the same seed reproduces the same motion at higher fidelity. Other models (Kling, Veo,
+    Seedance) don't have this relationship; passing their seeds won't reproduce motion.
+    """
+    if not a.seed:
+        sys.exit("ERROR: --seed is required for enhance. Pass the draft's seed (from the run log or cost log).")
+    if not a.image:
+        sys.exit("ERROR: --image is required for enhance. Pass the draft clip's first frame or the source image.")
+    if a.mode == "generate":
+        model = a.model or DEFAULT_MODELS["generate_full"]
+    else:
+        model = a.model or DEFAULT_MODELS["animate_full"]
+    # Guard: warn if a non-FLUX-3 model is passed — seed continuity is a FLUX 3 feature.
+    if a.model and "flux-3" not in a.model:
+        sys.exit(
+            f"ERROR: Draft Enhance is a FLUX 3-specific feature. The model '{a.model}' is not a FLUX 3 "
+            f"endpoint — its seed won't reproduce the draft's motion at full quality. Use a fresh full "
+            f"render instead (generate/animate with --model {a.model}), or omit --model to use the "
+            f"FLUX 3 full default."
+        )
+    _check_duration(model, a.duration)
+    if a.dry_run:
+        fal_client = None
+    else:
+        fal_client, _ = _import_deps()
+        _require_fal_key()
+    _, args, dur = _build_video_args(a, model, a.prompt, fal_client=fal_client if not a.dry_run else None, dry_run=a.dry_run)
+    args["seed"] = a.seed
+    if a.dry_run:
+        _dry_run("enhance", model, args, dur, input_images=[a.image], out_dir=a.out_dir, name=a.name)
+        return
+    _run(model, args, dur, a.out_dir, a.name, a.cost_log, a.run_log, a.verbose,
+         {"command": "enhance", "input_images": [a.image]})
+
+
 def cmd_costs(a):
     logp = _cost_log_path(a.cost_log)
     if a.reset:
@@ -573,6 +631,26 @@ def build_parser():
     c.add_argument("--cost-log")
     c.add_argument("--reset", action="store_true")
     c.set_defaults(func=cmd_costs)
+
+    en = sub.add_parser("enhance", help="FLUX 3 Draft Enhance: re-render a draft at full quality with the same seed and motion.")
+    en.add_argument("--prompt", required=True, help="The same prompt used for the draft.")
+    en.add_argument("--image", required=True, help="The source image (for animate) or draft first frame.")
+    en.add_argument("--seed", type=int, required=True, help="The draft's seed (from run log or cost log).")
+    en.add_argument("--mode", choices=["generate", "animate"], default="animate", help="Draft mode: 'generate' (text-to-video) or 'animate' (image-to-video). Default: animate.")
+    en.add_argument("--duration", type=int, default=5)
+    en.add_argument("--resolution")
+    en.add_argument("--aspect")
+    en.add_argument("--audio", action="store_true")
+    en.add_argument("--model")
+    en.add_argument("--out-dir", default=".")
+    en.add_argument("--name", default="vid_enhanced")
+    en.add_argument("--arg", action="append")
+    en.add_argument("--arg-json", action="append")
+    en.add_argument("--cost-log")
+    en.add_argument("--run-log")
+    en.add_argument("--verbose", action="store_true")
+    en.add_argument("--dry-run", action="store_true")
+    en.set_defaults(func=cmd_enhance)
 
     s = sub.add_parser("search", help="Search the live fal model catalogue by keyword (with pricing).")
     s.add_argument("query", help="Search term, e.g. 'video upscale', 'image to video', 'kling'.")
@@ -660,12 +738,17 @@ def cmd_search(a):
 def cmd_recommend(a):
     fal_client, requests = _import_deps()
     _require_fal_key()
-    prices = _prices_batch(list(DEFAULT_MODELS.values()), requests)
+    rec_ids = list(DEFAULT_MODELS.values())
+    prices = _prices_batch(rec_ids, requests)
     print("Recommended default per mode for this skill (live pricing):\n")
     for mode, mid in DEFAULT_MODELS.items():
-        print(f"  {mode:9} → {mid}   [{_price_str(prices.get(mid))}]")
-    print("\nThese are the tuned, cost-balanced defaults — stick with them unless a result is genuinely\n"
-          "unsatisfactory. To explore alternatives, search the catalogue with:  search <term>")
+        print(f"  {mode:14} → {mid}   [{_price_str(prices.get(mid))}]")
+    print("\n  Draft defaults use FLUX 3 Draft (cheap, HD only, native audio).")
+    print("  Full defaults use FLUX 3 full render (720p/1080p, native audio free).")
+    print("  Camera default: Seedance 1.5 Pro (best camera control + camera_fixed lock).")
+    print("\n  Use 'enhance' to re-render a draft at full quality with the same seed + motion.")
+    print("\nThese are the tuned, cost-balanced defaults — stick with them unless a result is genuinely")
+    print("unsatisfactory. To explore alternatives, search the catalogue with:  search <term>")
 
 
 def main():

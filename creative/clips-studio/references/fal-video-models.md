@@ -9,13 +9,62 @@ These are **text-to-video** (`generate`, a prompt → an MP4) and **image-to-vid
 `falvid.py` uses `fal_client.subscribe`, which polls the queue and blocks until the clip is ready
 (often a few minutes per clip).
 
-**Cost is an estimate, not live-exact.** Video is billed per-second (Kling, Veo) or per-clip/
+**Cost is an estimate, not live-exact.** Video is billed per-second (Kling, Veo, FLUX 3) or per-clip/
 per-token (Seedance, Hailuo), and the exact charge depends on output **duration × fps × resolution ×
 audio**, which the API does **not** return. `falvid.py` therefore computes a **verified-rate
 estimate** from the rates below × the *requested* duration and flags it as an estimate (it does not
 query a live pricing API for video). **The fal dashboard is the authoritative charge.** Rates
-verified against fal's pricing pages on **24 Jun 2026**; *(verify)* marks anything not confirmed live
+verified against fal's pricing pages on **9 Aug 2026**; *(verify)* marks anything not confirmed live
 this build.
+
+## FLUX 3 (Black Forest Labs) — DEFAULT for draft + full
+
+Native audio included free. Up to 20 seconds. Draft Enhance re-renders a draft at full quality
+with the same seed. Five full endpoints + two draft endpoints.
+
+| Model | Endpoint id | Role | Rate | Notes |
+|---|---|---|---|---|
+| FLUX 3 Text to Video | `fal-ai/blackforestlabs/flux-3/text-to-video` | **Full default (generate)** | $0.17/s 720p · $0.29/s 1080p | Native audio free. Up to 20s. |
+| FLUX 3 Image to Video | `fal-ai/blackforestlabs/flux-3/image-to-video` | **Full default (animate)** | $0.17/s 720p · $0.29/s 1080p | Animate a still; native audio free. |
+| FLUX 3 First-Last Frame | `fal-ai/blackforestlabs/flux-3/first-last-frame-to-video` | Alt | $0.17/s 720p · $0.29/s 1080p | Start + end frame → video between. |
+| FLUX 3 Keyframes | `fal-ai/blackforestlabs/flux-3/keyframes-to-video` | Alt | $0.17/s 720p · $0.29/s 1080p | Up to 10 pinned keyframes. |
+| FLUX 3 Extend Video | `fal-ai/blackforestlabs/flux-3/extend-video` | Alt (continuation) | $0.41/s 720p · $0.53/s 1080p | Continue a clip; ~2.5× the t2v/i2v rate. |
+| FLUX 3 Text to Video Draft | `fal-ai/blackforestlabs/flux-3/text-to-video/draft` | **Draft default (generate)** | $0.06/s | HD only; ~1/3 of full. Native audio. |
+| FLUX 3 Image to Video Draft | `fal-ai/blackforestlabs/flux-3/image-to-video/draft` | **Draft default (animate)** | $0.06/s | HD only; ~1/3 of full. Native audio. |
+
+**Draft Enhance workflow:** Draft on the cheap endpoint → note the seed → `falvid.py enhance --seed
+<seed>` re-renders at full quality. The seed locks the motion; the full render adds fidelity.
+
+## Seedance 2.5 (ByteDance) — available option (not default)
+
+Native 30-second generation, up to 50 multimodal references, native audio. Token-based pricing makes
+it **~9× more expensive** than Seedance 1.5 for a 5s clip. Use for long takes or reference-to-video,
+not for short camera moves.
+
+| Model | Endpoint id | Rate | Notes |
+|---|---|---|---|
+| Seedance 2.5 Image to Video | `fal-ai/bytedance/seedance-2.5/image-to-video` | ~$0.473/s (720p w/audio) | 30s max; `end_image_url`; `duration: "auto"`; `aspect_ratio: "auto"`. |
+| Seedance 2.5 Text to Video | `fal-ai/bytedance/seedance-2.5/text-to-video` | ~$0.473/s (720p w/audio) | 30s max. |
+| Seedance 2.5 Reference to Video | `fal-ai/bytedance/seedance-2.5/reference-to-video` | ~$0.473/s (720p w/audio) | Up to 50 refs (30 images + 10 videos + 10 audio). |
+
+**Cost reality:** tokens = (height × width × duration × 24) / 1024, at $0.0214/1k tokens.
+5s/720p/16:9 = 108k tokens ≈ $2.31. 30s/720p = 648k tokens ≈ $13.87.
+
+## Seedance 2.0 (ByteDance) — available option (not default)
+
+Native 15-second generation, 1080p output, native audio free. Token-based pricing. Better physics
+and camera control than 1.5, but **no `camera_fixed` parameter** (use prompt language for static
+shots). Standard + Fast tiers.
+
+| Model | Endpoint id | Rate | Notes |
+|---|---|---|---|
+| Seedance 2.0 Image to Video | `fal-ai/bytedance/seedance-2.0/image-to-video` | $0.30/s (720p) · $0.68/s (1080p) | 15s max; `end_image_url`; multi-shot; audio free. |
+| Seedance 2.0 Fast Image to Video | `fal-ai/bytedance/seedance-2.0/fast/image-to-video` | $0.24/s (720p only) | Lower latency; no 1080p. |
+| Seedance 2.0 Text to Video | `fal-ai/bytedance/seedance-2.0/text-to-video` | $0.30/s (720p) · $0.68/s (1080p) | 15s max; multi-shot; audio free. |
+| Seedance 2.0 Reference to Video | `fal-ai/bytedance/seedance-2.0/reference-to-video` | $0.30/s (720p) | Up to 9 images + 3 videos + 3 audio refs. |
+
+**Cost reality:** tokens = (height × width × duration × 24) / 1024, at $0.014/1k tokens.
+5s/720p/16:9 = 108k tokens ≈ $1.51. Use Fast tier for 720p to save ~20%.
 
 ## Text-to-video — `generate` (a clip from a prompt, no source image)
 

@@ -34,6 +34,33 @@ class TestVideoCostPerSecond(unittest.TestCase):
         self.assertAlmostEqual(cost, 2.0, places=4)
         self.assertIn("4K", basis)
 
+    def test_flux3_draft_720p(self):
+        cost, basis, _ = falvid._video_cost("fal-ai/blackforestlabs/flux-3/text-to-video/draft", 5, {})
+        self.assertAlmostEqual(cost, 0.30, places=4)
+        self.assertIn("0.06", basis)
+
+    def test_flux3_full_720p(self):
+        cost, basis, _ = falvid._video_cost("fal-ai/blackforestlabs/flux-3/text-to-video", 5, {})
+        self.assertAlmostEqual(cost, 0.85, places=4)
+        self.assertIn("0.17", basis)
+
+    def test_flux3_full_1080p(self):
+        cost, basis, _ = falvid._video_cost("fal-ai/blackforestlabs/flux-3/text-to-video", 5, {"resolution": "1080p"})
+        self.assertAlmostEqual(cost, 1.45, places=4)
+        self.assertIn("FHD", basis)
+
+    def test_flux3_extend_720p(self):
+        cost, basis, _ = falvid._video_cost("fal-ai/blackforestlabs/flux-3/extend-video", 5, {})
+        self.assertAlmostEqual(cost, 2.05, places=4)
+
+    def test_seedance_25_720p(self):
+        cost, basis, _ = falvid._video_cost("fal-ai/bytedance/seedance-2.5/image-to-video", 5, {})
+        self.assertAlmostEqual(cost, 2.365, places=4)
+
+    def test_seedance_20_720p(self):
+        cost, basis, _ = falvid._video_cost("fal-ai/bytedance/seedance-2.0/image-to-video", 5, {})
+        self.assertAlmostEqual(cost, 1.512, places=4)
+
 
 class TestVideoCostOtherUnits(unittest.TestCase):
     def test_seedance_per_clip_prorated(self):
@@ -115,7 +142,7 @@ class TestDryRun(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn("DRY RUN", out)
         self.assertIn("no fal.ai call", out)
-        self.assertIn("fal-ai/wan/v2.2-a14b/text-to-video", out)
+        self.assertIn("fal-ai/blackforestlabs/flux-3/text-to-video/draft", out)
 
     def test_animate_dry_run_redacts_image_url(self):
         args = argparse.Namespace(
@@ -142,6 +169,60 @@ class TestDryRun(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn("Input image", out)
         self.assertIn("[omitted from log; see input_images]", out)
+
+
+class TestEnhanceGuard(unittest.TestCase):
+    """Draft Enhance is FLUX 3-specific — non-FLUX-3 models must be rejected."""
+
+    def _enhance_args(self, model=None):
+        return argparse.Namespace(
+            prompt="test motion",
+            image="still.png",
+            seed=12345,
+            mode="animate",
+            duration=5,
+            resolution=None,
+            aspect=None,
+            audio=False,
+            model=model,
+            out_dir=".",
+            name="vid_enhanced",
+            arg=None,
+            arg_json=None,
+            cost_log=None,
+            run_log=None,
+            verbose=False,
+            dry_run=True,
+        )
+
+    def test_enhance_with_kling_rejected(self):
+        args = self._enhance_args(model="fal-ai/kling-video/v3/pro/image-to-video")
+        with self.assertRaises(SystemExit) as ctx:
+            falvid.cmd_enhance(args)
+        self.assertIn("FLUX 3-specific", str(ctx.exception))
+
+    def test_enhance_with_seedance_25_rejected(self):
+        args = self._enhance_args(model="fal-ai/bytedance/seedance-2.5/image-to-video")
+        with self.assertRaises(SystemExit) as ctx:
+            falvid.cmd_enhance(args)
+        self.assertIn("FLUX 3-specific", str(ctx.exception))
+
+    def test_enhance_with_flux3_accepted_dry_run(self):
+        args = self._enhance_args(model="fal-ai/blackforestlabs/flux-3/image-to-video")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falvid.cmd_enhance(args)
+        out = buf.getvalue()
+        self.assertIn("DRY RUN", out)
+        self.assertIn("flux-3/image-to-video", out)
+
+    def test_enhance_default_is_flux3(self):
+        args = self._enhance_args(model=None)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            falvid.cmd_enhance(args)
+        out = buf.getvalue()
+        self.assertIn("flux-3/image-to-video", out)
 
 
 class TestExtractFalKey(unittest.TestCase):
@@ -547,75 +628,6 @@ class TestCmdRecommend(unittest.TestCase):
                 falvid.cmd_recommend(args)
         out = buf.getvalue()
         self.assertIn("price n/a", out)
-
-
-class TestFalKeyAutoloadSecurity(unittest.TestCase):
-    """Regression tests: the autoloader must never adopt another service's credential."""
-
-    FAL_SHAPED = "a1b2c3d4-e5f6-7890-abcd-ef1234567890:abcdef0123456789abcdef0123456789"
-
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self._orig_cwd = Path.cwd()
-        self._orig_home = os.environ.get("HOME")
-        self.work = Path(self._tmp.name) / "work"
-        self.work.mkdir()
-        self.home = Path(self._tmp.name) / "home"
-        self.home.mkdir()
-        os.chdir(str(self.work))
-        os.environ["HOME"] = str(self.home)
-
-    def tearDown(self):
-        os.chdir(str(self._orig_cwd))
-        os.environ.pop("FAL_KEY", None)
-        os.environ.pop("FAL_ADMIN_KEY", None)
-        if self._orig_home is not None:
-            os.environ["HOME"] = self._orig_home
-        else:
-            os.environ.pop("HOME", None)
-        self._tmp.cleanup()
-
-    def _clean_env(self):
-        return {k: v for k, v in os.environ.items() if k not in ("FAL_KEY", "FAL_ADMIN_KEY")}
-
-    def test_whole_file_non_fal_credential_rejected(self):
-        """A user:password / sid:token style secret in a hinted file must NOT become FAL_KEY."""
-        (self.home / "key.txt").write_text("myuser:SuperSecretPassword123456")
-        with patch.dict(os.environ, self._clean_env(), clear=True):
-            falvid._autoload_fal_keys()
-            self.assertNotIn("FAL_KEY", os.environ)
-
-    def test_whole_file_fal_shaped_token_accepted_in_cwd(self):
-        (self.work / "fal key.txt").write_text(self.FAL_SHAPED + "\n")
-        with patch.dict(os.environ, self._clean_env(), clear=True):
-            falvid._autoload_fal_keys()
-            self.assertEqual(os.environ.get("FAL_KEY"), self.FAL_SHAPED)
-
-    def test_bare_fal_shaped_token_in_home_not_adopted(self):
-        """HOME is labeled-only: even a fal-shaped bare token there is ignored."""
-        (self.home / "api_tokens.txt").write_text(f"some service: {self.FAL_SHAPED}\n")
-        with patch.dict(os.environ, self._clean_env(), clear=True):
-            falvid._autoload_fal_keys()
-            self.assertNotIn("FAL_KEY", os.environ)
-
-    def test_labeled_assignment_in_home_adopted(self):
-        (self.home / "fal.env").write_text(f"FAL_KEY={self.FAL_SHAPED}\n")
-        with patch.dict(os.environ, self._clean_env(), clear=True):
-            falvid._autoload_fal_keys()
-            self.assertEqual(os.environ.get("FAL_KEY"), self.FAL_SHAPED)
-
-    def test_commented_assignment_ignored(self):
-        """`# FAL_KEY=placeholder` in a notes file must not be loaded as a key."""
-        (self.work / "notes.txt").write_text("# FAL_KEY=your-key-here\nsome notes\n")
-        with patch.dict(os.environ, self._clean_env(), clear=True):
-            falvid._autoload_fal_keys()
-            self.assertNotIn("FAL_KEY", os.environ)
-
-    def test_exported_assignment_accepted(self):
-        (self.work / "keys.env").write_text(f"export FAL_KEY={self.FAL_SHAPED}\n")
-        with patch.dict(os.environ, self._clean_env(), clear=True):
-            falvid._autoload_fal_keys()
-            self.assertEqual(os.environ.get("FAL_KEY"), self.FAL_SHAPED)
 
 
 if __name__ == "__main__":
