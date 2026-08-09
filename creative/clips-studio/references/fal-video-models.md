@@ -24,13 +24,13 @@ with the same seed. Five full endpoints + two draft endpoints.
 
 | Model | Endpoint id | Role | Rate | Notes |
 |---|---|---|---|---|
-| FLUX 3 Text to Video | `fal-ai/blackforestlabs/flux-3/text-to-video` | **Full default (generate)** | $0.17/s 720p · $0.29/s 1080p | Native audio free. Up to 20s. |
-| FLUX 3 Image to Video | `fal-ai/blackforestlabs/flux-3/image-to-video` | **Full default (animate)** | $0.17/s 720p · $0.29/s 1080p | Animate a still; native audio free. |
-| FLUX 3 First-Last Frame | `fal-ai/blackforestlabs/flux-3/first-last-frame-to-video` | Alt | $0.17/s 720p · $0.29/s 1080p | Start + end frame → video between. |
-| FLUX 3 Keyframes | `fal-ai/blackforestlabs/flux-3/keyframes-to-video` | Alt | $0.17/s 720p · $0.29/s 1080p | Up to 10 pinned keyframes. |
-| FLUX 3 Extend Video | `fal-ai/blackforestlabs/flux-3/extend-video` | Alt (continuation) | $0.41/s 720p · $0.53/s 1080p | Continue a clip; ~2.5× the t2v/i2v rate. |
-| FLUX 3 Text to Video Draft | `fal-ai/blackforestlabs/flux-3/text-to-video/draft` | **Draft default (generate)** | $0.06/s | HD only; ~1/3 of full. Native audio. |
-| FLUX 3 Image to Video Draft | `fal-ai/blackforestlabs/flux-3/image-to-video/draft` | **Draft default (animate)** | $0.06/s | HD only; ~1/3 of full. Native audio. |
+| FLUX 3 Text to Video | `blackforestlabs/flux-3/text-to-video` | **Full default (generate)** | $0.17/s 720p · $0.29/s 1080p | Native audio free. Up to 20s. |
+| FLUX 3 Image to Video | `blackforestlabs/flux-3/image-to-video` | **Full default (animate)** | $0.17/s 720p · $0.29/s 1080p | Animate a still; native audio free. |
+| FLUX 3 First-Last Frame | `blackforestlabs/flux-3/first-last-frame-to-video` | Alt | $0.17/s 720p · $0.29/s 1080p | Start + end frame → video between. |
+| FLUX 3 Keyframes | `blackforestlabs/flux-3/keyframes-to-video` | Alt | $0.17/s 720p · $0.29/s 1080p | Up to 10 pinned keyframes. |
+| FLUX 3 Extend Video | `blackforestlabs/flux-3/extend-video` | Alt (continuation) | $0.41/s 720p · $0.53/s 1080p | Continue a clip; ~2.5× the t2v/i2v rate. |
+| FLUX 3 Text to Video Draft | `blackforestlabs/flux-3/text-to-video/draft` | **Draft default (generate)** | $0.06/s | HD only; ~1/3 of full. Native audio. |
+| FLUX 3 Image to Video Draft | `blackforestlabs/flux-3/image-to-video/draft` | **Draft default (animate)** | $0.06/s | HD only; ~1/3 of full. Native audio. |
 
 **Draft Enhance workflow:** Draft on the cheap endpoint → note the seed → `falvid.py enhance --seed
 <seed>` re-renders at full quality. The seed locks the motion; the full render adds fidelity.

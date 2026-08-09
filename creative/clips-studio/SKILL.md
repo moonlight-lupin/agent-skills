@@ -173,7 +173,7 @@ Render a draft on FLUX 3 Draft (cheap, HD only, native audio included) so you ca
 fraction of the full cost — **$0.06/s** vs $0.17/s for the full render.
 
 - **`animate`** — default **FLUX 3 Image-to-Video Draft**
-  (`fal-ai/blackforestlabs/flux-3/image-to-video/draft`, ~$0.06/s → ~$0.30 for 5s, native audio):
+  (`blackforestlabs/flux-3/image-to-video/draft`, ~$0.06/s → ~$0.30 for 5s, native audio):
 
   ```bash
   python scripts/falvid.py animate \
@@ -185,7 +185,7 @@ fraction of the full cost — **$0.06/s** vs $0.17/s for the full render.
   ```
 
 - **`generate`** (text-to-video) — default **FLUX 3 Text-to-Video Draft**
-  (`fal-ai/blackforestlabs/flux-3/text-to-video/draft`, ~$0.06/s → ~$0.30 for 5s, native audio):
+  (`blackforestlabs/flux-3/text-to-video/draft`, ~$0.06/s → ~$0.30 for 5s, native audio):
 
   ```bash
   python scripts/falvid.py generate \
@@ -243,7 +243,7 @@ render adds fidelity, corrects artefacts, and upgrades to 1080p.
 If you didn't draft on FLUX 3, or want a fresh render from the locked prompt:
 
 - **`animate` / `generate` (people, product, general realism)** → **FLUX 3**
-  (`fal-ai/blackforestlabs/flux-3/image-to-video`, or `…/text-to-video`) — best real-world
+  (`blackforestlabs/flux-3/image-to-video`, or `…/text-to-video`) — best real-world
   understanding, native audio included free; $0.17/s (720p) / $0.29/s (1080p). Up to 20s.
   Leaner: **Kling 3.0 Pro** (`fal-ai/kling-video/v3/pro/...`). Premium: **Veo 3.1**
   (`fal-ai/veo3.1/image-to-video`, $0.20/s no-audio / $0.40/s audio).
@@ -255,7 +255,7 @@ If you didn't draft on FLUX 3, or want a fresh render from the locked prompt:
 ```bash
 python scripts/falvid.py animate \
   --prompt "[the approved motion, including audio]" --image _workings/[source-still].png \
-  --model fal-ai/blackforestlabs/flux-3/image-to-video --duration 5 --resolution 1080p --aspect 16:9 \
+  --model blackforestlabs/flux-3/image-to-video --duration 5 --resolution 1080p --aspect 16:9 \
   --run-log _workings/run-log_[slug].md \
   --out-dir . --name vid_[slug]_final
 ```

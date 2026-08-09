@@ -35,22 +35,22 @@ class TestVideoCostPerSecond(unittest.TestCase):
         self.assertIn("4K", basis)
 
     def test_flux3_draft_720p(self):
-        cost, basis, _ = falvid._video_cost("fal-ai/blackforestlabs/flux-3/text-to-video/draft", 5, {})
+        cost, basis, _ = falvid._video_cost("blackforestlabs/flux-3/text-to-video/draft", 5, {})
         self.assertAlmostEqual(cost, 0.30, places=4)
         self.assertIn("0.06", basis)
 
     def test_flux3_full_720p(self):
-        cost, basis, _ = falvid._video_cost("fal-ai/blackforestlabs/flux-3/text-to-video", 5, {})
+        cost, basis, _ = falvid._video_cost("blackforestlabs/flux-3/text-to-video", 5, {})
         self.assertAlmostEqual(cost, 0.85, places=4)
         self.assertIn("0.17", basis)
 
     def test_flux3_full_1080p(self):
-        cost, basis, _ = falvid._video_cost("fal-ai/blackforestlabs/flux-3/text-to-video", 5, {"resolution": "1080p"})
+        cost, basis, _ = falvid._video_cost("blackforestlabs/flux-3/text-to-video", 5, {"resolution": "1080p"})
         self.assertAlmostEqual(cost, 1.45, places=4)
         self.assertIn("FHD", basis)
 
     def test_flux3_extend_720p(self):
-        cost, basis, _ = falvid._video_cost("fal-ai/blackforestlabs/flux-3/extend-video", 5, {})
+        cost, basis, _ = falvid._video_cost("blackforestlabs/flux-3/extend-video", 5, {})
         self.assertAlmostEqual(cost, 2.05, places=4)
 
     def test_seedance_25_720p(self):
@@ -142,7 +142,7 @@ class TestDryRun(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn("DRY RUN", out)
         self.assertIn("no fal.ai call", out)
-        self.assertIn("fal-ai/blackforestlabs/flux-3/text-to-video/draft", out)
+        self.assertIn("blackforestlabs/flux-3/text-to-video/draft", out)
 
     def test_animate_dry_run_redacts_image_url(self):
         args = argparse.Namespace(
@@ -208,7 +208,7 @@ class TestEnhanceGuard(unittest.TestCase):
         self.assertIn("FLUX 3-specific", str(ctx.exception))
 
     def test_enhance_with_flux3_accepted_dry_run(self):
-        args = self._enhance_args(model="fal-ai/blackforestlabs/flux-3/image-to-video")
+        args = self._enhance_args(model="blackforestlabs/flux-3/image-to-video")
         buf = io.StringIO()
         with redirect_stdout(buf):
             falvid.cmd_enhance(args)
@@ -413,7 +413,7 @@ class TestBuildVideoArgs(unittest.TestCase):
             image="still.png", duration=5, resolution=None, aspect="16:9",
             audio=True, seed=42, arg=None, arg_json=None,
         )
-        _, built, _ = falvid._build_video_args(args, "fal-ai/blackforestlabs/flux-3/image-to-video", "test", dry_run=True)
+        _, built, _ = falvid._build_video_args(args, "blackforestlabs/flux-3/image-to-video", "test", dry_run=True)
         self.assertTrue(built["generate_audio"])
         self.assertEqual(built["seed"], 42)
 

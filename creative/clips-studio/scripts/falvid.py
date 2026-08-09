@@ -21,22 +21,22 @@ FAL_API = "https://api.fal.ai/v1"
 DEFAULT_COST_LOG = "_falvid-costs.jsonl"
 
 DEFAULT_MODELS = {
-    "generate": "fal-ai/blackforestlabs/flux-3/text-to-video/draft",
-    "animate": "fal-ai/blackforestlabs/flux-3/image-to-video/draft",
+    "generate": "blackforestlabs/flux-3/text-to-video/draft",
+    "animate": "blackforestlabs/flux-3/image-to-video/draft",
     "camera": "fal-ai/bytedance/seedance/v1.5/pro/image-to-video",
-    "generate_full": "fal-ai/blackforestlabs/flux-3/text-to-video",
-    "animate_full": "fal-ai/blackforestlabs/flux-3/image-to-video",
+    "generate_full": "blackforestlabs/flux-3/text-to-video",
+    "animate_full": "blackforestlabs/flux-3/image-to-video",
 }
 
 VIDEO_PRICING = {
     # ── FLUX 3 (Black Forest Labs) — native audio included free ──
-    "fal-ai/blackforestlabs/flux-3/text-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
-    "fal-ai/blackforestlabs/flux-3/image-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
-    "fal-ai/blackforestlabs/flux-3/first-last-frame-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
-    "fal-ai/blackforestlabs/flux-3/keyframes-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
-    "fal-ai/blackforestlabs/flux-3/extend-video": {"kind": "per_second", "rate": 0.41, "fhd_rate": 0.53},
-    "fal-ai/blackforestlabs/flux-3/text-to-video/draft": {"kind": "per_second", "rate": 0.06, "note": "HD only; ~1/3 of full render cost"},
-    "fal-ai/blackforestlabs/flux-3/image-to-video/draft": {"kind": "per_second", "rate": 0.06, "note": "HD only; ~1/3 of full render cost"},
+    "blackforestlabs/flux-3/text-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
+    "blackforestlabs/flux-3/image-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
+    "blackforestlabs/flux-3/first-last-frame-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
+    "blackforestlabs/flux-3/keyframes-to-video": {"kind": "per_second", "rate": 0.17, "fhd_rate": 0.29},
+    "blackforestlabs/flux-3/extend-video": {"kind": "per_second", "rate": 0.41, "fhd_rate": 0.53},
+    "blackforestlabs/flux-3/text-to-video/draft": {"kind": "per_second", "rate": 0.06, "note": "HD only; ~1/3 of full render cost"},
+    "blackforestlabs/flux-3/image-to-video/draft": {"kind": "per_second", "rate": 0.06, "note": "HD only; ~1/3 of full render cost"},
     # ── Seedance 2.5 (ByteDance) — token-based, native 30s, expensive ──
     "fal-ai/bytedance/seedance-2.5/image-to-video": {"kind": "per_second", "rate": 0.473, "note": "720p with audio; token-based ~$0.0214/1k tokens; ~$2.31 for 5s/720p/16:9"},
     "fal-ai/bytedance/seedance-2.5/text-to-video": {"kind": "per_second", "rate": 0.473, "note": "720p with audio; same token formula as i2v"},
@@ -223,7 +223,9 @@ def _append_run_log(run_log, entry):
     if "prompt" in args:
         lines.append(f"- **Prompt:** {args.get('prompt')}")
     if args.get("seed") is not None:
-        lines.append(f"- **Seed:** {args.get('seed')}")
+        lines.append(f"- **Seed (input):** {args.get('seed')}")
+    if entry.get("seed") is not None:
+        lines.append(f"- **Seed (output):** {entry.get('seed')}  (use with `enhance --seed {entry.get('seed')}` to re-render at full quality)")
     other = {k: v for k, v in args.items() if k not in ("prompt", "seed")}
     if other:
         lines.append(f"- **Arguments:** `{json.dumps(other, ensure_ascii=False)}`")
@@ -385,6 +387,12 @@ def _run(model, arguments, duration, out_dir, name, cost_log=None, run_log=None,
     saved = _download(videos, out_dir, name, requests)
     for o in saved:
         print(f"Saved: {o['path']}")
+    # Capture seed from the API result if present
+    result_seed = None
+    if isinstance(result, dict):
+        result_seed = result.get("seed")
+    if result_seed is not None:
+        print(f"Seed: {result_seed}  (save this to re-render with 'enhance --seed {result_seed}')")
     cost, basis, exact = _video_cost(model, duration, arguments)
     logp = _cost_log_path(cost_log)
     entry = {
@@ -395,6 +403,7 @@ def _run(model, arguments, duration, out_dir, name, cost_log=None, run_log=None,
         "input_images": (metadata or {}).get("input_images", []),
         "outputs": [{"path": str(o["path"]), "bytes": o.get("bytes")} for o in saved],
         "duration": duration,
+        "seed": result_seed,
         "cost": round(cost, 4) if cost is not None else None,
         "currency": "USD",
         "basis": basis,
