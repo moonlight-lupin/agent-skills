@@ -1,4 +1,45 @@
-# OpenRouter Embeddings API — Reference
+# Embeddings API — Reference
+
+> **Current default:** NVIDIA NIM / `nvidia/nemotron-3-embed-1b` (2048-dim).
+> See [Current default: NVIDIA NIM](#current-default-nvidia-nim) below.
+>
+> The rest of this document describes the **legacy OpenRouter / bge-m3 path**,
+> kept for users who still configure OpenRouter as a fallback.
+
+## Current default: NVIDIA NIM
+
+```
+POST https://integrate.api.nvidia.com/v1/embeddings
+Authorization: Bearer $NVIDIA_API_KEY
+Content-Type: application/json
+```
+
+```json
+{
+  "model": "nvidia/nemotron-3-embed-1b",
+  "input": ["text one", "text two"],
+  "encoding_format": "float",
+  "input_type": "query"
+}
+```
+
+| Property | Value |
+|---|---|
+| Model | `nvidia/nemotron-3-embed-1b` |
+| Dimensions | 2048 |
+| Auth env var | `NVIDIA_API_KEY` |
+| Optional `input_type` | `"query"` or `"passage"` (improves retrieval; omit for provider default) |
+| Cost | Free on NVIDIA NIM free-trial tier |
+
+Virtual table: `CREATE VIRTUAL TABLE vec_chunks USING vec0(embedding float[2048])`
+
+To use the legacy OpenRouter path instead, set `OPENROUTER_API_KEY` and
+omit `NVIDIA_API_KEY` — `load_api_key()` in `rag_common.py` auto-switches
+`API_URL` / `EMBEDDING_MODEL` / `EMBEDDING_DIMS` to the bge-m3 values below.
+
+---
+
+# Legacy: OpenRouter Embeddings API
 
 ## Endpoint
 
@@ -33,7 +74,7 @@ Supports batch input (array of strings). Returns one embedding per input string.
 }
 ```
 
-## Model: bge-m3
+## Model: bge-m3 (legacy)
 
 | Property | Value |
 |---|---|
@@ -44,17 +85,19 @@ Supports batch input (array of strings). Returns one embedding per input string.
 | Price | $0.01/M input tokens |
 | Rate limit | Standard (no special free-tier limit) |
 
-**Why bge-m3**: Top MTEB multilingual ranking. Handles English, Chinese, and other languages with equal quality.
+**Why bge-m3 was chosen historically**: Top MTEB multilingual ranking. Handles English, Chinese, and other languages with equal quality. Superseded as the default by Nemotron-3-Embed-1B (better retrieval in our benchmarks, free via NIM, 2048-dim).
 
-## Free Alternative (not recommended)
+## Free Alternative (historical note — not the current default)
 
 `nvidia/llama-nemotron-embed-vl-1b-v2:free` — truly $0 but:
 - Llama-based, English-centric → Chinese quality unknown
 - 200 req/day rate limit (full library needs ~2400 calls)
 - "All prompts logged" by NVIDIA for model improvement
-- Not worth the risk for a $0.05 total cost saving
+- Not worth the risk for a $0.05 total cost saving on the old OpenRouter path
 
-## Cost Estimates (June 2026)
+The current default (`nvidia/nemotron-3-embed-1b` via NIM) is the recommended free path.
+
+## Cost Estimates (June 2026, OpenRouter / bge-m3)
 
 | Scope | Chunks | Tokens | Cost |
 |---|---|---|---|
@@ -72,7 +115,8 @@ def float_to_blob(emb):
     return struct.pack(f'{len(emb)}f', *emb)
 ```
 
-Virtual table: `CREATE VIRTUAL TABLE vec_chunks USING vec0(embedding float[1024])`
+Virtual table (legacy bge-m3): `CREATE VIRTUAL TABLE vec_chunks USING vec0(embedding float[1024])`
+Virtual table (current Nemotron): `CREATE VIRTUAL TABLE vec_chunks USING vec0(embedding float[2048])`
 
 Query with: `SELECT rowid, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ?`
 
@@ -83,12 +127,14 @@ sim = max(0, 1 - distance ** 2 / 2)
 
 ## API Key
 
-Stored in `~/.hermes/.env` as `OPENROUTER_API_KEY=sk-or-v1-...`. Loaded by both scripts:
+Current default key in `~/.hermes/.env`:
 
-```python
-def load_api_key():
-    env = Path(os.environ.get('HERMES_ENV', os.path.expanduser('~/.hermes/.env'))).read_text()
-    for line in env.splitlines():
-        if 'OPENROUTER' in line.upper() and 'API_KEY' in line.upper() and not line.startswith('#'):
-            return line.split('=', 1)[1].strip().strip('"').strip("'")
+```
+NVIDIA_API_KEY=nvapi-...
+```
+
+Legacy OpenRouter key (still accepted as fallback by `load_api_key`):
+
+```
+OPENROUTER_API_KEY=sk-or-v1-...
 ```

@@ -1,8 +1,10 @@
 # RAG Pipeline Review Checklist
 
-A systematic audit checklist for any bge-m3 + sqlite-vec RAG pipeline.
-Use when reviewing a new pipeline or debugging poor retrieval quality.
-Distilled from a real audit of the cyberpunk-red-gm portable RAG.
+A systematic audit checklist for any embedding + sqlite-vec RAG pipeline
+(current default: Nemotron-3-Embed-1B via NVIDIA NIM; historically bge-m3
+via OpenRouter). Use when reviewing a new pipeline or debugging poor
+retrieval quality. Distilled from a real audit of the cyberpunk-red-gm
+portable RAG.
 
 ## How to use
 
@@ -124,7 +126,8 @@ is silently lost before query time.
 - [ ] **Are query vectors L2-normalized?**
   `get_embedding()` should call `normalize_vec()` on the API response.
   Without this, the similarity formula is only correct if the API
-  returns unit-norm vectors (bge-m3 does, but don't rely on it).
+  returns unit-norm vectors (Nemotron and the legacy bge-m3 path often
+  do, but don't rely on it).
 
 - [ ] **Is the similarity formula correct for the metric?**
   `sim = 1 - dist²/2` is exact cosine similarity ONLY for unit-normalized
@@ -134,9 +137,12 @@ is silently lost before query time.
 ## 5. Endpoint Verification (⏳ Confirm)
 
 - [ ] **Is the embedding API endpoint actually available?**
-  OpenRouter's `/v1/embeddings` endpoint serves `baai/bge-m3` but
-  coverage is narrower than chat/completions. Test with a single
-  embedding request before committing to a full index build.
+  Current default: NVIDIA NIM
+  `https://integrate.api.nvidia.com/v1/embeddings` serving
+  `nvidia/nemotron-3-embed-1b` (2048-dim). Auth via `NVIDIA_API_KEY`.
+  Optional `input_type` (`"query"` / `"passage"`) improves retrieval.
+  Legacy: OpenRouter `/v1/embeddings` serving `baai/bge-m3` (1024-dim).
+  Test with a single embedding request before committing to a full index build.
 
 - [ ] **Does the endpoint return normalized vectors?**
   Check `math.sqrt(sum(x*x for x in embedding))` — should be ~1.0.
@@ -147,10 +153,12 @@ is silently lost before query time.
   Consider documenting a local `sentence-transformers` path:
   ```python
   from sentence_transformers import SentenceTransformer
-  model = SentenceTransformer('BAAI/bge-m3')
+  # Current: Nemotron-class local models, or the historical bge-m3 path:
+  model = SentenceTransformer('BAAI/bge-m3')  # legacy local fallback
   embeddings = model.encode(texts, normalize_embeddings=True)
   ```
-  Heavier install (torch), but no API dependency.
+  Heavier install (torch), but no API dependency. For OpenRouter as an
+  API fallback, see `openrouter-embeddings.md`.
 
 ## 6. Post-Reindex Verification
 
@@ -192,7 +200,7 @@ assert abs(math.sqrt(sum(x*x for x in vec)) - 1.0) < 0.001
 - **Verify chunk count matches vector count after re-index**:
   `SELECT COUNT(*) FROM chunks` should equal `SELECT COUNT(*) FROM vec_chunks`.
   A mismatch means some chunks were stored without vectors (or vice versa).
-- **Expect ~50-90 min for a full library rebuild**: Small files finish fast, large text collections dominate the time. Cost: ~$0.01-$0.12 depending on corpus size. No rate limiting observed on OpenRouter `/v1/embeddings` with 0.3s delay between batches of 32.
+- **Expect ~50-90 min for a full library rebuild**: Small files finish fast, large text collections dominate the time. NIM embeddings are free; the legacy OpenRouter/`baai/bge-m3` path cost ~$0.01-$0.12 depending on corpus size. Batch size 32 with a short delay between batches remains a safe default.
 
 ## Audit severity key
 

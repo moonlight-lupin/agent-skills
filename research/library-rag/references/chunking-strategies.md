@@ -96,17 +96,17 @@ for the full pattern.
   (e.g. from the MCP `add_book` tool), ensure `file_hash` is set.
 - **Single-newline wrapping**: Some text sources use single `\n` for line wrapping, not
   paragraph breaks. Normalize to spaces before splitting on `\n\n`.
-- **OpenRouter batch limits**: Batch size of 32 works reliably. Larger batches may
+- **OpenRouter / NIM batch limits**: Batch size of 32 works reliably. Larger batches may
   timeout on slow connections.
 - **Page citations lost without marker parsing**: PDF extractors insert `<!-- Page N -->`
   comments at page boundaries, but if the chunker doesn't parse them, all chunks degrade
   to chapter-level citations. Use `split_by_pages()` to split text by markers and stamp
   each chunk with its page. See `references/portable-rag-per-skill.md` for the pattern.
 - **Similarity formula assumes unit-normalized vectors**: `1 - distance²/2` is only
-  exact cosine similarity if both stored and query vectors are L2-normalized. bge-m3
-  returns unit-norm vectors, but normalize explicitly at store and query time to guard
-  against model/API changes. See `normalize_vec()` in both `rag_index.py` and
-  `rag_query.py`.
+  exact cosine similarity if both stored and query vectors are L2-normalized. Nemotron-3-Embed-1B
+  (and the legacy bge-m3 path) often return near-unit-norm vectors, but normalize explicitly
+  at store and query time to guard against model/API changes. See `normalize_vec()` in
+  `rag_common.py` (used by both indexer and query).
 - **`clean_for_embedding` must strip PDF/table artifacts**: In addition to markdown
   markers, strip `<br>` (table cell breaks), `**[Table N]**` (table markers), and
   `<!-- Page N -->` (page markers) from the text sent to the embedding API. These

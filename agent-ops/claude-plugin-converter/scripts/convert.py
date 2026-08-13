@@ -320,7 +320,10 @@ def convert_mcp(mcp_list: list, plugin_dir: Path) -> tuple[str, list[dict]]:
     for srv in mcp_list:
         name = srv["name"]
         command = srv["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(plugin_dir))
-        args = srv.get("args", [])
+        args = [
+            a.replace("${CLAUDE_PLUGIN_ROOT}", str(plugin_dir)) if isinstance(a, str) else a
+            for a in srv.get("args", [])
+        ]
         env_vars = srv.get("env_vars", [])
         
         lines.append(f"{name}:")

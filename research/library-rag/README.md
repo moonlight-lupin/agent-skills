@@ -1,20 +1,20 @@
 # Library RAG
 
-A complete pipeline for building a personal semantic search library: **acquire → convert → index → search**. Uses bge-m3 embeddings via OpenRouter, stored in sqlite-vec for meaning-based retrieval.
+A complete pipeline for building a personal semantic search library: **acquire → convert → index → search**. Uses Nemotron-3-Embed-1B embeddings via NVIDIA NIM (free tier), stored in sqlite-vec for meaning-based retrieval. Legacy OpenRouter / bge-m3 remains available if you override the model settings.
 
 ## Pipeline
 
 ```
 1. Acquire    — Bring your own texts (EPUB & PDF built-in; XML/JSON need a custom chunker)
 2. Convert    — EPUB → Markdown (chapters) · PDF → Markdown (pages + tables)
-3. Index      — bge-m3 embeddings → sqlite-vec (incremental, SHA-256 tracked)
+3. Index      — Nemotron-3-Embed-1B embeddings → sqlite-vec (incremental, SHA-256 tracked)
 4. Search     — Meaning-based retrieval with per-chunk citations
 ```
 
 ## Architecture
 
 ```
-OpenRouter API (baai/bge-m3, 1024-dim)
+NVIDIA NIM API (nemotron-3-embed-1b, 2048-dim)
         │
         ▼
 ~/.hermes/library/rag_index.db (sqlite-vec)
@@ -129,9 +129,12 @@ For other domain-specific formats (XML, JSON, etc.), write a custom chunker and 
 ### Prerequisites
 
 - **Python 3.9+**
-- **An OpenRouter API key** with credit — embeddings use the `baai/bge-m3` model
-  (1024-dim) via OpenRouter's [embeddings endpoint](https://openrouter.ai/baai/bge-m3).
-  Get a key at <https://openrouter.ai/keys>.
+- **An NVIDIA API key** (free) — embeddings use `nvidia/nemotron-3-embed-1b`
+  (2048-dim) via [NVIDIA NIM](https://build.nvidia.com/nvidia/nemotron-3-embed-1b).
+  Create a key at that page, then store it as `NVIDIA_API_KEY`.
+  Legacy OpenRouter / `baai/bge-m3` still works if you set `OPENROUTER_API_KEY` and
+  override `API_URL` / `EMBEDDING_MODEL` / `EMBEDDING_DIMS` back to that path
+  (see [`references/openrouter-embeddings.md`](references/openrouter-embeddings.md)).
 - **A Python build that allows SQLite extension loading.** `sqlite-vec` is loaded as a
   runtime extension via `conn.enable_load_extension(True)`. Most builds support this, but
   some (notably the system Python on macOS) ship SQLite with extension loading disabled.
@@ -170,14 +173,19 @@ sqlite_vec.load(c); print('sqlite-vec OK:', c.execute('select vec_version()').fe
 
 ```bash
 # Option A: environment variable (per shell session)
-export OPENROUTER_API_KEY=sk-or-v1-...
+export NVIDIA_API_KEY=nvapi-...
 
 # Option B: Hermes .env file (persistent)
-echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.hermes/.env
+echo 'NVIDIA_API_KEY=nvapi-...' >> ~/.hermes/.env
 ```
 
-Both `rag_index.py` and `rag_query.py` read `OPENROUTER_API_KEY` from the environment
-first, then fall back to the `.env` file pointed to by `HERMES_ENV` (default `~/.hermes/.env`).
+Both `rag_index.py` and `rag_query.py` prefer `NVIDIA_API_KEY` from the environment,
+then the `.env` file pointed to by `HERMES_ENV` (default `~/.hermes/.env`).
+If only `OPENROUTER_API_KEY` is present, the scripts automatically switch to the
+legacy OpenRouter / bge-m3 endpoint (so the OpenRouter key is never sent to NVIDIA).
+
+> **Migrating from bge-m3?** Existing 1024-dim indexes are incompatible with the
+> 2048-dim Nemotron default. Rebuild with `python3 scripts/rag_index.py --rebuild`.
 
 ## Quick Start
 
@@ -232,22 +240,20 @@ All paths are overridable via environment variables:
 |---|---|---|
 | `LIBRARY_ROOT` | `~/.hermes/library` | Root directory for library content + DB |
 | `HERMES_ENV` | `~/.hermes/.env` | Path to env file containing API key |
-| `OPENROUTER_API_KEY` | (from .env) | OpenRouter API key for bge-m3 embeddings |
+| `NVIDIA_API_KEY` | (from .env) | NVIDIA NIM key for Nemotron-3-Embed-1B |
+| `OPENROUTER_API_KEY` | (from .env) | Legacy fallback — auto-switches to bge-m3 / OpenRouter URL |
 
 ## Cost
 
-Provider pricing changes — always check current
-[OpenRouter pricing](https://openrouter.ai/baai/bge-m3). At the time of writing
-(bge-m3 ≈ **$0.01 per million tokens**) the orders of magnitude are:
-
-- A typical book (300 pages, ~100K tokens): **~$0.001**
-- Per query: **~$0.0000001** (7-17 tokens per query string)
-
-Effectively free for personal use.
+Default path (NVIDIA NIM / Nemotron-3-Embed-1B) is on NVIDIA's free embedding tier
+at the time of writing — check [the model page](https://build.nvidia.com/nvidia/nemotron-3-embed-1b)
+for current limits. Legacy OpenRouter / bge-m3 pricing is documented in
+[`references/openrouter-embeddings.md`](references/openrouter-embeddings.md)
+(≈ **$0.01 per million tokens** historically).
 
 ## Portable Standalone RAG
 
-The same bge-m3 → sqlite-vec pattern can be deployed as a **standalone,
+The same Nemotron-3-Embed-1B → sqlite-vec pattern can be deployed as a **standalone,
 self-contained RAG** inside any skill directory — no MCP registration, no
 dependency on `~/.hermes/library/`. See
 [`references/portable-rag-per-skill.md`](references/portable-rag-per-skill.md)

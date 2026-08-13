@@ -24,7 +24,7 @@ agent_skills/
 │   ├── news-monitoring/              ← recurring news digests with cron delivery + multi-language
 │   ├── notebooklm-mode/              ← NotebookLM-style source vault + grounded answers
 │   ├── people-enrichment/            ← PDL person/company enrichment/search to styled .xlsx
-│   ├── library-rag/                  ← bge-m3 + sqlite-vec semantic search engine
+│   ├── library-rag/                  ← Nemotron-3-Embed-1B + sqlite-vec semantic search engine
 │   ├── source-tracker/               ← persistent citation database + URL health + bibliography export
 │   ├── fact-checker/                 ← targeted claim verification + confidence rating + cited reports
 │   ├── media-analyzer/               ← rhetorical technique detection (loaded language, framing, omission)
@@ -60,7 +60,7 @@ New skills are added as folders under the relevant domain directory.
 | [deep-research](research/deep-research/) | research | Iterative research engine: structured evidence, source quality ranking (primary/secondary/tertiary), refute polarity, overview-first reports, four-label evidence-basis discipline ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]) | fact-checker, source-tracker |
 | [entity-research](research/entity-research/) | research | Cited company/person dossiers: ownership, adverse media, sanctions, litigation | deep-research |
 | [people-enrichment](research/people-enrichment/) | research | PDL person/company lookup → styled `.xlsx` | entity-research |
-| [library-rag](research/library-rag/) | research | Semantic search over personal library (bge-m3 + sqlite-vec) | notebooklm-mode |
+| [library-rag](research/library-rag/) | research | Semantic search over personal library (Nemotron-3-Embed-1B + sqlite-vec) | notebooklm-mode |
 | [notebooklm-mode](research/notebooklm-mode/) | research | Source-grounded Q&A from a source vault, strict or augmented grounding | library-rag, deep-research |
 | [news-monitoring](research/news-monitoring/) | research | Recurring news digests with cron delivery + multi-language + dedup | source-tracker |
 | [youtube-topic-research](research/youtube-topic-research/) | research | YouTube search → transcript → summary pipeline | notebooklm-mode |

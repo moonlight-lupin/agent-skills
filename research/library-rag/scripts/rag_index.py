@@ -2,7 +2,7 @@
 """
 RAG Indexer — general-purpose semantic search indexer.
 
-Embeds text documents using bge-m3 via OpenRouter.
+Embeds text documents using Nemotron-3-Embed-1B via NVIDIA NIM.
 Stores vectors in sqlite-vec for cosine similarity search.
 
 Supports any markdown or plain text files organized under a library root.

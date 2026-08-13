@@ -25,7 +25,7 @@ the skill's own `references/` directory:
 | DB location | `~/.hermes/library/rag_index.db` | `<skill>/references/rag_index.db` |
 | Path resolution | Hardcoded `LIBRARY_ROOT` | `Path(__file__).resolve().parent.parent` |
 | DB override | None | `--db` flag or env var |
-| API key | `.env` only | `OPENROUTER_API_KEY` env var OR `.env` |
+| API key | `.env` only | `NVIDIA_API_KEY` env var OR `.env` (OpenRouter key as fallback) |
 | MCP server | Yes (config.yaml dependency) | No — import `rag_query.search()` directly |
 | Chunker | Source-specific | Domain-specific (headings, sections, etc.) |
 | Portable | No | Yes — zip the folder, drop on another machine, done |
@@ -44,16 +44,20 @@ ENV_PATH = os.environ.get('HERMES_ENV', os.path.expanduser('~/.hermes/.env'))
 
 ```python
 def load_api_key():
-    # Try env var first (most portable), then fall back to .env
-    key = os.environ.get('OPENROUTER_API_KEY')
-    if key:
-        return key
+    # Prefer NVIDIA NIM key; fall back to legacy OpenRouter key
+    for env_var in ('NVIDIA_API_KEY', 'OPENROUTER_API_KEY'):
+        key = os.environ.get(env_var)
+        if key:
+            return key
     env_path = Path(ENV_PATH)
     if env_path.exists():
         for line in env_path.read_text().splitlines():
-            if 'OPENROUTER' in line.upper() and 'API_KEY' in line.upper() and not line.startswith('#'):
-                return line.split('=', 1)[1].strip().strip('"').strip("'")
-    raise ValueError(f"No OPENROUTER_API_KEY found in env or {ENV_PATH}")
+            if line.startswith('#') or '=' not in line:
+                continue
+            name, _, value = line.partition('=')
+            if name.strip() in ('NVIDIA_API_KEY', 'OPENROUTER_API_KEY'):
+                return value.strip().strip('"').strip("'")
+    raise ValueError(f"No NVIDIA_API_KEY (or OPENROUTER_API_KEY) found in env or {ENV_PATH}")
 ```
 
 ### Implementation: Query Without MCP
@@ -200,9 +204,10 @@ struct.unpack(f'{dim}f', blob) → math.sqrt(sum(x*x)) ≈ 1.0
 
 ### L2 Normalization (Store + Query)
 
-bge-m3 vectors from OpenRouter are already unit-normalized (verified: L2 norm = 1.0).
-But to make the similarity formula exact and robust against model/API changes,
-normalize explicitly at both store and query time:
+Nemotron-3-Embed-1B vectors (and the legacy bge-m3 / OpenRouter path) are
+often already near unit-normalized. To make the similarity formula exact and
+robust against model/API changes, normalize explicitly at both store and
+query time:
 
 ```python
 def normalize_vec(vec):
@@ -290,9 +295,9 @@ scripts locally.
 
 The `cyberpunk-red-gm` skill uses this pattern:
 - 458-page RPG rulebook extracted to 18 chapter markdown files
-- 2,306 chunks embedded with bge-m3 → standalone sqlite-vec DB (15.6 MB)
+- 2,306 chunks embedded (historically with bge-m3; current default is Nemotron-3-Embed-1B) → standalone sqlite-vec DB (15.6 MB with 1024-dim; larger with 2048-dim)
 - 100% of chunks have page citations (via `<!-- Page N -->` marker parsing)
 - 86% have best-effort section titles (heuristic extraction from PDF text)
-- Cost: $0.006 for full index, ~$0.0000003 per query
+- Cost: was $0.006 for full index on OpenRouter/bge-m3; NIM/Nemotron is free
 - Vectors L2-normalized at store time; cosine similarity formula exact
 - Fully portable — no dependency on the main library RAG or config.yaml

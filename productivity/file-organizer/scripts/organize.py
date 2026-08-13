@@ -423,8 +423,18 @@ def extract_json_response(text: str) -> dict[str, Any]:
     return payload
 
 
-def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
-    """Validate the proposal plan schema."""
+def path_is_within(path: str | Path, root: str | Path) -> bool:
+    """Return True if ``path`` resolves to a location inside ``root``."""
+
+    try:
+        Path(path).expanduser().resolve().relative_to(Path(root).expanduser().resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def validate_plan(plan: dict[str, Any], source_dir: str | Path | None = None) -> dict[str, Any]:
+    """Validate the proposal plan schema and optional source_dir confinement."""
 
     if not isinstance(plan.get("moves"), list):
         raise ValueError("plan must include a moves array")
@@ -435,6 +445,23 @@ def validate_plan(plan: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"move {index} must be an object")
         if not isinstance(move.get("source"), str) or not isinstance(move.get("destination"), str):
             raise ValueError(f"move {index} must include source and destination strings")
+
+    root = source_dir if source_dir is not None else plan.get("source_dir")
+    if root:
+        root_path = Path(str(root)).expanduser().resolve()
+        for index, move in enumerate(plan["moves"]):
+            if not path_is_within(move["source"], root_path):
+                raise ValueError(f"move {index} source escapes source_dir: {move['source']}")
+            if not path_is_within(move["destination"], root_path):
+                raise ValueError(
+                    f"move {index} destination escapes source_dir: {move['destination']}"
+                )
+        for index, folder in enumerate(plan["folders_to_create"]):
+            if not isinstance(folder, str):
+                raise ValueError(f"folders_to_create[{index}] must be a string")
+            if not path_is_within(folder, root_path):
+                raise ValueError(f"folders_to_create[{index}] escapes source_dir: {folder}")
+        plan["source_dir"] = str(root_path)
     return plan
 
 
@@ -533,7 +560,8 @@ def propose_plan(
         temperature,
         max_tokens,
     )
-    return validate_plan(extract_json_response(content))
+    plan = validate_plan(extract_json_response(content), source_dir=source_dir)
+    return plan
 
 
 def load_plan(plan_path: str | Path) -> dict[str, Any]:
@@ -558,12 +586,21 @@ def error_record(source: Path | None, destination: Path | None, message: str) ->
 
 
 def execute_plan(plan_path: str | Path, chunk_size: int = 10, dry_run: bool = False) -> dict[str, Any]:
-    """Execute a move plan, returning a summary dictionary."""
+    """Execute a move plan, returning a summary dictionary.
+
+    Requires ``source_dir`` in the plan. Source, destination, and folder paths
+    that escape ``source_dir`` are refused (counted as failed).
+    """
 
     if chunk_size < 1:
         raise ValueError("chunk-size must be at least 1")
 
     plan = load_plan(plan_path)
+    source_dir = plan.get("source_dir")
+    if not isinstance(source_dir, str) or not source_dir.strip():
+        raise ValueError("plan must include a source_dir string for path confinement")
+    root = Path(source_dir).expanduser().resolve()
+
     summary: dict[str, Any] = {
         "moved": 0,
         "failed": 0,
@@ -575,6 +612,12 @@ def execute_plan(plan_path: str | Path, chunk_size: int = 10, dry_run: bool = Fa
     for folder in plan.get("folders_to_create", []):
         folder_path = Path(folder).expanduser()
         try:
+            if not path_is_within(folder_path, root):
+                summary["failed"] += 1
+                summary["errors"].append(
+                    error_record(None, folder_path, "folder escapes source_dir")
+                )
+                continue
             if dry_run:
                 print(f"[dry-run] create folder {folder_path}", file=sys.stderr)
             else:
@@ -595,6 +638,18 @@ def execute_plan(plan_path: str | Path, chunk_size: int = 10, dry_run: bool = Fa
             source = Path(str(move.get("source", ""))).expanduser()
             destination = Path(str(move.get("destination", ""))).expanduser()
             try:
+                if not path_is_within(source, root):
+                    summary["failed"] += 1
+                    summary["errors"].append(
+                        error_record(source, destination, "source escapes source_dir")
+                    )
+                    continue
+                if not path_is_within(destination, root):
+                    summary["failed"] += 1
+                    summary["errors"].append(
+                        error_record(source, destination, "destination escapes source_dir")
+                    )
+                    continue
                 if not source.exists():
                     summary["failed"] += 1
                     summary["errors"].append(error_record(source, destination, "source does not exist"))

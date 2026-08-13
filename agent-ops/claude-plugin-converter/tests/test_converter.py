@@ -289,3 +289,56 @@ class TestConvert:
 
         # Verify the output is inside the output directory, not escaping it
         assert converted_dirs[0].resolve().parent == output.resolve()
+
+
+class TestHookCommandPreserved:
+    """Long hook commands must not be truncated during analyze → convert."""
+
+    def test_analyze_keeps_long_hook_command(self, tmp_path):
+        import importlib.util
+
+        plugin = tmp_path / "hook-plugin"
+        hooks_dir = plugin / "hooks"
+        hooks_dir.mkdir(parents=True)
+        long_cmd = "python3 -c " + repr("x" * 600)
+        assert len(long_cmd) > 500
+        (hooks_dir / "hooks.json").write_text(json.dumps({
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "Bash",
+                        "hooks": [{"type": "command", "command": long_cmd}],
+                    }
+                ]
+            }
+        }))
+
+        spec = importlib.util.spec_from_file_location("analyze_cpc", ANALYZE)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        hooks = mod.analyze_hook(json.loads((hooks_dir / "hooks.json").read_text()))
+        assert len(hooks) == 1
+        assert hooks[0]["command"] == long_cmd
+        assert len(hooks[0]["command"]) > 500
+
+    def test_convert_mcp_rewrites_plugin_root_in_args(self, tmp_path):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("convert_cpc", CONVERT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        plugin_dir = tmp_path / "out-plugin"
+        plugin_dir.mkdir()
+        yaml_snip, infos = mod.convert_mcp(
+            [{
+                "name": "demo",
+                "command": "${CLAUDE_PLUGIN_ROOT}/bin/server",
+                "args": ["--config", "${CLAUDE_PLUGIN_ROOT}/cfg.json"],
+                "env_vars": [],
+            }],
+            plugin_dir,
+        )
+        assert str(plugin_dir) in infos[0]["command"]
+        assert "${CLAUDE_PLUGIN_ROOT}" not in yaml_snip
+        assert f"{plugin_dir}/cfg.json" in yaml_snip

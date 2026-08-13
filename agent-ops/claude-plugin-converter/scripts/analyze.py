@@ -221,7 +221,9 @@ def analyze_hook(hooks_data: dict) -> list:
                         "hook_type": hook_type,
                         "hermes_implementation": type_impl,
                         "matcher": matcher,
-                        "command": command[:500],
+                        # Keep the full command — convert.py embeds it via
+                        # repr(); truncating here silently breaks long hooks.
+                        "command": command,
                         "reason": reason if convertibility == "no" else type_reason,
                     })
             else:
@@ -238,7 +240,7 @@ def analyze_hook(hooks_data: dict) -> list:
                     "hook_type": hook_type,
                     "hermes_implementation": type_impl,
                     "matcher": matcher,
-                    "command": command[:500],
+                    "command": command,
                     "reason": reason if convertibility == "no" else type_reason,
                 })
     return results

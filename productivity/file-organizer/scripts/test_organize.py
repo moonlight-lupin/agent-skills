@@ -37,6 +37,7 @@ class TempDirTestCase(unittest.TestCase):
         return path
 
     def write_plan(self, plan: dict) -> Path:
+        plan = {"source_dir": str(self.temp_dir), **plan}
         path = self.temp_dir / "plan.json"
         path.write_text(json.dumps(plan), encoding="utf-8")
         return path
@@ -159,6 +160,36 @@ class ExecuteTests(TempDirTestCase):
         self.assertFalse(destination.exists())
         self.assertEqual(summary["errors"][0]["error"], "source does not exist")
 
+    def test_execute_refuses_destination_outside_source_dir(self) -> None:
+        source = self.write_text("inbox/a.txt", "a")
+        outside = Path(tempfile.mkdtemp(prefix="organize-outside-"))
+        try:
+            destination = outside / "escaped.txt"
+            plan_path = self.write_plan(
+                {
+                    "moves": [{"source": str(source), "destination": str(destination)}],
+                    "folders_to_create": [],
+                }
+            )
+
+            summary = organize.execute_plan(plan_path)
+
+            self.assertEqual(summary["moved"], 0)
+            self.assertEqual(summary["failed"], 1)
+            self.assertTrue(source.exists())
+            self.assertFalse(destination.exists())
+            self.assertEqual(summary["errors"][0]["error"], "destination escapes source_dir")
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
+
+    def test_execute_requires_source_dir(self) -> None:
+        plan_path = self.temp_dir / "plan.json"
+        plan_path.write_text(
+            json.dumps({"moves": [], "folders_to_create": []}), encoding="utf-8"
+        )
+        with self.assertRaisesRegex(ValueError, "source_dir"):
+            organize.execute_plan(plan_path)
+
     def test_execute_cli_outputs_summary_json(self) -> None:
         source = self.write_text("inbox/a.txt", "a")
         destination = self.temp_dir / "out" / "a.txt"
@@ -187,7 +218,16 @@ class ParserTests(unittest.TestCase):
         temp_dir = Path(tempfile.mkdtemp(prefix="organize-test-"))
         try:
             plan_path = temp_dir / "plan.json"
-            plan_path.write_text(json.dumps({"moves": [], "folders_to_create": []}), encoding="utf-8")
+            plan_path.write_text(
+                json.dumps(
+                    {
+                        "source_dir": str(temp_dir),
+                        "moves": [],
+                        "folders_to_create": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
             with self.assertRaises(ValueError):
                 organize.execute_plan(plan_path, chunk_size=0)
         finally:
@@ -241,7 +281,21 @@ class ProposeTests(TempDirTestCase):
             "folders_to_create": [str(self.temp_dir / "Docs")],
         }
 
-        self.assertIs(organize.validate_plan(plan), plan)
+        self.assertIs(organize.validate_plan(plan, source_dir=self.temp_dir), plan)
+        self.assertEqual(plan["source_dir"], str(self.temp_dir.resolve()))
+
+    def test_validate_plan_rejects_escape(self) -> None:
+        plan = {
+            "moves": [
+                {
+                    "source": str(self.temp_dir / "a.txt"),
+                    "destination": "/tmp/escaped.txt",
+                }
+            ],
+            "folders_to_create": [],
+        }
+        with self.assertRaisesRegex(ValueError, "destination escapes source_dir"):
+            organize.validate_plan(plan, source_dir=self.temp_dir)
 
     def test_validate_plan_rejects_missing_moves(self) -> None:
         with self.assertRaisesRegex(ValueError, "moves array"):
@@ -340,7 +394,9 @@ class ProposeTests(TempDirTestCase):
                 base_url="https://example.test/chat",
             )
 
-        self.assertEqual(plan, {"moves": [], "folders_to_create": []})
+        self.assertEqual(plan["moves"], [])
+        self.assertEqual(plan["folders_to_create"], [])
+        self.assertEqual(plan["source_dir"], str(self.temp_dir.resolve()))
 
     def test_fallback_error_when_no_provider_available(self) -> None:
         with mock.patch.object(organize, "hermes_env_values", return_value={}):

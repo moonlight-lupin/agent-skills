@@ -34,7 +34,7 @@ def search(query, top_k=10, source_type=None, api_key=None):
         query: Natural language search query
         top_k: Number of results to return
         source_type: Optional filter by source type (top-level directory name)
-        api_key: OpenRouter API key (loaded from env if not provided)
+        api_key: Embedding API key (loaded from env if not provided)
 
     Returns:
         List of dicts with: rank, similarity, source_type, source_book,

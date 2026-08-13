@@ -1,6 +1,6 @@
 ---
 name: library-rag
-description: "Semantic search over a personal library using bge-m3 embeddings + sqlite-vec. Index books, documents, any text corpus; query by meaning. Includes EPUB→Markdown conversion and MCP server for auto-available search tools."
+description: "Semantic search over a personal library using Nemotron-3-Embed-1B embeddings + sqlite-vec. Index books, documents, any text corpus; query by meaning. Includes EPUB→Markdown conversion and MCP server for auto-available search tools."
 license: MIT
 metadata:
   version: 1.0.0
@@ -11,12 +11,12 @@ metadata:
 
 # Library RAG
 
-Semantic search over `~/.hermes/library/` using bge-m3 embeddings (via OpenRouter) stored in sqlite-vec. Enables meaning-based retrieval across any text corpus — books, documents, reference works — in any language.
+Semantic search over `~/.hermes/library/` using Nemotron-3-Embed-1B embeddings (via NVIDIA NIM) stored in sqlite-vec. Enables meaning-based retrieval across any text corpus — books, documents, reference works — in any language.
 
 ## Architecture
 
 ```
-OpenRouter API (bge-m3, 1024-dim)
+NVIDIA NIM API (nemotron-3-embed-1b, 2048-dim)
         │
         ▼
 ~/.hermes/library/rag_index.db (sqlite-vec)
@@ -41,13 +41,16 @@ silently create directories outside the home folder.
 ```bash
 python3 --version                                   # need 3.9+
 python3 -c "import sqlite_vec; print('sqlite-vec ok')" 2>&1
-test -n "$OPENROUTER_API_KEY" && echo "key in env" || grep -qs OPENROUTER ~/.hermes/.env && echo "key in .env" || echo "NO API KEY"
+test -n "$NVIDIA_API_KEY" && echo "key in env" || grep -qs NVIDIA_API_KEY ~/.hermes/.env && echo "key in .env" || echo "NO API KEY"
 ```
 
 - If `sqlite-vec` import fails → run `pip install -r requirements.txt` (add
   `--break-system-packages` on externally-managed Python). See README "Installation".
-- If `NO API KEY` → help the user create one at <https://openrouter.ai/keys>, then
-  store it: `echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.hermes/.env`.
+- If `NO API KEY` → help the user create a free NVIDIA NIM key at
+  <https://build.nvidia.com/nvidia/nemotron-3-embed-1b>, then
+  store it: `echo 'NVIDIA_API_KEY=nvapi-...' >> ~/.hermes/.env`.
+  (Legacy OpenRouter keys still work: if only `OPENROUTER_API_KEY` is set,
+  `load_api_key()` auto-switches to the bge-m3 OpenRouter endpoint.)
 
 ### Step 2 — Define directories (**ASK**)
 
@@ -110,7 +113,7 @@ Ask the user whether they want new files indexed **automatically** or **manually
 
   ```bash
   # crontab -e   (adjust the repo path and env vars)
-  0 2 * * * OPENROUTER_API_KEY=sk-or-v1-... LIBRARY_ROOT=$HOME/.hermes/library \
+  0 2 * * * NVIDIA_API_KEY=nvapi-... LIBRARY_ROOT=$HOME/.hermes/library \
     /usr/bin/python3 $HOME/library-rag/scripts/rag_index.py >> $HOME/.hermes/rag_index.log 2>&1
   ```
 
@@ -119,11 +122,11 @@ Ask the user whether they want new files indexed **automatically** or **manually
   a `launchd` plist is the more reliable equivalent of cron.
 
   **Cron cautions to mention:**
-  - Cron has a minimal environment — set `OPENROUTER_API_KEY`, `LIBRARY_ROOT`, and use an
+  - Cron has a minimal environment — set `NVIDIA_API_KEY`, `LIBRARY_ROOT`, and use an
     **absolute** `python3` path (or activate the venv inside a wrapper script).
   - Never overlap two `--rebuild` runs on the same DB (see Pitfalls). A nightly incremental
     run is safe; a full `--rebuild` should stay manual.
-  - Each run costs roughly `$0.01/M tokens` — effectively free, but the log shows actual cost.
+  - NIM embeddings are free on the NVIDIA free trial tier; the log still shows token usage.
 
 After onboarding, summarize for the user: the three paths chosen, where the DB lives, and
 whether indexing is manual or scheduled.
@@ -316,17 +319,17 @@ EPUB/PDF → md → index in one call.
 
 ## Cost
 
-Provider pricing changes — check current [OpenRouter pricing](https://openrouter.ai/baai/bge-m3).
-At the time of writing (bge-m3 ≈ **$0.01 per million tokens**):
+Default provider is NVIDIA NIM (`nvidia/nemotron-3-embed-1b`) — free on the
+NVIDIA API free trial tier. No per-token embedding cost for personal use.
 
-- A typical book (300 pages, ~100K tokens): **~$0.001**
-- Query: 1 API call per search (~$0.0000001)
+Legacy OpenRouter path (`baai/bge-m3`, ~$0.01/M tokens) remains available as a
+fallback; see `references/openrouter-embeddings.md`.
 
 Effectively free for personal use.
 
 ## Portable Standalone RAG Instances
 
-The same bge-m3 → sqlite-vec pattern can be deployed as a **standalone,
+The same Nemotron-3-Embed-1B → sqlite-vec pattern can be deployed as a **standalone,
 self-contained RAG** inside any skill directory — no MCP registration, no
 dependency on `~/.hermes/library/`. This makes the skill portable: zip the
 folder, drop on another machine, it works.
@@ -354,7 +357,7 @@ folder, drop on another machine, it works.
    `**[Table N]**`, and `<!-- Page N -->` in addition to markdown markers.
 8. **Wire in `MIN_CHUNK_CHARS`** — call `merge_tiny_chunks()` after chunking
    to prevent near-empty chunks from diluting search results.
-9. **Shared dependency:** the OpenRouter API key (bge-m3).
+9. **Shared dependency:** the NVIDIA API key (Nemotron-3-Embed-1B via NIM).
    The embedding model and sqlite-vec extension are shared, not duplicated.
 
 See `references/portable-rag-per-skill.md` for full code patterns and
@@ -377,7 +380,7 @@ See `references/portable-rag-per-skill.md` for full code patterns and
 - **sqlite-vec source filtering**: sqlite-vec's `MATCH`/`k` vector search cannot be combined with arbitrary `WHERE` clauses. `source_type` and `source_book` filters must be applied as post-filters after over-fetching results (fetch `top_k * 5`, then filter on chunk metadata). See `references/portable-rag-per-skill.md` for the correct pattern.
 - **Portable RAG instances**: To create a standalone RAG for a different skill, copy `rag_index.py` and `rag_query.py` and parameterize: (1) resolve paths from `__file__` not hardcoded `LIBRARY_ROOT`, (2) store DB inside the skill's `references/` dir, (3) skip the MCP server — import `search()` directly instead, (4) write a domain-specific chunker, (5) parse `<!-- Page N -->` markers for per-chunk page citations, (6) L2-normalize vectors at store+query time, (7) add ~15% chunk overlap for better recall. See `references/portable-rag-per-skill.md` for the full pattern.
 - **Page citations require marker parsing**: PDF extractors insert `<!-- Page N -->` comments, but chunkers must actively parse them — otherwise all chunks degrade to chapter-level citations. Use `split_by_pages()` in the chunker to split by markers and stamp each chunk with its page.
-- **L2 normalization required for exact similarity**: `1 - dist²/2` is only exact cosine if both stored and query vectors are unit-normalized. bge-m3 returns unit-norm vectors, but `normalize_vec()` is called at store time (`float_to_blob`) and query time (`get_embedding`) to guarantee this explicitly.
+- **L2 normalization required for exact similarity**: `1 - dist²/2` is only exact cosine if both stored and query vectors are unit-normalized. Nemotron-3-Embed-1B (and the legacy bge-m3 path) may return near-unit vectors, but `normalize_vec()` is called at store time (`float_to_blob`) and query time (`get_embedding`) to guarantee this explicitly.
 - **`clean_for_embedding` must strip table/PDF artifacts**: In addition to markdown markers, strip `<br>`, `**[Table N]**`, and `<!-- Page N -->` from embedding input. These are noise from PDF table extraction. Chunk text in the DB retains them for display readability.
 - **Never run two `--rebuild` processes on the same DB simultaneously**: SQLite allows concurrent connections but `--rebuild` drops and recreates tables. If a foreground test and a background job overlap, the background process gets spurious "Failed after 3 retries" errors. Always let any foreground `--rebuild` test fully exit before starting the background job, or use `--dry-run` for quick tests (it doesn't touch the DB).
-- **Full library re-index takes ~50-90 min**: Small files finish fast, large text collections dominate. Cost: ~$0.01-$0.12 depending on corpus size. No rate limiting observed on OpenRouter `/v1/embeddings` with 0.3s delay between batches of 32.
+- **Full library re-index takes ~50-90 min**: Small files finish fast, large text collections dominate. NIM embeddings are free; legacy OpenRouter path was ~$0.01-$0.12 depending on corpus size. Batch size 32 with a short delay between batches remains a safe default.
