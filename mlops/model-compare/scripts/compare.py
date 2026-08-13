@@ -265,8 +265,12 @@ TEST_BANK = {
 # ─── Env loading ─────────────────────────────────────────────────────────────
 
 def load_env():
-    """Load env vars from ~/.hermes/.env if not already in environment."""
-    env_path = Path.home() / ".hermes" / ".env"
+    """Load env vars from a .env file if not already in environment.
+
+    Default path: ~/.hermes/.env (Hermes Agent convention). Override with
+    the SKILL_ENV_FILE env var, or set keys directly in the environment.
+    """
+    env_path = Path(os.environ.get("SKILL_ENV_FILE", str(Path.home() / ".hermes" / ".env")))
     if not env_path.exists():
         return
     for line in env_path.read_text().splitlines():

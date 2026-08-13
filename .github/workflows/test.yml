@@ -44,3 +44,29 @@ jobs:
       - name: Run tests
         run: |
           python -m pytest -q --tb=short
+
+  validate-skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate all skills against the Agent Skills spec
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r skill; do
+            echo "::group::validate $skill"
+            if npx --yes skills-ref validate "$skill"; then
+              echo "::endgroup::"
+            else
+              echo "::error::INVALID SKILL: $skill"
+              echo "::endgroup::"
+              fail=1
+            fi
+          done < <(find . -name SKILL.md -not -path './.git/*' -printf '%h\n' | sort -u)
+          exit $fail

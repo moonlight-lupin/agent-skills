@@ -28,9 +28,10 @@ agent_skills/
 │   ├── source-tracker/               ← persistent citation database + URL health + bibliography export
 │   ├── fact-checker/                 ← targeted claim verification + confidence rating + cited reports
 │   ├── media-analyzer/               ← rhetorical technique detection (loaded language, framing, omission)
+│   ├── endpoint-probe/               ← API/MCP surface discovery (REST, GraphQL, SOAP, JSON-RPC)
 │   └── youtube-topic-research/       ← YouTube search + transcript summarization
 ├── mlops/                            ← model evaluation and ops skills
-│   └── model-compare/                ← blind multi-model A/B comparison with tool calling + token efficiency
+│   └── model-compare/                ← blind multi-model A/B comparison + embedding benchmark
 ├── web-scraping/                     ← web data-extraction skills
 │   └── website-scraping/             ← recon → lightest-tool extraction → JSONL output
 ├── productivity/                     ← personal / business-ops skills
@@ -66,7 +67,8 @@ New skills are added as folders under the relevant domain directory.
 | [source-tracker](research/source-tracker/) | research | Persistent citation DB: URL dedup, topic tags, link health, bibliography export | deep-research, fact-checker |
 | [fact-checker](research/fact-checker/) | research | Claim verification → confidence rating (verified→outdated) + cited report | deep-research, source-tracker |
 | [media-analyzer](research/media-analyzer/) | research | Rhetorical technique detection (loaded language, framing, omission) — not political labels | fact-checker, deep-research |
-| [model-compare](mlops/model-compare/) | mlops | Blind multi-model A/B comparison: simple, tools, coding, review modes | — |
+| [endpoint-probe](research/endpoint-probe/) | research | Discover API/MCP surfaces (REST, GraphQL, SOAP, JSON-RPC) — probe script + interpretation guide | website-scraping |
+| [model-compare](mlops/model-compare/) | mlops | Blind multi-model A/B comparison: simple, tools, coding, review modes + embedding benchmark | — |
 | [website-scraping](web-scraping/website-scraping/) | web-scraping | Recon → lightest extraction tool → JSONL + run manifest | source-tracker |
 | [fill-template](productivity/fill-template/) | productivity | Bulk-fill Word/Excel templates from a data table (mail-merge) | — |
 | [travel-itinerary](productivity/travel-itinerary/) | productivity | Business-trip itineraries from emails/PDFs → Markdown + `.ics` + chat variants | — |
@@ -98,6 +100,7 @@ New skills are added as folders under the relevant domain directory.
 | source-tracker | Stable | ✓ | None (stdlib) |
 | fact-checker | Stable | ✓ | None (stdlib) |
 | media-analyzer | Stable | ✓ | None (stdlib) |
+| endpoint-probe | Stable | ✓ | None (stdlib) |
 | model-compare | Stable | ✓ | None (stdlib); tool mode needs SEARXNG_URL or ddgs CLI |
 | website-scraping | Stable | evals | None (prompt-only) |
 | fill-template | Stable | ✓ | python-docx, openpyxl |

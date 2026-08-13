@@ -322,6 +322,8 @@ For recurring comparisons, log results to a file:
 ~/.hermes/data/model_compare_history.jsonl
 ```
 
+(Override the location with the `SKILL_PERSIST_DIR` env var.)
+
 Format:
 ```json
 {"timestamp": "2026-06-27T12:00:00", "prompt": "...", "models": ["model_a", "model_b"], "winner": "model_a", "is_blind": true, "feedback": "..."}
@@ -381,6 +383,25 @@ The `--efficiency` flag (auto-enabled for tools mode) prints a token comparison 
 
 Key metrics: turns, tool calls, tokens in (context consumed), tokens out (generated), efficiency ratio (out/in), time. **Efficiency without accuracy is waste** — a model that uses few tokens but gets the wrong answer is not efficient, it's just wrong fast.
 
+## Embedding Model Comparison
+
+`scripts/embedding_compare.py` benchmarks embedding models on retrieval accuracy
+and pairwise similarity — the embedding equivalent of the LLM `compare.py` script.
+
+```bash
+# Default: compare bge-m3 (OpenRouter) vs Nemotron-3-Embed-1B (NVIDIA)
+python3 scripts/embedding_compare.py
+
+# Specify models
+python3 scripts/embedding_compare.py --models "nvidia:nvidia/nemotron-3-embed-1b" "openrouter:BAAI/bge-m3"
+
+# Quiet mode (summary only)
+python3 scripts/embedding_compare.py --quiet
+```
+
+Tests: pairwise similarity (8 pairs), retrieval ranking (3 queries × 6 docs), latency.
+Requires: `NVIDIA_API_KEY` and/or `OPENROUTER_API_KEY` in env or `~/.hermes/.env` (override with `SKILL_ENV_FILE`).
+
 ## Use Cases
 
 ### Model selection for a workflow
@@ -407,7 +428,7 @@ marked dead for a cooldown period and subsequent calls skip it automatically.
 - **Cooldown**: 15s (Ollama Cloud), 30s (NVIDIA), 20s (OpenRouter)
 - **Any success** → resets failure counter immediately
 - **Cooldown expiry** → provider gets another chance
-- State persists to `~/.hermes/data/provider_health.json` across runs
+- State persists to `~/.hermes/data/provider_health.json` (override with `SKILL_PERSIST_DIR`) across runs
 
 ### CLI
 
