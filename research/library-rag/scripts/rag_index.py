@@ -118,6 +118,29 @@ def remove_file_chunks(conn, source_file):
     return len(rows)
 
 
+def prune_missing(conn, known_files):
+    """Remove DB rows for files that no longer exist on disk.
+
+    ``known_files`` is an iterable of paths currently present under
+    LIBRARY_ROOT. Any file recorded in ``indexed_files`` whose path is not in
+    that set has been deleted or moved out of the library — retire its chunks,
+    vectors, and the record itself so the DB does not accumulate dead rows.
+
+    Paths are compared absolute-normalized, so a recorded relative path still
+    matches its on-disk absolute counterpart.
+
+    Returns ``(files_pruned, chunks_pruned)``.
+    """
+    known = {os.path.abspath(p) for p in known_files}
+    pruned_files = 0
+    pruned_chunks = 0
+    for (file_path,) in conn.execute('SELECT file_path FROM indexed_files').fetchall():
+        if os.path.abspath(file_path) not in known:
+            pruned_chunks += remove_file_chunks(conn, file_path)
+            pruned_files += 1
+    return pruned_files, pruned_chunks
+
+
 def index_file(conn, file_path, source_type, chunker, api_key):
     """Index a single file atomically, preserving the previous version on failure.
 
@@ -462,6 +485,10 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='Show what would be indexed, no API calls')
     parser.add_argument('--source', type=str, help='Only index specific source type')
     parser.add_argument('--db', type=str, help='Custom DB path')
+    parser.add_argument('--prune-missing', action='store_true',
+                        help='Remove DB rows for files no longer present on disk')
+    parser.add_argument('--vacuum', action='store_true',
+                        help='VACUUM after indexing (shrinks the DB file; run when many rows were deleted)')
     args = parser.parse_args()
 
     global DB_PATH
@@ -476,6 +503,9 @@ def main():
     init_db(conn, rebuild=args.rebuild)
 
     all_files = discover_files()
+    # Keep the FULL discovered set for --prune-missing; --source only narrows
+    # what gets indexed, not what counts as "present on disk".
+    all_known_paths = [fp for fp, _, _ in all_files]
     if args.source:
         all_files = [f for f in all_files if f[1] == args.source]
 
@@ -537,6 +567,17 @@ def main():
         files_indexed += 1
         print(f" → {stored} chunks ✓")
 
+    files_pruned = chunks_pruned = 0
+    if args.prune_missing and not args.rebuild:
+        print()
+        print("🧹 Pruning rows for files no longer on disk…")
+        files_pruned, chunks_pruned = prune_missing(conn, all_known_paths)
+
+    if args.vacuum:
+        print()
+        print("🧹 VACUUM…")
+        conn.execute("VACUUM")
+
     conn.close()
 
     print()
@@ -545,6 +586,9 @@ def main():
     print(f"   Files indexed: {files_indexed}")
     print(f"   Files skipped: {files_skipped}")
     print(f"   Total chunks:  {total_chunks}")
+    if args.prune_missing and not args.rebuild:
+        print(f"   Files pruned:  {files_pruned}")
+        print(f"   Chunks pruned: {chunks_pruned}")
     if not args.dry_run:
         print(f"   Total tokens:  {total_tokens:,}")
         print(f"   Estimated cost: ${total_cost:.4f}")

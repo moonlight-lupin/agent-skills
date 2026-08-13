@@ -197,12 +197,20 @@ python3 scripts/rag_index.py --dry-run
 
 # Index only one source type
 python3 scripts/rag_index.py --source my-source-type
+
+# Prune DB rows for files deleted/moved out of the library, then shrink the file
+python3 scripts/rag_index.py --prune-missing --vacuum
 ```
 
 **When to use:**
 - After adding new files to the library → run incremental (default)
 - After changing chunking strategy → run `--rebuild`
 - To estimate cost/time → run `--dry-run` first
+- After deleting/moving files out of the library → run `--prune-missing`
+  (removes orphaned chunks + vectors so the DB doesn't keep dead rows; safe
+  alongside incremental indexing — only files absent from disk are retired)
+- After a `--rebuild` or a large `--prune-missing` → run `--vacuum` to shrink
+  the DB file (SQLite reuses freed pages but doesn't shrink the file otherwise)
 
 ### rag_query.py — CLI Query
 
