@@ -1,7 +1,7 @@
 ---
 name: clips-studio
 description: >
-  Generate short marketing/social VIDEO clips via fal.ai through a staged studio
+  Generate short social VIDEO clips via fal.ai through a staged studio
   workflow — brainstorm the motion, draft cheaply, then produce the final at
   quality. Three modes: text-to-video (a clip from a prompt, no source image);
   animate (bring a still image to life — a product, people, b-roll, a space); and
@@ -10,14 +10,15 @@ description: >
   a video from text", "animate this image/photo", "create a marketing reel / social
   video / teaser", "do a 3D / parallax move", "pan/zoom/orbit a shot", or when they
   mention fal.ai, Kling, Veo or Seedance for video. Do not use for still images (use
-  image-studio), Canva-style template designs, slide decks, data charts/dashboards,
-  or flowcharts/diagrams. Carries an honesty discipline for real subjects: never use
-  text-to-video to depict a real, identifiable place, product or person. Do not
+  image-studio), template designs, slide decks, charts or diagrams. Carries an
+  honesty discipline for real subjects: never use text-to-video to depict a real,
+  identifiable place, product or person. Do not
   override platform-native video tools where the host environment requires them.
-version: 1.1.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 1.1.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
 ---
 
 # Clips Studio

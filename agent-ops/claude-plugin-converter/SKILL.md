@@ -1,9 +1,10 @@
 ---
 name: claude-plugin-converter
 description: Convert Claude Code plugins into self-contained Hermes plugins — discovery analysis then full conversion
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
+metadata:
+  version: 1.0.0
+  author: moonlight-lupin
 ---
 
 # Claude Plugin Converter

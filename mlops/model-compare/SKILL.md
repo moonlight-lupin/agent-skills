@@ -10,11 +10,11 @@ description: >
   "model evaluation", or wants to see how different AI models handle the same
   prompt. Can also be used for prompt engineering — testing how different
   models interpret the same instructions.
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
   hermes:
     tags: [model, comparison, evaluation, a/b-testing, blind, synthesis, openrouter]
     related_skills: [deep-research]

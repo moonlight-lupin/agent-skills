@@ -1,11 +1,12 @@
 ---
 name: library-rag
 description: "Semantic search over a personal library using bge-m3 embeddings + sqlite-vec. Index books, documents, any text corpus; query by meaning. Includes EPUB→Markdown conversion and MCP server for auto-available search tools."
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
-tags: [rag, embeddings, semantic-search, library, mcp]
+metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
+  tags: [rag, embeddings, semantic-search, library, mcp]
 ---
 
 # Library RAG

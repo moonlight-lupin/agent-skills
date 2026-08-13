@@ -1,11 +1,11 @@
 ---
 name: scheduled-summary
 description: "Cron-driven cross-session digest. Aggregates session activity, cron job outputs, memory changes, and tool usage stats into a compact summary for delivery via messaging platforms. Surfaces outstanding tasks and cross-session context that's invisible on chat platforms."
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
   tags: [summary, digest, cron, sessions, activity, cross-session, notification, scheduled]
   related_skills: [decision-log, news-monitoring]
 ---

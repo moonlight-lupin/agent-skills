@@ -14,10 +14,11 @@ description: >
   fully local and generates files only — it does not send, post or sign. Not for
   extracting data OUT of documents, and not a substitute for a hand-crafted single
   letter.
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
 ---
 
 # Fill Template (mail-merge)

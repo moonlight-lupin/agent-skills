@@ -1,11 +1,11 @@
 ---
 name: decision-log
 description: "ADR-style decision journal for agents and teams. Create numbered decision records, track superseding chains, schedule periodic reviews, and search past decisions to avoid re-litigating settled questions."
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
   tags: [decisions, adr, decision-log, architecture, review, superseding, decision-record]
   related_skills: []
 ---

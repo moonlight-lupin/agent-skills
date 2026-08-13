@@ -1,11 +1,11 @@
 ---
 name: news-monitoring
 description: "Recurring topic/news monitoring with web search, multi-language sources, digest formatting, and automated delivery via Hermes cron jobs. Covers search strategy, source selection, Chinese-language platforms, and digest templates."
-version: 2.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  version: 2.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
   hermes:
     tags: [news, monitoring, digest, cron, research, chinese, HK, PBSA]
     related_skills: [deep-research, youtube-topic-research, website-scraping]

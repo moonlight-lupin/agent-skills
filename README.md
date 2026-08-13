@@ -1,6 +1,6 @@
 # Agent Skills
 
-[![Tests](https://github.com/moonlight-lupin/agent_skills/actions/workflows/test.yml/badge.svg)](https://github.com/moonlight-lupin/agent_skills/actions/workflows/test.yml)
+[![Tests](https://github.com/moonlight-lupin/agent-skills/actions/workflows/test.yml/badge.svg)](https://github.com/moonlight-lupin/agent-skills/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 
@@ -113,16 +113,38 @@ New skills are added as folders under the relevant domain directory.
 
 > *Stable* = production-tested with real workflows. *Tests* column: ✓ = has a pytest suite; *evals* = ships routing/output-contract fixtures under `evals/` (sample request → expected routing, required output fields, forbidden patterns), validated by `tests/test_routing_fixtures.py` — no live-model execution in CI. *Dependencies* lists pip/runtime requirements beyond Python stdlib.
 
-## Quick start
+## Install
 
-1. **Clone:**
-   ```bash
-   git clone https://github.com/moonlight-lupin/agent_skills.git
-   cd agent_skills
-   ```
-2. **Open the skill you want** — each skill folder has a `SKILL.md` with setup and usage instructions.
+### One-command: install the whole catalog (`npx`)
+
+```bash
+npx skills add moonlight-lupin/agent-skills
+```
+
+Installs every skill into `.agents/skills/` (works for Cursor, Codex, Gemini CLI, Copilot, OpenCode, and more; Claude Code gets a symlinked copy) plus `.claude/skills/`, with a hash-pinned `skills-lock.json` so `npx skills update` can refresh later. Install one skill with `--skill <name>` — or omit it for an interactive pick-list.
+
+### Pick a skill from GitHub (`gh`)
+
+```bash
+# Install one skill by exact path (fastest, no tree scan)
+gh skill install moonlight-lupin/agent-skills creative/image-studio/SKILL.md
+
+# ...or by name into a specific agent's directory
+gh skill install moonlight-lupin/agent-skills creative/image-studio/SKILL.md --agent claude-code --scope user
+```
+
+### Manual
+
+```bash
+git clone https://github.com/moonlight-lupin/agent-skills.git
+cd agent-skills
+```
+
+Each skill folder has a `SKILL.md` with setup and usage instructions — copy the ones you want into your agent's skills directory (e.g. `~/.claude/skills/`, `~/.cursor/skills/`, `~/.agents/skills/`).
 
 > **Never commit credentials.** API keys, config files with secrets, and generated artifacts are all gitignored.
+
+> **Spec compliance:** all skills validate against the [Agent Skills spec](https://agentskills.io/specification) (`npx skills-ref validate`). Author, version, and platform metadata live under `metadata:`.
 
 ## License
 

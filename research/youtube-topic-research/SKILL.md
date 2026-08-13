@@ -5,10 +5,11 @@ description: >
   demos, tutorials, talks, walkthroughs, or screen recordings are useful.
   Can run standalone, or export transcript-backed video source notes into
   notebooklm-mode vaults for grounded research.
-version: 2.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 2.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
 ---
 
 # YouTube Topic Research Skill

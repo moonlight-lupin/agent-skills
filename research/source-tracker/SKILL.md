@@ -1,11 +1,11 @@
 ---
 name: source-tracker
 description: "Persistent citation database for multi-session research. Add URLs as they're cited, dedup variants, tag by topic, check link health, and export bibliographies in Markdown/BibTeX/CSV/JSON."
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
   tags: [citation, bibliography, research, sources, dedup, url-tracking, link-health]
   related_skills: [deep-research, notebooklm-mode, entity-research]
 ---

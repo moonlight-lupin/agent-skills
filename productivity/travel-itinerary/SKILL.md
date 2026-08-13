@@ -1,11 +1,12 @@
 ---
 name: travel-itinerary
 description: "Create, update, sanitize, route, and export structured business-trip itineraries from booking confirmations, emails, tickets, PDFs, screenshots, calendar invites, or notes. Use for day-by-day itinerary generation, privacy-safe sharing, route links, and Markdown/PDF/DOCX/Google Doc/ICS exports."
-version: 1.1.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
-keywords: [travel, itinerary, business-trips, email-parsing, export, routing, markdown]
+metadata:
+  version: 1.1.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
+  keywords: [travel, itinerary, business-trips, email-parsing, export, routing, markdown]
 ---
 
 # Travel Itinerary

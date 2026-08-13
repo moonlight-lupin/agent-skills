@@ -13,10 +13,11 @@ description: >
   A sanctions-list or PEP signal is a SIGNAL to escalate to a human compliance
   function, never a "clear" or "block". Research a person only for a legitimate
   purpose and only from public information.
-version: 1.0.1
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 1.0.1
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
 ---
 
 # Entity Research

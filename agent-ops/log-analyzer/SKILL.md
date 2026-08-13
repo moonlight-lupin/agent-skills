@@ -1,11 +1,11 @@
 ---
 name: log-analyzer
 description: "Parse agent log files to identify error patterns, rate limit hits, timeout clusters, tool failures, and component-level error counts. Produces a structured anomaly report. Cron-compatible — silent if no issues, alert digest if anomalies found."
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
   tags: [logs, analysis, errors, patterns, anomalies, monitoring, debugging, cron]
   related_skills: [scheduled-summary, skill-maintainer]
 ---

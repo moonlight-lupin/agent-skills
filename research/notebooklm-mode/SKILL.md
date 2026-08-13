@@ -8,10 +8,11 @@ description: >
   Trigger when the user asks to research a topic from sources, wants
   NotebookLM-style grounded answers, asks to build a resource vault, or
   says "notebooklm mode".
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
 ---
 
 # NotebookLM-Grounded Research Pipeline

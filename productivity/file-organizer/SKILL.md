@@ -1,11 +1,11 @@
 ---
 name: file-organizer
 description: "Use when the user wants to organize, tidy, or restructure a messy directory (Downloads, Desktop, documents folder). LLM-powered file organizer that scans content, proposes a structure, and executes moves in chunks with a mandatory user confirmation gate."
-version: 1.0.0
-author: Hermes Agent
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  version: 1.0.0
+  author: Hermes Agent
+  platforms: [linux, macos, windows]
   hermes:
     tags: [file-management, organization, cleanup, productivity]
 ---

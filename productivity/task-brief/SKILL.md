@@ -14,10 +14,11 @@ description: >
   only where the answer would change the output; otherwise it states its
   assumptions in the brief and proceeds. Not for quick one-step asks — just answer
   those directly.
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
 ---
 
 # Task Brief

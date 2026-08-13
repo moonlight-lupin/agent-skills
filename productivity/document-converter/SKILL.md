@@ -1,11 +1,11 @@
 ---
 name: document-converter
 description: "Convert between document formats: Markdown↔HTML, CSV↔JSON, YAML↔TOML, JSON↔YAML, CSV↔Markdown table, HTML→plain text, JSON→CSV (flattening nested objects), Excel→CSV, Markdown→PDF. Requires pandoc for PDF and openpyxl for Excel."
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
   tags: [document, converter, format, markdown, html, csv, json, yaml, toml, transform]
   related_skills: [fill-template]
 ---

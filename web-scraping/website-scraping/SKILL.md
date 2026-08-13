@@ -1,10 +1,11 @@
 ---
 name: website-scraping
 description: Generic playbook for extracting structured data from any website — hotel prices, flight fares, e-commerce listings, real estate, jobs, competitor product catalogues, anything where the goal is to turn one or more URLs into clean records on disk. Use this skill whenever the user mentions scraping, harvesting, extracting, or pulling data from a website; names a specific site or competitor they want data from; asks how to handle JavaScript-rendered pages, Cloudflare blocks, bot detection, Turnstile challenges, or Playwright; wants to monitor prices over time; needs to automate a copy-paste research task; or says things like "just get the data from X" or "I need a script that grabs N from site Y". Covers recon, picking the lightest extraction tool that works, surviving anti-bot defences, and writing clean JSONL output with a run manifest. Scope is scraping only — landing data in a database, scheduling, and downstream pipeline work are explicitly out of scope and live in other tools.
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
 ---
 
 # Website scraping

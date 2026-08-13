@@ -1,11 +1,11 @@
 ---
 name: fact-checker
 description: "Targeted claim verification pipeline. Given a factual assertion, search multiple independent sources, cross-check for agreement or contradiction, rate confidence (verified / likely true / disputed / unverified / outdated), and produce a cited verification report."
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
   tags: [fact-check, verification, claims, citations, cross-check, confidence, research]
   related_skills: [deep-research, source-tracker, entity-research]
 ---

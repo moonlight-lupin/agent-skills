@@ -15,10 +15,11 @@ description: >
   structure tasks, not generative imagery. Video generation is out of scope. Do
   not override platform-native image generation tools where the host environment
   requires them.
-version: 1.2.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 1.2.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
 ---
 
 # Image Studio

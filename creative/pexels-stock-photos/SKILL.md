@@ -11,10 +11,11 @@ description: >
   stock photography = Pexels; "generate/create/make an image" = AI art = image
   generation tools. Also do not use for editing existing images, screenshots,
   diagrams, or data charts.
-version: 1.0.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 1.0.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
 ---
 
 # Pexels Stock Photos

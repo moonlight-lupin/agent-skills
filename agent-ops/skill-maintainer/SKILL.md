@@ -1,10 +1,11 @@
 ---
 name: skill-maintainer
 description: "Track upstream drift and sync adapted skill libraries"
-version: 1.0.1
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos]
+metadata:
+  version: 1.0.1
+  author: moonlight-lupin
+  platforms: [linux, macos]
 # windows: cron + curl available via WSL/MSYS2, but untested on native Win32
 ---
 
@@ -87,10 +88,11 @@ Every skill needs:
 name: my-skill-name         # lowercase, hyphens, ≤64 chars
 description: >              # ≤1024 chars, starts with trigger context
   Use when <trigger>. <one-line behavior>.
-version: 1.0.0
-author: your-name
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 1.0.0            # spec allows only name/description/license/
+  author: your-name         # compatibility/metadata/allowed-tools top-level
+  platforms: [linux, macos, windows]
 ---
 ```
 

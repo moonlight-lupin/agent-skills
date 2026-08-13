@@ -14,10 +14,11 @@ description: >
   "enrich these companies", or "get firmographics for". Do not scrape LinkedIn
   directly — this uses a licensed data aggregator (PDL) instead, for legal and
   reliability reasons.
-version: 1.0.1
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 1.0.1
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
 ---
 
 # People Enrichment & Search (People Data Labs)
