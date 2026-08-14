@@ -225,9 +225,7 @@ def get_health() -> ProviderHealth:
     """Get the shared ProviderHealth singleton."""
     global _default_instance
     if _default_instance is None:
-        persist = os.path.expanduser(
-            os.environ.get("SKILL_PERSIST_DIR", "~/.hermes/data") + "/provider_health.json"
-        )
+        persist = os.path.expanduser("~/.hermes/data/provider_health.json")
         _default_instance = ProviderHealth(persist_path=persist)
     return _default_instance
 

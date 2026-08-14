@@ -147,12 +147,18 @@ class TestTestBank:
 
 class TestToolDefs:
     def test_tool_defs_exist(self):
-        assert len(compare.TOOL_DEFS) == 2
+        assert len(compare.TOOL_DEFS) == 5
 
     def test_web_search_def(self):
         names = [t["function"]["name"] for t in compare.TOOL_DEFS]
         assert "web_search" in names
         assert "web_extract" in names
+
+    def test_sandbox_tool_defs(self):
+        names = [t["function"]["name"] for t in compare.TOOL_DEFS]
+        assert "run_python" in names
+        assert "read_file" in names
+        assert "write_file" in names
 
     def test_tool_defs_have_parameters(self):
         for td in compare.TOOL_DEFS:

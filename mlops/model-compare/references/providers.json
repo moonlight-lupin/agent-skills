@@ -1,7 +1,7 @@
 {
-  "snapshot_date": "2026-06",
+  "snapshot_date": "2026-08",
   "note": "Curated snapshot of provider config + a few representative models per provider. Intentionally carries NO live model COUNTS — those drift constantly and rot the docs. For the current, full inventory run `python3 scripts/compare.py --list-models <provider>` (needs that provider's API key); this file and `--list-models` are the source of truth for model inventories, while SKILL.md stays conceptual. The provider set here is kept in sync with `PROVIDERS` in scripts/compare.py by tests/test_providers_snapshot.py.",
-  "routing_order": ["ollama-cloud", "nvidia", "openrouter"],
+  "routing_order": ["ollama-cloud", "nvidia", "openrouter", "deepseek"],
   "providers": {
     "ollama-cloud": {
       "env": "OLLAMA_API_KEY",
@@ -25,6 +25,14 @@
       "families": ["Claude", "GPT", "Gemini", "DeepSeek", "Llama", "Qwen", "Mistral"],
       "example_models": ["anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.8", "openai/gpt-4o", "google/gemini-2.5-pro", "deepseek/deepseek-r1"],
       "confirm_before_use": "Paid, per-token. Confirm with the user before any OpenRouter call."
+    },
+    "deepseek": {
+      "env": "DEEPSEEK_API_KEY",
+      "cost": "paid",
+      "endpoint": "https://api.deepseek.com/v1/chat/completions",
+      "families": ["DeepSeek"],
+      "example_models": ["deepseek-chat", "deepseek-reasoner"],
+      "notes": "Reasoning model. max_tokens=32768 and reasoning_effort=low set in payload_extra to avoid run-away reasoning loops."
     }
   }
 }
