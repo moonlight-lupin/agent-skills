@@ -116,8 +116,9 @@ photo instead.
   **not** reliably inherit the still's framing (Seedance defaults to 16:9 and centre-crops a
   portrait/square still), so **pass `--aspect` to match the source**. For `generate` there's no
   source, so the helper sends the target aspect (default 16:9).
-- **`generate_audio`** — **default OFF** (don't fabricate ambience). Only sent to models that accept
-  it (Veo, Kling v3, Seedance). Turning it on raises Veo's per-second rate.
+- **`generate_audio`** — **default ON for FLUX 3** (native audio included free; pass `--no-audio`
+  to disable). **Default OFF for all other models** (Veo, Kling, Seedance) — opt in with `--audio`.
+  Turning it on raises Veo's per-second rate.
 - **`camera_fixed`** — Seedance only; set by `--static`. Other models get a "static shot" instruction
   in the prompt instead.
 - **`seed`** — `--seed` for repeatability. **`negative_prompt`** — via `--arg negative_prompt='…'`

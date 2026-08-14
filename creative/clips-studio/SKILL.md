@@ -1,24 +1,22 @@
 ---
 name: clips-studio
 description: >
-  Generate short social VIDEO clips via fal.ai through a staged studio
-  workflow — brainstorm the motion, draft cheaply, then produce the final at
-  quality. Three modes: text-to-video (a clip from a prompt, no source image);
-  animate (bring a still image to life — a product, people, b-roll, a space); and
-  camera-move (a gentle push-in, pan, tilt or shallow orbit over a still, including
-  an interior "3D view"). Use when the user wants to "make a video/clip", "generate
-  a video from text", "animate this image/photo", "create a marketing reel / social
-  video / teaser", "do a 3D / parallax move", "pan/zoom/orbit a shot", or when they
-  mention fal.ai, Kling, Veo or Seedance for video. Do not use for still images (use
-  image-studio), template designs, slide decks, charts or diagrams. Carries an
-  honesty discipline for real subjects: never use text-to-video to depict a real,
-  identifiable place, product or person. Do not
-  override platform-native video tools where the host environment requires them.
+  Use when the user wants to "make a video/clip", "generate a video from text",
+  "animate this image/photo", "create a marketing reel / social video / teaser",
+  "do a 3D / parallax move", "pan/zoom/orbit a shot", or mentions fal.ai, Kling,
+  Veo or Seedance for video. Staged fal.ai workflow — brainstorm, draft cheaply,
+  produce the final at quality. Three modes: text-to-video, animate (still to
+  motion), camera-move (push-in/pan/orbit). Not for still images (image-studio),
+  slide decks, or charts. Honesty discipline: never depict real identifiable
+  subjects via text-to-video.
+version: 1.2.0
+author: moonlight-lupin
 license: MIT
+platforms: [linux, macos, windows]
 metadata:
-  version: 1.1.0
-  author: moonlight-lupin
-  platforms: [linux, macos, windows]
+  hermes:
+    tags: [video, fal.ai, marketing, social, clips, animate, camera-move, staged-workflow]
+    related_skills: [image-studio, image-gen-workflow, fal-enhanced]
 ---
 
 # Clips Studio
@@ -118,19 +116,18 @@ A good clip starts from a precise brief, so invest here before spending. Intervi
 - **Aspect & orientation** — anchor to the destination: 16:9 web/hero, 9:16 reel/story, 1:1 social.
   **For `animate`/`camera`, match the output to the source's orientation and pass `--aspect`
   explicitly** (see the check below). For `generate` there's no source, so choose the target aspect.
-- **Audio** — FLUX 3 generates audio **by default** (included free, unlike Veo which charges extra).
-  So the brief must cover sound, not just motion. Agree with the user:
+- **Audio** — FLUX 3 generates audio **by default** (native, included free). The script sends
+  `generate_audio=true` for FLUX 3 models automatically — pass `--no-audio` to disable.
+  For non-FLUX-3 models (Kling, Seedance, Veo), audio is **off by default** — opt in with
+  `--audio`. So the brief must cover sound for FLUX 3, not just motion. Agree with the user:
   - **Ambient sound** — what's naturally in the scene (rain patter, traffic, birds, machinery hum).
   - **Music** — say "no music" if unwanted, or name the genre/feel ("soft ambient piano", "upbeat
     electronic"). Each layer lands separately.
   - **Speech** — a quoted line becomes speech **only if a speaker is visible on camera**. Without one
     it renders as burned-in text. Quote the line, describe the speaker, and add "no on-screen text,
     no subtitles" to prevent burned-in captions.
-  - **Silence** — if the user wants no audio at all, pass `--no-audio` or say "no audio" explicitly in
-    the prompt. FLUX 3 will still generate audio unless told not to.
-  
-  For non-FLUX-3 models (Kling, Seedance), audio is **off by default** — opt in with `--audio` only
-  when the user wants it.
+  - **Silence** — if the user wants no audio at all, pass `--no-audio` (FLUX 3) or simply don't pass
+    `--audio` (other models).
 
 **Aspect & orientation — check the source before you generate** *(applies to `animate`/`camera`)*.
 Compare the **source still's orientation** to the **intended video frame** (usually 16:9 for web,

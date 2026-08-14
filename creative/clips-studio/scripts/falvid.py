@@ -459,7 +459,12 @@ def _build_video_args(a, model, prompt, fal_client=None, dry_run=False):
     if a.aspect:
         args["aspect_ratio"] = a.aspect
     if _model_has(model, AUDIO_MODELS):
-        args["generate_audio"] = bool(a.audio)
+        # FLUX 3 includes native audio free — default ON unless --no-audio.
+        # Other audio-capable models: opt-in via --audio.
+        if _model_has(model, ("flux-3",)):
+            args["generate_audio"] = not getattr(a, "no_audio", False)
+        else:
+            args["generate_audio"] = bool(a.audio)
     if a.seed is not None:
         args["seed"] = a.seed
     args.update(_extra_args(a))
@@ -476,7 +481,12 @@ def cmd_generate(a):
     if res:
         args["resolution"] = res
     if _model_has(model, AUDIO_MODELS):
-        args["generate_audio"] = bool(a.audio)
+        # FLUX 3 includes native audio free — default ON unless --no-audio.
+        # Other audio-capable models: opt-in via --audio.
+        if _model_has(model, ("flux-3",)):
+            args["generate_audio"] = not getattr(a, "no_audio", False)
+        else:
+            args["generate_audio"] = bool(a.audio)
     if a.seed is not None:
         args["seed"] = a.seed
     args.update(_extra_args(a))
@@ -608,6 +618,7 @@ def build_parser():
         sp.add_argument("--resolution")
         sp.add_argument("--aspect")
         sp.add_argument("--audio", action="store_true")
+        sp.add_argument("--no-audio", action="store_true", help="Disable audio (FLUX 3 defaults ON)")
         sp.add_argument("--seed", type=int)
         sp.add_argument("--model")
         sp.add_argument("--out-dir", default="_workings")
@@ -650,6 +661,7 @@ def build_parser():
     en.add_argument("--resolution")
     en.add_argument("--aspect")
     en.add_argument("--audio", action="store_true")
+    en.add_argument("--no-audio", action="store_true", help="Disable audio (FLUX 3 defaults ON)")
     en.add_argument("--model")
     en.add_argument("--out-dir", default=".")
     en.add_argument("--name", default="vid_enhanced")
