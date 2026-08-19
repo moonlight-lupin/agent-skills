@@ -60,7 +60,8 @@ Phase 2: BM25Index.retrieve(user_message, top_k)
 
 The BM25 index is built once at plugin load from standalone skills
 (`~/.hermes/skills`) and plugin-bundled skills (`~/.hermes/plugins/*/skills`).
-Retrieval uses scipy sparse matrices and is sub-millisecond for ~128 skills.
+Retrieval uses a pure-stdlib inverted index (term → posting list of
+precomputed BM25 weights) and is sub-millisecond for ~200 skills.
 
 ## Token savings
 
@@ -93,7 +94,7 @@ session so `register()` runs — it patches the system prompt and registers the
 Dependencies (install into the Hermes Python env if missing):
 
 ```bash
-pip install numpy scipy pyyaml
+pip install pyyaml
 ```
 
 ## Configuration
@@ -121,6 +122,9 @@ silently empty. After restart, check the Hermes logs.
 **Degraded — these warnings mean it's not working:**
 
 - `Cannot locate prompt_builder — compaction skipped` (Phase 1 failed, Phase 2 still works)
+- `Cannot locate run_agent — patching prompt_builder only` (Phase 1 partially
+  applied: callers resolving the builder via `run_agent` still get the full,
+  uncompacted skill list, so the expected token saving does not materialise)
 - `No active skills found for BM25 index` (index is empty — zero retrieval injection)
 
 ## How it works
@@ -128,21 +132,25 @@ silently empty. After restart, check the Hermes logs.
 - **Tokenizer** — lowercases text, strips punctuation, splits on whitespace.
 - **Corpus** — each skill becomes `"name: description"` from SKILL.md YAML
   frontmatter. Disabled skills from `~/.hermes/config.yaml` are skipped.
-- **Index** — BM25 Okapi TF saturation + Lucene-style clipped IDF, stored as a
-  scipy CSR sparse matrix.
-- **Retrieve** — query tokens → sparse vector → dot product → top-K by score
-  (descending, score > 0 only).
+- **Index** — BM25 Okapi TF saturation + Lucene-style clipped IDF, stored as an
+  inverted index: ``dict[str, list[tuple[int, float]]]`` mapping each term to a
+  posting list of (doc_index, precomputed BM25 weight).
+- **Retrieve** — for each unique query token present in the index, walk its
+  posting list and accumulate scores; sort by descending score (score > 0 only).
 
 ## Performance
 
-- Index built once at plugin load.
-- Retrieval is sub-millisecond for on the order of 128 skills.
+- Index built once at plugin load (~8 ms for 200 skills on a CPU-only VM).
+- Retrieval is sub-millisecond (~0.03 ms mean for 200 skills). The inverted
+  index touches only documents that share a query term — no full-corpus scan.
+- No compiled dependencies. The plugin uses only the Python standard library
+  (plus pyyaml for config/frontmatter parsing). This removes a 154 MB
+  numpy/scipy install and a ~573 ms import cost, which matters for subprocess
+  spawning paths (e.g. a Claude Code `UserPromptSubmit` variant).
 - Failures in the hook return `None` (no injection) so the agent keeps working.
 
 ## Dependencies
 
-- `numpy`
-- `scipy`
 - `pyyaml`
 
 ## Limitations
@@ -157,7 +165,11 @@ silently empty. After restart, check the Hermes logs.
   or enabled mid-session are invisible until the agent restarts.
 - Phase 1 depends on Hermes internals (`prompt_builder`, `run_agent`) and can
   break on a Hermes upgrade.
-- BM25 top-1 precision is soft — `TOP_K` below ~5 is not recommended. Observed:
-  "generate an image" ranks `pexels-stock-photos` above `image-studio`;
-  "plan a trip to Japan" ranks `task-brief` above `travel-itinerary`. Both land
-  inside the top 6.
+- BM25 top-1 precision is soft: the best-matching skill is often not rank 1,
+  though it usually lands within the first few results. Ranking depends entirely
+  on your own corpus and how its descriptions are worded, so `TOP_K` below ~5 is
+  not recommended.
+- The stdlib index computes in float64 (the previous scipy version used
+  float32). Equal-scoring skills may order differently than before. This is
+  harmless — the scores are genuine ties (~1e-6 difference) — but it is a real
+  behaviour delta from the scipy version.

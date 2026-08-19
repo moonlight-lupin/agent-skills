@@ -1,6 +1,6 @@
 # skill-retrieval
 
-BM25-based skill retrieval plugin for [Hermes Agent](https://hermes-agent.nousresearch.com). Replaces the full skill list in the system prompt with a names-only compact view (~2K tokens) and injects top-K relevant skill descriptions per turn (~300 tokens), saving ~9K tokens/turn while keeping skills discoverable by name.
+BM25-based skill retrieval plugin for [Hermes Agent](https://hermes-agent.nousresearch.com). Replaces the full skill list in the system prompt with a names-only compact view (~2K tokens) and injects top-K relevant skill descriptions per turn (~300 tokens), saving ~9K tokens/turn while keeping skills discoverable by name. Those figures were measured on a Hermes install with ~300 skills; the saving scales with your own skill count.
 
 This is a **Hermes Agent** plugin. It is not a Claude Code plugin and will not load in Claude Code — that runtime has no `pre_llm_call` event, no Python `register()` entry point, and reads `.claude-plugin/plugin.json` rather than `plugin.yaml`. Developed against Hermes Agent >=0.20.0.
 
@@ -13,7 +13,8 @@ See [SKILL.md](SKILL.md) for full architecture, token measurements, how it works
 ln -s "$(pwd)/plugins/skill-retrieval" ~/.hermes/plugins/skill-retrieval
 
 # Dependencies (Hermes Python env)
-pip install numpy scipy pyyaml
+# pyyaml is the only dependency — usually already present in a Hermes env
+pip install pyyaml
 ```
 
 Restart the Hermes session so the plugin's `register()` runs.
