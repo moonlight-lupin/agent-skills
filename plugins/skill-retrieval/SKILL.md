@@ -1,19 +1,20 @@
 ---
 name: skill-retrieval
-version: 0.1.0
 description: >-
   BM25-based skill retrieval plugin for Hermes Agent. Replaces the full skill
   list in the system prompt with a names-only compact view (~2K tokens) and
   injects top-K relevant skill descriptions per turn via BM25 retrieval (~300
   tokens). Saves ~9K tokens/turn. Use when system prompt token overhead from
   skills is a concern, or when skill discovery quality matters.
-author: MH
 license: MIT
-platforms: [linux, macos, windows]
-tags: [bm25, skill-retrieval, system-prompt, token-optimization, plugin]
-hermes:
-  plugin_type: hook
-  hooks: [pre_llm_call]
+metadata:
+  version: 0.1.0
+  author: MH
+  platforms: [linux, macos, windows]
+  tags: [bm25, skill-retrieval, system-prompt, token-optimization, plugin]
+  hermes:
+    plugin_type: hook
+    hooks: [pre_llm_call]
 ---
 
 # Skill Retrieval
