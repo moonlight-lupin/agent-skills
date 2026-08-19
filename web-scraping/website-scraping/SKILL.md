@@ -3,7 +3,7 @@ name: website-scraping
 description: Generic playbook for extracting structured data from any website — hotel prices, flight fares, e-commerce listings, real estate, jobs, competitor product catalogues, anything where the goal is to turn one or more URLs into clean records on disk. Use this skill whenever the user mentions scraping, harvesting, extracting, or pulling data from a website; names a specific site or competitor they want data from; asks how to handle JavaScript-rendered pages, Cloudflare blocks, bot detection, Turnstile challenges, or Playwright; wants to monitor prices over time; needs to automate a copy-paste research task; or says things like "just get the data from X" or "I need a script that grabs N from site Y". Covers recon, picking the lightest extraction tool that works, surviving anti-bot defences, and writing clean JSONL output with a run manifest. Scope is scraping only — landing data in a database, scheduling, and downstream pipeline work are explicitly out of scope and live in other tools.
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
 ---
@@ -48,6 +48,8 @@ Before writing the decision tree below, run two cheap sanity checks. Either can 
 **2.0a — Is the data already one tool-call away?** You may be running inside an agent runtime that already exposes a fetch/scrape/SERP capability — Hermes's `web_search` + `web_extract` tools, a built-in search, or a scraping MCP server (Bright Data, Firecrawl, etc.). For a *one-off, low-volume* job, calling a tool that already exists is the lightest path of all — lighter than writing any code. Check what's available before you open an editor. (For repeatable, version-controlled, or high-volume work, still write a script — you want something you can re-run, diff, and hand off.)
 
 **2.0b — Is this a hostile mega-platform?** A handful of sites — Amazon, LinkedIn, Instagram, TikTok, Facebook, YouTube, Zillow, Google Maps, Crunchbase, and similar — invest heavily in defeating DIY scraping and change their internals constantly. For these, hand-rolling a scraper is often poor ROI: it works for a week, then breaks. The lightest tool here may not be `urllib` at all — it's a commercial structured-data product (Bright Data's dataset/Web-Scraper APIs, Apify actors, etc.) that already maintains the extraction for that platform. **Surface this trade-off to the user** ("I can hand-roll this, but for $SITE a maintained data API will be more reliable and probably cheaper than the upkeep — your call") rather than silently grinding on a fragile custom scraper. If they want DIY anyway, proceed — but go in expecting the anti-bot ladder in step 4.
+
+For public X / Twitter records, load `references/apify-x-actors.md`. It defines the optional Xquik Actor routes, bounded inputs, cost controls, and public-data limits. Keep any existing X route available.
 
 If neither shortcut applies, recon normally. Open the target URL in a real browser with DevTools open. Walk this decision tree top to bottom; **stop at the first match**. The earlier you stop, the simpler and more robust the scraper.
 
@@ -200,7 +202,7 @@ output/
     {"url": "...", "reason": "..."}
   ],
   "user_agent": "Mozilla/5.0 ...",
-  "tool": "urllib" | "playwright" | "playwright+stealth"
+  "tool": "urllib" | "playwright" | "playwright+stealth" | "apify:xquik/x-tweet-scraper" | "apify:xquik/x-follower-scraper"
 }
 ```
 
@@ -217,6 +219,7 @@ Deeper material is in `references/` — load as needed, don't read upfront:
 - **`references/agentic-browsing.md`** — the narrow case where the blocker is multi-step *navigation* rather than parsing (login flows, filter wizards, calendar pickers). Covers Microsoft's Webwright agentic browser framework: when it earns its keep, when it's overkill, install/CLI, and the "use it once to harden the script, then run that script deterministically" pattern. Not for bulk extraction — its own docs say so.
 - **`references/named-div-extraction.md`** — extracting server-rendered text from `<div id="...">` containers (common on ASP.NET/legacy sites). Regex vs BeautifulSoup vs browser fallback, nested-div pitfalls, multi-language variant handling, and the bulk-urllib + browser-fallback hybrid pattern.
 - **`references/scrapling.md`** — Load when the site changed structure and CSS selectors broke (adaptive element relocation), when scraped content will feed into an LLM (prompt injection sanitization), or when you need a CLI quick-test before writing a full scraper.
+- **`references/apify-x-actors.md`**: optional Xquik Actor selection for public X posts and relationships, with bounded schema-valid inputs, spend controls, output provenance, and privacy limits.
 
 ## Helper scripts
 
