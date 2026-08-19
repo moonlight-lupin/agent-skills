@@ -163,6 +163,8 @@ Before declaring done:
 
 0. **Block-page gate (do this at fetch time, not just at the end).** A `200 OK` does not mean you got real content. Before parsing, assert the payload is non-empty *and* free of block-page signatures — `"Just a moment"`, `"Performing security verification"`, `"Access denied"`, `"unusual traffic"`, a Cloudflare/Turnstile iframe, or a body that's suspiciously short for the page. A scraper that silently writes 200 challenge-page records looks successful (`status: "ok"`, 200 rows) but contains zero usable data. Fail loud — count these as errors in the manifest, don't let them masquerade as records. This is the single most common silent-corruption failure.
 
+0a. **Sanitize for LLM consumption (if scraped content will feed into an LLM).** Hidden elements (`<script>`, `<style>`, `<template>`, hidden divs) can carry prompt injection payloads that execute when the scraped text enters an LLM prompt. Strip these before saving or passing to any model. If Scrapling is installed, use `scrapling extract get <url> output.md --ai-targeted` — it handles this automatically. Otherwise, apply the manual sanitization function in `references/scrapling.md` (Concept 1). This is mandatory whenever scraped content will enter an LLM context window.
+
 1. **Smoke test**: run the scraper against the single known-good item from step 1. Eyeball every field of the resulting record against what the browser shows.
 2. **Sample of N**: pull 5-10 records at random from a full run and verify each in the browser. Look for: column-shift bugs (every field off by one), unit confusions (£ vs $, weekly vs monthly), date-format errors (MM/DD vs DD/MM), and silently-empty fields.
 3. **Count check**: if the site reports a total ("234 properties in this city"), check your output has roughly that many records (allowing for things the site lists but you filtered out).
@@ -213,6 +215,8 @@ Deeper material is in `references/` — load as needed, don't read upfront:
 - **`references/anti-bot.md`** — escalation ladder for Cloudflare, Turnstile, rate limits, and IP-based blocking. Specific patterns (fresh context per request, stealth library setup, the managed-unblocker off-ramp and how to swap only the fetcher, when to give up).
 - **`references/extraction.md`** — pulling JSON-LD, finding JSON-in-page blobs in Next.js/Nuxt/Drupal/etc., handling double-rendered DOMs, polling for value-change on click, robust dedup, parsing common field shapes (size ranges, price ranges, dates, postcodes/zip codes, addresses).
 - **`references/agentic-browsing.md`** — the narrow case where the blocker is multi-step *navigation* rather than parsing (login flows, filter wizards, calendar pickers). Covers Microsoft's Webwright agentic browser framework: when it earns its keep, when it's overkill, install/CLI, and the "use it once to harden the script, then run that script deterministically" pattern. Not for bulk extraction — its own docs say so.
+- **`references/named-div-extraction.md`** — extracting server-rendered text from `<div id="...">` containers (common on ASP.NET/legacy sites). Regex vs BeautifulSoup vs browser fallback, nested-div pitfalls, multi-language variant handling, and the bulk-urllib + browser-fallback hybrid pattern.
+- **`references/scrapling.md`** — Load when the site changed structure and CSS selectors broke (adaptive element relocation), when scraped content will feed into an LLM (prompt injection sanitization), or when you need a CLI quick-test before writing a full scraper.
 
 ## Helper scripts
 
@@ -252,4 +256,4 @@ Two eval sets live under `evals/`:
   `people-enrichment` instead), required output fields, and forbidden patterns.
 
 The routing fixtures are specs, not run against a live model;
-the repo-root `tests/test_routing_fixtures.py` validates they stay well-formed.
+`tests/test_routing_fixtures.py` validates they stay well-formed.
