@@ -7,11 +7,9 @@ Indexed once at plugin load; retrieval is sub-millisecond for 128 skills.
 
 import re
 import time
+import math
 import logging
 from pathlib import Path
-
-import numpy as np
-from scipy import sparse
 
 logger = logging.getLogger(__name__)
 
@@ -40,16 +38,21 @@ def tokenize(text: str) -> list[str]:
 
 # ─── Skill corpus loader ──────────────────────────────────────────────────────
 
-def _parse_skill_md(skill_md: Path) -> tuple[str, str] | None:
+def _parse_skill_md(skill_md: Path) -> tuple[str, str]:
     """Return (name, description) parsed from a SKILL.md frontmatter.
 
     Returns ("", "") for valid frontmatter with missing name/description.
     Returns ("", "") for invalid frontmatter (no fences, malformed YAML,
-    non-mapping). Never raises.
+    non-mapping) and for a file that cannot be read. Never raises, so one
+    unreadable skill cannot abort the whole index build.
     """
     import yaml
 
-    text = skill_md.read_text(errors="replace")
+    try:
+        text = skill_md.read_text(errors="replace")
+    except OSError as exc:
+        logger.warning("Cannot read %s: %s", skill_md, exc)
+        return "", ""
     lines = text.splitlines()
 
     # Frontmatter must start at the first line (allowing optional BOM).
@@ -121,10 +124,21 @@ def load_active_skills() -> list[dict]:
     # Load disabled list
     disabled = set()
     if CONFIG_PATH.exists():
-        config = yaml.safe_load(CONFIG_PATH.read_text()) or {}
+        # A malformed or unreadable config must not abort the index build —
+        # that would leave the agent with a compacted prompt and no retrieval.
+        try:
+            config = yaml.safe_load(CONFIG_PATH.read_text()) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            logger.warning(
+                "Cannot read %s: %s — treating no skills as disabled",
+                CONFIG_PATH, exc,
+            )
+            config = {}
         if not isinstance(config, dict):
             config = {}
-        disabled = set(config.get("skills", {}).get("disabled", []))
+        skills_cfg = config.get("skills")
+        if isinstance(skills_cfg, dict):
+            disabled = set(skills_cfg.get("disabled") or [])
 
     # Collect candidate skill files from both roots.
     candidates: list[tuple[Path, str, str]] = []
@@ -143,10 +157,7 @@ def load_active_skills() -> list[dict]:
         if leaf_name in disabled or rel_name in disabled:
             continue
 
-        parsed = _parse_skill_md(skill_md)
-        if parsed is None:
-            continue
-        name, desc = parsed
+        name, desc = _parse_skill_md(skill_md)
         if not name:
             name = leaf_name
 
@@ -164,7 +175,14 @@ def load_active_skills() -> list[dict]:
 # ─── BM25 Index ───────────────────────────────────────────────────────────────
 
 class BM25Index:
-    """BM25 Okapi retriever using scipy sparse matrices."""
+    """BM25 Okapi retriever using a pure-stdlib inverted index.
+
+    At build time, the full BM25 weight for every (term, document) pair is
+    precomputed and stored in an inverted index: ``dict[str, list[tuple[int, float]]]``
+    mapping each term to a posting list of (doc_index, weight). A query then
+    sums weights over the posting lists of the query terms only — no scan over
+    the full corpus.
+    """
 
     def __init__(self, k1: float = K1, b: float = B):
         self.k1 = k1
@@ -175,7 +193,7 @@ class BM25Index:
         self._corpus_ids = corpus_ids
         t0 = time.time()
 
-        # Tokenize and build vocabulary
+        # Tokenize, build vocabulary, record document lengths.
         vocab: dict[str, int] = {}
         tokenized: list[list[str]] = []
         doc_lens: list[int] = []
@@ -187,13 +205,28 @@ class BM25Index:
                 if t not in vocab:
                     vocab[t] = len(vocab)
 
-        avgdl = float(np.mean(doc_lens)) if doc_lens else 1.0
         n_docs = len(corpus_texts)
+        avgdl = sum(doc_lens) / n_docs if n_docs else 1.0
         n_terms = len(vocab)
         self._vocab = vocab
 
-        # Build TF matrix
-        rows, cols, vals = [], [], []
+        # Document frequency per term.
+        df: dict[int, int] = {}
+        for tokens in tokenized:
+            for tid in set(vocab[t] for t in tokens):
+                df[tid] = df.get(tid, 0) + 1
+
+        # Lucene-style clipped IDF: max(0, log((N - df + 0.5) / (df + 0.5))).
+        idf: dict[int, float] = {}
+        for tid, df_count in df.items():
+            val = math.log((n_docs - df_count + 0.5) / (df_count + 0.5))
+            idf[tid] = max(0.0, val)
+
+        # Build inverted index with precomputed BM25 weights.
+        # term → list of (doc_index, weight)
+        k1, b = self.k1, self.b
+        nnz = 0
+        postings: dict[int, list[tuple[int, float]]] = {}
         for i, tokens in enumerate(tokenized):
             if not tokens:
                 continue
@@ -201,33 +234,19 @@ class BM25Index:
             for t in tokens:
                 tid = vocab[t]
                 counts[tid] = counts.get(tid, 0) + 1
-            for tid, count in counts.items():
-                rows.append(i)
-                cols.append(tid)
-                vals.append(count)
+            dl = doc_lens[i]
+            denom = k1 * (1.0 - b + b * dl / avgdl)
+            for tid, tf in counts.items():
+                # BM25 Okapi TF saturation.
+                sat = (tf * (k1 + 1.0)) / (tf + denom)
+                weight = sat * idf[tid]
+                postings.setdefault(tid, []).append((i, weight))
+                nnz += 1
 
-        tf = sparse.csr_matrix(
-            (vals, (rows, cols)), shape=(n_docs, n_terms), dtype=np.float32
-        )
-
-        # BM25 saturation
-        k1, b = self.k1, self.b
-        dl = np.array(doc_lens, dtype=np.float32)
-        denom_base = k1 * (1.0 - b + b * dl / avgdl)
-        tf_coo = tf.tocoo()
-        sat_vals = (tf_coo.data * (k1 + 1)) / (tf_coo.data + denom_base[tf_coo.row])
-        bm25_tf = sparse.csr_matrix(
-            (sat_vals, (tf_coo.row, tf_coo.col)), shape=(n_docs, n_terms), dtype=np.float32
-        )
-
-        # IDF (clipped at zero — Lucene/Elasticsearch variant)
-        df = np.array((tf > 0).sum(axis=0), dtype=np.float32).flatten()
-        idf = np.log((n_docs - df + 0.5) / (df + 0.5)).clip(min=0)
-
-        self._matrix = bm25_tf.multiply(idf[np.newaxis, :]).tocsr()
+        self._postings = postings
         self._built = True
         logger.info("BM25 index built: %d docs, %d terms, %d nnz in %.3fs",
-                     n_docs, n_terms, self._matrix.nnz, time.time() - t0)
+                     n_docs, n_terms, nnz, time.time() - t0)
 
     def retrieve(self, query: str, top_k: int = 5) -> list[tuple[str, float]]:
         """Return [(skill_id, score), ...] sorted by descending score."""
@@ -235,31 +254,27 @@ class BM25Index:
             return []
 
         tokens = tokenize(query)
-        q_rows, q_cols, q_vals = [], [], []
         seen: set[int] = set()
+        scores: dict[int, float] = {}
         for t in tokens:
-            if t in self._vocab:
-                tid = self._vocab[t]
-                if tid not in seen:
-                    seen.add(tid)
-                    q_rows.append(0)
-                    q_cols.append(tid)
-                    q_vals.append(1.0)
+            tid = self._vocab.get(t)
+            if tid is None or tid in seen:
+                continue
+            seen.add(tid)
+            for doc_idx, weight in self._postings.get(tid, ()):
+                scores[doc_idx] = scores.get(doc_idx, 0.0) + weight
 
-        if not q_vals:
+        if not scores:
             return []
 
-        q_mat = sparse.csr_matrix(
-            (q_vals, (q_rows, q_cols)), shape=(1, len(self._vocab)), dtype=np.float32
-        )
-        scores = q_mat.dot(self._matrix.T).toarray()[0]
-        top_indices = np.argsort(scores)[::-1][:top_k]
-
-        return [
-            (self._corpus_ids[idx], float(scores[idx]))
-            for idx in top_indices
-            if scores[idx] > 0
+        # Sort by descending score, break ties by ascending doc index.
+        ranked = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
+        results = [
+            (self._corpus_ids[idx], score)
+            for idx, score in ranked[:top_k]
+            if score > 0
         ]
+        return results
 
 
 # ─── Singleton index ─────────────────────────────────────────────────────────
