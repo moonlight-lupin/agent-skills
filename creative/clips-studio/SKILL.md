@@ -9,11 +9,11 @@ description: >
   motion), camera-move (push-in/pan/orbit). Not for still images (image-studio),
   slide decks, or charts. Honesty discipline: never depict real identifiable
   subjects via text-to-video.
-version: 1.2.0
-author: moonlight-lupin
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  version: 1.2.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
   hermes:
     tags: [video, fal.ai, marketing, social, clips, animate, camera-move, staged-workflow]
     related_skills: [image-studio, image-gen-workflow, fal-enhanced]
