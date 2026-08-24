@@ -99,8 +99,9 @@ Multi-profile: only if customer specifically mentions needing separate profiles.
 3. Deploy dashboard as systemd service. Use template from `references/setup-details.md` § Dashboard systemd unit:
    - Set `HERMES_DASHBOARD_TUI=1`
    - Set `HERMES_PYTHON` to venv python path
-   - **Default: bind to 127.0.0.1 (loopback only).** Access via SSH tunnel: `ssh -L 9119:127.0.0.1:9119 user@host`
-   - Only bind to `0.0.0.0 --insecure` if the customer explicitly asks for LAN access. Warn: this exposes the dashboard (which fronts an agent with terminal access) without authentication. Require an authenticated reverse proxy (Caddy/nginx with basic auth) for any non-loopback binding.
+   - **Binding choice — ask the customer:**
+     - **Loopback (default):** bind to 127.0.0.1. Access via SSH tunnel: `ssh -L 9119:127.0.0.1:9119 user@host`. Most secure. No firewall change needed.
+     - **LAN (0.0.0.0):** bind to all interfaces with `--host 0.0.0.0 --insecure`. Direct access from any device on the same network at `http://<host-ip>:9119`. Suitable for internal WiFi/LAN where all devices are trusted. The dashboard fronts an agent with terminal access — only use this on networks you control.
 4. Enable and start both services
 5. Set timezone: `hermes config set timezone '<customer-timezone>'` + `timedatectl set-timezone '<tz>'`
 

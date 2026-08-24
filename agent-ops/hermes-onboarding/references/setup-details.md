@@ -90,7 +90,7 @@ systemctl status hermes-gateway
 
 ## Dashboard systemd unit
 
-### Default: loopback only (secure)
+### Default: loopback only (most secure)
 
 ```ini
 [Unit]
@@ -113,15 +113,32 @@ WantedBy=multi-user.target
 
 Access via SSH tunnel: `ssh -L 9119:127.0.0.1:9119 user@host`, then open `http://127.0.0.1:9119` locally.
 
-### Optional: LAN access (ask first, requires auth)
+### Optional: LAN access (for trusted internal WiFi/LAN)
 
-Only if the customer explicitly requests LAN access. Warn them: the dashboard fronts an agent with terminal access. Without authentication, anyone on the LAN can send commands to the agent.
+Choose this if the customer wants direct access from other devices on the same network without SSH tunneling. Suitable for home or office networks where all devices are trusted.
 
 ```ini
+[Unit]
+Description=Hermes Agent Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User={user}
 ExecStart={hermes_path} dashboard --host 0.0.0.0 --insecure
+Restart=always
+RestartSec=10
+Environment=HERMES_DASHBOARD_TUI=1
+Environment=HERMES_PYTHON={venv_python_path}
+Environment=HERMES_HOME={hermes_home}
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-For any non-loopback binding, require an authenticated reverse proxy. Example with Caddy basic auth:
+Open firewall: `sudo ufw allow 9119/tcp`. Access from any LAN device at `http://<host-ip>:9119`.
+
+**Note:** The dashboard fronts an agent with terminal access. On a trusted LAN this is convenient. On an untrusted network, add an authenticated reverse proxy (Caddy/nginx with basic auth) in front. Example Caddy config:
 
 ```
 # /etc/caddy/Caddyfile
@@ -133,8 +150,6 @@ For any non-loopback binding, require an authenticated reverse proxy. Example wi
 }
 ```
 
-Then access via `http://<host-ip>:9120` with credentials.
-
 For root mode, save to `/etc/systemd/system/hermes-dashboard.service`.
 
 ```bash
@@ -143,7 +158,7 @@ sudo systemctl enable hermes-dashboard
 sudo systemctl start hermes-dashboard
 ```
 
-Open firewall only if LAN access was explicitly requested: `sudo ufw allow 9119/tcp` (or the reverse proxy port). For loopback-only deployments, no firewall change is needed.
+Open firewall only for LAN mode: `sudo ufw allow 9119/tcp`. Not needed for loopback-only deployments.
 
 ### Verification
 
