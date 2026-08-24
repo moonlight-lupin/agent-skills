@@ -1,6 +1,6 @@
 ---
 name: input-token-overheads
-description: "Use when context window is filling up too fast or input token cost is too high."
+description: "Use when context window is filling up too fast or input token cost is too high. Audits overhead sources."
 license: MIT
 metadata:
   version: 1.4.0

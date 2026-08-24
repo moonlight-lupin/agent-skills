@@ -29,7 +29,7 @@ VALID_SKILLS = {p.parent.name for p in REPO_ROOT.glob("**/SKILL.md")}
 FIXTURE_FILES = sorted(REPO_ROOT.glob("**/evals/routing-fixtures.json"))
 
 # Skills that are expected to ship routing fixtures — guards against silent loss.
-EXPECTED_FIXTURE_SKILLS = {"deep-research", "news-monitoring", "website-scraping"}
+EXPECTED_FIXTURE_SKILLS = {"deep-research", "news-monitoring", "website-scraping", "disk-cleanup", "input-token-overheads", "hermes-onboarding"}
 
 
 def _load(path: Path) -> dict:

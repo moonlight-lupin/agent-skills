@@ -42,10 +42,14 @@ agent_skills/
 │   ├── scheduled-summary/            ← cron-driven cross-session digest for messaging platforms
 │   ├── file-organizer/               ← LLM-powered directory organizer: scan → propose → confirm → move
 │   └── task-brief/                   ← goal/context/constraints brief compiled + confirmed before substantial tasks
-└── agent-ops/                        ← agent infrastructure and maintenance skills
-    ├── claude-plugin-converter/      ← convert Claude Code plugins → self-contained Hermes plugins
-    ├── skill-maintainer/             ← end-to-end skill library maintenance + upstream sync
-    └── log-analyzer/                 ← log pattern detection: error clusters, rate limits, timeouts
+├── agent-ops/                        ← agent infrastructure and maintenance skills
+│   ├── claude-plugin-converter/      ← convert Claude Code plugins → self-contained Hermes plugins
+│   ├── skill-maintainer/             ← end-to-end skill library maintenance + upstream sync
+│   ├── log-analyzer/                 ← log pattern detection: error clusters, rate limits, timeouts
+│   ├── input-token-overheads/        ← audit per-turn input token cost: measure, rank, reduce
+│   └── hermes-onboarding/            ← 21-step customer onboarding: gateway, dashboard, memory, crons
+├── devops/                           ← infrastructure and system maintenance skills
+│   └── disk-cleanup/                 ← triage survey → safe/ask buckets → execute → verify delta
 ```
 
 New skills are added as folders under the relevant domain directory.
@@ -80,6 +84,9 @@ New skills are added as folders under the relevant domain directory.
 | [claude-plugin-converter](agent-ops/claude-plugin-converter/) | agent-ops | Two-phase converter: analyze Claude Code plugins → generate installable Hermes plugins | skill-maintainer |
 | [skill-maintainer](agent-ops/skill-maintainer/) | agent-ops | Skill library maintenance: author, curate, upstream drift tracking, publish | — |
 | [log-analyzer](agent-ops/log-analyzer/) | agent-ops | Log pattern detection: error clusters, rate limits, timeout clusters, tool failures | scheduled-summary |
+| [input-token-overheads](agent-ops/input-token-overheads/) | agent-ops | Audit per-turn input token cost: measure each source, rank by cost, act on top consumers | skill-maintainer |
+| [hermes-onboarding](agent-ops/hermes-onboarding/) | agent-ops | 21-step customer onboarding: gateway, dashboard, memory, search, guardrails, maintenance crons | disk-cleanup, log-analyzer |
+| [disk-cleanup](devops/disk-cleanup/) | devops | Triage disk space: survey all mounts → safe/ask buckets → execute approved set → verify delta | — |
 
 > **Related work:** [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus) (PewDiePie's self-hosted AI workspace) ships similar features as a standalone web app — "Deep Research" and "Compare" — while `deep-research` and `model-compare` cover the same ground as pure-prompt workflows + stdlib scripts inside any agent's tool loop.
 
@@ -113,6 +120,9 @@ New skills are added as folders under the relevant domain directory.
 | claude-plugin-converter | Beta | ✓ | None (stdlib) |
 | skill-maintainer | Beta | ✓ | None (stdlib; curl for GitHub API). Unix-first — cron, curl, `which`, shell loops. Windows via WSL/MSYS2 untested. |
 | log-analyzer | Stable | ✓ | None (stdlib) |
+| input-token-overheads | Beta | evals | PyYAML (optional) |
+| hermes-onboarding | Beta | evals | None (prompt-only) |
+| disk-cleanup | Beta | evals | None (prompt-only) |
 
 > *Stable* = production-tested with real workflows. *Tests* column: ✓ = has a pytest suite; *evals* = ships routing/output-contract fixtures under `evals/` (sample request → expected routing, required output fields, forbidden patterns), validated by `tests/test_routing_fixtures.py` — no live-model execution in CI. *Dependencies* lists pip/runtime requirements beyond Python stdlib.
 

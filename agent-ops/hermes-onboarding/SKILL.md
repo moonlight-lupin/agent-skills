@@ -1,6 +1,6 @@
 ---
 name: hermes-onboarding
-description: "Use when configuring Hermes gateway, dashboard, services."
+description: "Use when onboarding a new customer — configure gateway, dashboard, memory, services for production."
 license: MIT
 metadata:
   version: 1.1.0
@@ -101,11 +101,33 @@ Multi-profile: only if customer specifically mentions needing separate profiles.
    - Set `HERMES_PYTHON` to venv python path
    - **Binding choice — ask the customer:**
      - **Loopback (default):** bind to 127.0.0.1. Access via SSH tunnel: `ssh -L 9119:127.0.0.1:9119 user@host`. Most secure. No firewall change needed.
-     - **LAN (0.0.0.0):** bind to all interfaces with `--host 0.0.0.0 --insecure`. Direct access from any device on the same network at `http://<host-ip>:9119`. Suitable for internal WiFi/LAN where all devices are trusted. The dashboard fronts an agent with terminal access — only use this on networks you control.
+     - **LAN (0.0.0.0):** bind to all interfaces with `--host 0.0.0.0`. Direct access from any device on the same network at `http://<host-ip>:9119`. Suitable for internal WiFi/LAN where all devices are trusted. Set up basic auth (Step 5b) so the dashboard is not unprotected.
 4. Enable and start both services
 5. Set timezone: `hermes config set timezone '<customer-timezone>'` + `timedatectl set-timezone '<tz>'`
 
-**Done:** gateway and dashboard running as systemd services. Test message sent through gateway. Dashboard accessible via SSH tunnel (or authenticated reverse proxy if LAN access was explicitly requested).
+**Done:** gateway and dashboard running as systemd services. Test message sent through gateway. Dashboard accessible via SSH tunnel or LAN with basic auth.
+
+## Step 5b — Dashboard basic auth (required for LAN mode, recommended for all)
+
+Hermes has a built-in basic auth provider. Set a username and password so the dashboard is not unprotected.
+
+1. Hash the password:
+   ```bash
+   python3 -c "from plugins.dashboard_auth.basic import hash_password; print(hash_password('customer-password'))"
+   ```
+2. Set in config.yaml (edit directly — `hermes config set` stringifies nested values):
+   ```yaml
+   dashboard:
+     basic_auth:
+       username: admin
+       password_hash: <hash-from-step-1>
+   ```
+3. Restart dashboard: `systemctl restart hermes-dashboard`
+4. Verify: open dashboard URL in browser — should show login page
+
+For loopback-only deployments this is optional (SSH tunnel already gates access). For LAN deployments this is required.
+
+**Done:** basic auth configured. Dashboard shows login page when accessed.
 
 ## Step 6 — Approvals and terminal backend
 
@@ -282,12 +304,25 @@ Triggered (not scheduled): post-update health check — run `hermes doctor`, ver
 |------|-------|
 | Gateway | `systemctl status hermes-gateway` + test message |
 | Dashboard | `systemctl status hermes-dashboard` + URL accessible |
+| Dashboard auth | Browser shows login page (LAN mode) or SSH tunnel works (loopback) |
 | Memory | `mnemosyne_recall` returns results |
 | Search | `web_search` test query returns results |
 | Extraction | `web_extract` test URL returns content |
 | Browser | CDP browser opens and navigates |
 | Crons | `hermes cron list` shows 4 jobs |
 | Timezone | `hermes config get timezone` matches customer input |
+| Approvals | `hermes config get approvals.mode` returns `smart` |
+| Terminal backend | `hermes config get terminal.backend` matches detection |
+| Compression | `hermes config get compression.threshold` matches model context |
+| Cron fleet default | `hermes config get cron.model` is set |
+| Toolsets | `hermes tools list` shows only needed toolsets enabled |
+| Verbosity | `hermes config get display.tool_progress` matches customer choice |
+| show_cost | `hermes config get display.show_cost` returns `true` |
+| Profile | `hermes profile list` shows customer profile |
+| Soul.md | `~/.hermes/SOUL.md` exists and contains customer input |
+| Skill guardrails | 7 principles loaded from references |
+| Library-rag | `hermes skills list` shows library-rag (if opted in) |
+| Use case | Customer answered, skills recommended |
 
 3. Present config snapshot: provider, model, aux model, gateway platform, memory backend, search backend, browser backend, compression settings, cron jobs, soul.md path, profile name
 4. Present pass/fail for each item

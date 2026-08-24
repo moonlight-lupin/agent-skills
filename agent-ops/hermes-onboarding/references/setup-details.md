@@ -113,9 +113,9 @@ WantedBy=multi-user.target
 
 Access via SSH tunnel: `ssh -L 9119:127.0.0.1:9119 user@host`, then open `http://127.0.0.1:9119` locally.
 
-### Optional: LAN access (for trusted internal WiFi/LAN)
+### Optional A: LAN direct (trusted internal WiFi/LAN)
 
-Choose this if the customer wants direct access from other devices on the same network without SSH tunneling. Suitable for home or office networks where all devices are trusted.
+Direct access from any device on the same network. Requires basic auth (see Step 5b in SKILL.md). Only safe on networks you fully control.
 
 ```ini
 [Unit]
@@ -125,7 +125,7 @@ After=network.target
 [Service]
 Type=simple
 User={user}
-ExecStart={hermes_path} dashboard --host 0.0.0.0 --insecure
+ExecStart={hermes_path} dashboard --host 0.0.0.0
 Restart=always
 RestartSec=10
 Environment=HERMES_DASHBOARD_TUI=1
@@ -136,9 +136,19 @@ Environment=HERMES_HOME={hermes_home}
 WantedBy=multi-user.target
 ```
 
-Open firewall: `sudo ufw allow 9119/tcp`. Access from any LAN device at `http://<host-ip>:9119`.
+Note: `--insecure` is not needed when basic auth is configured — the auth gate protects the dashboard. Open firewall: `sudo ufw allow 9119/tcp`. Access at `http://<host-ip>:9119`.
 
-**Note:** The dashboard fronts an agent with terminal access. On a trusted LAN this is convenient. On an untrusted network, add an authenticated reverse proxy (Caddy/nginx with basic auth) in front. Example Caddy config:
+### Optional B: LAN via authenticated reverse proxy (untrusted networks)
+
+For networks where not all devices are trusted, or where HTTPS is required. The dashboard stays on loopback; only the proxy port is exposed.
+
+Dashboard unit — same as loopback default (no `--host 0.0.0.0`):
+
+```ini
+ExecStart={hermes_path} dashboard
+```
+
+Caddy config (adds HTTPS + basic auth):
 
 ```
 # /etc/caddy/Caddyfile
@@ -149,6 +159,8 @@ Open firewall: `sudo ufw allow 9119/tcp`. Access from any LAN device at `http://
     reverse_proxy 127.0.0.1:9119
 }
 ```
+
+Open firewall: `sudo ufw allow 9120/tcp`. Do NOT open 9119. Access at `http://<host-ip>:9120` with credentials.
 
 For root mode, save to `/etc/systemd/system/hermes-dashboard.service`.
 
@@ -168,11 +180,9 @@ curl -s http://127.0.0.1:9119 | head -5
 # From remote machine: http://<host-ip>:9119
 ```
 
-### LAN TUI patches (only if LAN access explicitly requested)
+### LAN TUI patches (only for LAN direct mode — Optional A)
 
-**Warning:** These patches disable security checks in `hermes_cli/web_server.py`. Only apply if the customer explicitly asked for LAN dashboard access and an authenticated reverse proxy is in place. Do not apply for loopback-only deployments.
-
-If the dashboard TUI chat tab must work from a LAN IP (not localhost), three security checks in `hermes_cli/web_server.py` must be patched:
+If the customer chose LAN direct mode (Optional A) and the dashboard TUI chat tab must work from a LAN IP (not localhost), three security checks in `hermes_cli/web_server.py` must be patched. Basic auth (Step 5b) must be configured first.
 
 1. `_LOOPBACK_HOST_VALUES` (~line 158) — add the host's LAN IPs
 2. `_LOOPBACK_HOSTS` (~line 3373) — add LAN IPs to WS client IP whitelist

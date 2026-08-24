@@ -1,6 +1,6 @@
 ---
 name: disk-cleanup
-description: "Use when disk usage is above 80% or the user wants to free up VM disk space."
+description: "Use when df says disk is above 80% full or the user wants to reclaim storage space on a VM."
 license: MIT
 metadata:
   version: 1.3.0
@@ -25,10 +25,10 @@ Reclaim disk space on a Linux VM. The skill runs a **triage** — survey every s
 ### 1. Baseline
 
 ```bash
-df -h /
+df -h
 ```
 
-**Done:** used and available numbers recorded for the before/after comparison.
+**Done:** used and available numbers recorded for all mounts for the before/after comparison.
 
 ### 2. Survey
 
@@ -121,15 +121,19 @@ docker rmi IMAGE
 ### 5. Verify
 
 ```bash
-df -h /
+df -h
 ```
 
-**Done:** total reclaimed reported. Used/free compared against baseline from step 1.
+Compare per-mount against baseline from step 1.
+
+**Done:** total reclaimed reported per mount. Used/free compared against baseline.
 
 ## Pitfalls
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
+| `df` shows free blocks but writes fail with ENOSPC | Inode exhaustion — millions of small files. Check `df -i`. | Locate with `find <mount> -xdev -type f \| head -100000 \| wc -l` per directory, then clear the offending cache/spool. Disk-size cleanup will not help. |
+| `df` says full but `du` shows nothing | A process holds a deleted file open. Check `lsof +L1`. | Identify the holding process with `lsof +L1`, restart it (or truncate via `cat /dev/null > /proc/<pid>/fd/<n>`). No file deletion reclaims this. |
 | `git gc` reclaims nothing | No orphaned objects — just large history | Accept the size or run `git repack -ad` for marginal compression |
 | tmp\_pack files persist after gc | Git process still running or lock file | `fuser .git/objects/pack/*.pack` to find the process, retry after it ends |
 | Docker rmi fails "image is in use" | Stopped container still references it | `docker rm` the container first, then `docker rmi` |
