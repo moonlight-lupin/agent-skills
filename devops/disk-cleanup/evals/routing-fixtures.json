@@ -1,0 +1,24 @@
+{
+  "skill_name": "disk-cleanup",
+  "fixtures": [
+    {
+      "id": "disk-full",
+      "request": "df says 92% full, what can I delete to free up space on this VM?",
+      "expected_routing": {
+        "skill": "disk-cleanup",
+        "reason": "User reports high disk usage and wants to reclaim space",
+        "not": [
+          "input-token-overheads",
+          "hermes-onboarding"
+        ]
+      },
+      "required_output_fields": [
+        "targets",
+        "safe_vs_ask"
+      ],
+      "forbidden_patterns": [
+        "rm -rf /"
+      ]
+    }
+  ]
+}

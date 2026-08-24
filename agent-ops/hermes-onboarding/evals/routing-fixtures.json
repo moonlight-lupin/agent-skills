@@ -1,0 +1,22 @@
+{
+  "skill_name": "hermes-onboarding",
+  "fixtures": [
+    {
+      "id": "gateway-dashboard-services",
+      "request": "I need to configure the gateway and dashboard as systemd services so they survive restarts on my new Hermes setup.",
+      "expected_routing": {
+        "skill": "hermes-onboarding",
+        "reason": "User wants to deploy gateway and dashboard as persistent services \u2014 core onboarding step",
+        "not": [
+          "disk-cleanup",
+          "input-token-overheads"
+        ]
+      },
+      "required_output_fields": [
+        "systemd_units",
+        "verification"
+      ],
+      "forbidden_patterns": []
+    }
+  ]
+}

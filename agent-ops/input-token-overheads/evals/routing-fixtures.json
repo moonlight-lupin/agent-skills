@@ -1,0 +1,22 @@
+{
+  "skill_name": "input-token-overheads",
+  "fixtures": [
+    {
+      "id": "context-too-large",
+      "request": "My context window is filling up too fast and input token cost is too high. What can I do?",
+      "expected_routing": {
+        "skill": "input-token-overheads",
+        "reason": "User reports context window filling and high input token cost",
+        "not": [
+          "disk-cleanup",
+          "hermes-onboarding"
+        ]
+      },
+      "required_output_fields": [
+        "overhead_sources",
+        "ranking"
+      ],
+      "forbidden_patterns": []
+    }
+  ]
+}
