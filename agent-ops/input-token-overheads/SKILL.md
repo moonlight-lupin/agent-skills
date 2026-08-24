@@ -1,7 +1,7 @@
 ---
 name: input-token-overheads
 description: Use when auditing per-turn input token overhead on Hermes.
-version: 1.2.0
+version: 1.3.0
 author: Hermes Agent
 license: MIT
 metadata:
@@ -63,6 +63,15 @@ The health metric is **overhead ratio**: overhead tokens divided by the model's 
 3. **Context Length Alone Hurts** (Du et al., EMNLP 2025) — Performance degrades 14-85% as input length increases, even when retrieval is perfect, irrelevant tokens are replaced with whitespace, or all tokens except relevant ones are masked. The sheer length of the input is itself a limitation. [aclanthology.org/2025.findings-emnlp.1264](https://aclanthology.org/2025.findings-emnlp.1264/)
 
 **Cost compounding:** Overhead is paid every turn. At 10k tokens over 100 turns, that is 1M input tokens spent on overhead alone. Reducing overhead by 2k tokens saves 200k tokens per 100-turn session.
+
+**Mitigations from the research:**
+
+| Finding | Source | Action |
+|---------|--------|--------|
+| Models recall start and end of context best; middle degrades | Liu et al. 2023 | Keep overhead at the top (Hermes already does this). Avoid pushing critical conversation history into the middle — lower compression threshold if history is being compressed too aggressively |
+| Reasoning degrades well below the stated context window maximum | Levy et al. 2024 | Treat the effective context window as 50-70% of the advertised maximum. Target an overhead ratio under 10% of the advertised window, not the effective one |
+| Sheer input length hurts even with perfect retrieval and no distraction | Du et al. 2025 | Reduce overhead aggressively. Every 1k tokens of overhead removed improves reasoning quality, not just cost. The study's mitigation: prompt the model to recite key evidence before solving — equivalent to Hermes compression summarizing relevant context |
+| Tool calling degrades 7-85% as tool catalog grows from 8k to 120k tokens | LongFuncEval (arxiv 2505.10570) | Keep the enabled toolset count low. Prefer deferred tools (loaded on demand) over always-on schemas. Disable unused toolsets |
 
 ## Procedure
 
