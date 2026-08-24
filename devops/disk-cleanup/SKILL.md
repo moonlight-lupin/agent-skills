@@ -1,9 +1,9 @@
 ---
 name: disk-cleanup
-description: "Reclaim disk space on a Linux VM. Surveys every space consumer, splits targets into safe vs ask-first, executes the approved set, then verifies the delta."
+description: "Use when disk usage is above 80% or the user wants to free up VM disk space."
 license: MIT
 metadata:
-  version: 1.2.0
+  version: 1.3.0
   author: moonlight-lupin
   platforms: [linux]
   tags: [disk, cleanup, storage, cache, git, docker, vm]
@@ -32,28 +32,37 @@ df -h /
 
 ### 2. Survey
 
-Build a ranked list of every consumer over ~50M.
+**Requires root** for apt, journalctl, and /var/log operations. Non-root users can survey but cannot clean system paths.
+
+Build a ranked list of every consumer over ~50M. Survey all mounts, not just `/`.
 
 ```bash
-# Hermes data + user caches + tmp
-du -sh ~/.hermes/*/ 2>/dev/null | sort -rh | head -20
-du -sh ~/.hermes/projects/*/ 2>/dev/null | sort -rh | head -20
-du -sh ~/.cache/*/ 2>/dev/null | sort -rh | head -15
-du -sh /tmp/* 2>/dev/null | sort -rh | head -15
+# All mounts (not just /)
+df -h
+df -i                           # inode exhaustion — "No space left on device" with free blocks
+
+# Deleted-but-open files (canonical "df says full, du says empty" case)
+lsof +L1 2>/dev/null | head -20
+
+# Hermes data + user caches + tmp (stay on one filesystem, don't cross mounts)
+du -xsh ~/.hermes/*/ 2>/dev/null | sort -rh | head -20
+du -xsh ~/.hermes/projects/*/ 2>/dev/null | sort -rh | head -20
+du -xsh ~/.cache/*/ 2>/dev/null | sort -rh | head -15
+du -xsh /tmp/* 2>/dev/null | sort -rh | head -15
 
 # Memory store (if Mnemosyne is installed)
-du -sh ~/.hermes/mnemosyne/data/* 2>/dev/null | sort -rh
+du -xsh ~/.hermes/mnemosyne/data/* 2>/dev/null | sort -rh
 
 # Session checkpoints (if present)
-du -sh ~/.hermes/checkpoints/store/ 2>/dev/null
+du -xsh ~/.hermes/checkpoints/store/ 2>/dev/null
 
 # Docker
-docker system df
+docker system df                # shows build cache separately from images
 docker images --format "{{.Size}}\t{{.Repository}}:{{.Tag}}" | sort -rh | head -25
 docker ps -a --filter "status=exited" --format "{{.Image}}" | sort -u
 
 # System
-du -sh /var/cache/apt /var/log ~/.cache/pip ~/.cache/uv 2>/dev/null
+du -xsh /var/cache/apt /var/log ~/.cache/pip ~/.cache/uv 2>/dev/null
 journalctl --disk-usage
 find /var/log \( -name "*.gz" -o -name "*.1" -o -name "*.old" \) 2>/dev/null
 
@@ -61,7 +70,7 @@ find /var/log \( -name "*.gz" -o -name "*.1" -o -name "*.old" \) 2>/dev/null
 find ~/.hermes/projects -name ".git" -type d -exec sh -c 'du -sh "$1" 2>/dev/null' _ {} \; | sort -rh | head -10
 ```
 
-**Done:** every consumer over 50M identified with its size.
+**Done:** every consumer over 50M identified with its size. All mounts surveyed. Inode exhaustion and deleted-but-open files checked.
 
 ### 3. Triage
 
@@ -71,26 +80,28 @@ Split every found target into two buckets. Present the table to the user before 
 
 | Target | Command | Reclaims |
 |--------|---------|----------|
-| Orphaned git tmp\_packs | `cd /repo && git gc --aggressive --prune=now` | Often multi-GB |
 | uv cache | `uv cache prune` | Up to full cache size |
 | pip cache | `pip cache purge` | Up to full cache size |
-| apt cache | `apt autoclean && apt autoremove -y` | ~100M typical |
+| apt cache | `apt autoclean` | ~100M typical |
 | Journal logs | `journalctl --vacuum-size=50M` | Down to 50M |
 | Rotated logs | `find /var/log \( -name "*.gz" -o -name "*.1" -o -name "*.old" \) -delete` | ~20M typical |
-| Stale /tmp dirs | `find /tmp -maxdepth 1 -mtime +3 -type d -name "*_*" -exec rm -rf {} +` | Varies |
 | Browser automation caches | `rm -rf ~/.cache/puppeteer ~/.cache/ms-playwright` | ~650M; re-downloads if needed |
-| Old DB backups | `rm /path/to/*.bak.*` when current DB is healthy | Varies |
 | Dangling Docker images | `docker image prune -f` | Varies |
+| Docker build cache | `docker builder prune -f` | Often multi-GB; largest Docker consumer |
 
 **Ask first — user must confirm:**
 
-| Target | Risk |
-|--------|------|
-| Docker images for stopped containers | May want to restart later |
-| Session checkpoint stores | May contain recoverable state |
-| Large skill references (PDFs, maps, RAG indexes) | User data |
-| Large project uploads | User data |
-| Docker images for running services | Disruptive |
+| Target | Risk | Command |
+|--------|------|---------|
+| git gc aggressive | Destroys recoverable objects (dropped stashes, orphaned commits after bad reset). Aggressive repack temporarily grows disk use. | `cd /repo && git gc --aggressive --prune=now` |
+| apt autoremove | May remove wanted packages. Review the list before confirming. | `apt autoremove` (without -y) |
+| Old DB backups | Confirm current DB is healthy first. Use explicit paths, not globs. | `rm /path/to/specific-backup.bak` |
+| Stale /tmp dirs | Directory mtime does not track activity inside. List before deleting. | `find /tmp -maxdepth 1 -mtime +3 -type d -name "*_*" \| xargs ls -ld` then confirm |
+| Docker images for stopped containers | May want to restart later | `docker rmi <image>` |
+| Session checkpoint stores | May contain recoverable state | — |
+| Large skill references (PDFs, maps, RAG indexes) | User data | — |
+| Large project uploads | User data | — |
+| Docker images for running services | Disruptive | — |
 
 **Done:** table presented with safe-only total and with-ask total. User has approved a set.
 

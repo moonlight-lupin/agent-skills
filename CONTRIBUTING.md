@@ -4,7 +4,7 @@ Thank you for your interest in contributing! This repo collects AI agent skills 
 
 ## Repository structure
 
-Each skill lives in its own folder under a domain directory (`creative/`, `research/`, `mlops/`, `web-scraping/`, `productivity/`). A skill folder contains:
+Each skill lives in its own folder under a domain directory (`agent-ops/`, `creative/`, `devops/`, `research/`, `mlops/`, `web-scraping/`, `productivity/`). A skill folder contains:
 
 - `SKILL.md` — the main instruction file with YAML frontmatter
 - `scripts/` — deterministic Python scripts (pure stdlib where possible)
@@ -24,12 +24,17 @@ Every skill must have this frontmatter:
 name: my-skill
 description: >
   Clear description of what the skill does and when to use it.
-version: 1.0.0
-author: your-name
 license: MIT
-platforms: [linux, macos, windows]
+metadata:
+  version: 1.0.0
+  author: your-name
+  platforms: [linux, macos, windows]
+  tags: [tag1, tag2]
+  related_skills: []
 ---
 ```
+
+Note: `version` and `author` go inside `metadata`, not at the top level. The `skills-ref` validator rejects them as top-level fields.
 
 ### Design principles
 

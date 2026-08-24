@@ -11,6 +11,7 @@ echo "=== Docker ===" && docker --version 2>&1
 echo "=== cgroup ===" && head -5 /proc/1/cgroup 2>/dev/null
 echo "=== user ===" && whoami
 echo "=== hermes path ===" && which hermes
+echo "=== hermes version ===" && hermes --version
 echo "=== hermes home ===" && echo $HERMES_HOME
 echo "=== venv python ===" && ls -la $(dirname $(which hermes))/../python3 2>/dev/null || ls -la $(dirname $(which hermes))/python3 2>/dev/null
 ```
@@ -89,6 +90,8 @@ systemctl status hermes-gateway
 
 ## Dashboard systemd unit
 
+### Default: loopback only (secure)
+
 ```ini
 [Unit]
 Description=Hermes Agent Dashboard
@@ -97,7 +100,7 @@ After=network.target
 [Service]
 Type=simple
 User={user}
-ExecStart={hermes_path} dashboard --host 0.0.0.0 --insecure
+ExecStart={hermes_path} dashboard
 Restart=always
 RestartSec=10
 Environment=HERMES_DASHBOARD_TUI=1
@@ -108,6 +111,30 @@ Environment=HERMES_HOME={hermes_home}
 WantedBy=multi-user.target
 ```
 
+Access via SSH tunnel: `ssh -L 9119:127.0.0.1:9119 user@host`, then open `http://127.0.0.1:9119` locally.
+
+### Optional: LAN access (ask first, requires auth)
+
+Only if the customer explicitly requests LAN access. Warn them: the dashboard fronts an agent with terminal access. Without authentication, anyone on the LAN can send commands to the agent.
+
+```ini
+ExecStart={hermes_path} dashboard --host 0.0.0.0 --insecure
+```
+
+For any non-loopback binding, require an authenticated reverse proxy. Example with Caddy basic auth:
+
+```
+# /etc/caddy/Caddyfile
+:9120 {
+    basicauth {
+        admin <bcrypt-hash>
+    }
+    reverse_proxy 127.0.0.1:9119
+}
+```
+
+Then access via `http://<host-ip>:9120` with credentials.
+
 For root mode, save to `/etc/systemd/system/hermes-dashboard.service`.
 
 ```bash
@@ -116,7 +143,7 @@ sudo systemctl enable hermes-dashboard
 sudo systemctl start hermes-dashboard
 ```
 
-Open firewall if needed: `sudo ufw allow 9119/tcp`.
+Open firewall only if LAN access was explicitly requested: `sudo ufw allow 9119/tcp` (or the reverse proxy port). For loopback-only deployments, no firewall change is needed.
 
 ### Verification
 
@@ -126,7 +153,9 @@ curl -s http://127.0.0.1:9119 | head -5
 # From remote machine: http://<host-ip>:9119
 ```
 
-### LAN TUI patches
+### LAN TUI patches (only if LAN access explicitly requested)
+
+**Warning:** These patches disable security checks in `hermes_cli/web_server.py`. Only apply if the customer explicitly asked for LAN dashboard access and an authenticated reverse proxy is in place. Do not apply for loopback-only deployments.
 
 If the dashboard TUI chat tab must work from a LAN IP (not localhost), three security checks in `hermes_cli/web_server.py` must be patched:
 
@@ -293,7 +322,7 @@ Apply these to every skill the agent creates:
 
 6. **Pruning** — skills should get shorter or sharper over time. Remove stale layers. Sediment settles because adding feels safe and removing feels risky.
 
-7. **Description under 60 chars** — trigger-first, one sentence. The description is the invocation signal. Every word costs tokens on every turn.
+7. **Description as trigger** — trigger-first, one sentence. The description is the invocation signal. Every word costs tokens on every turn. Keep it concise — the skill-retrieval plugin truncates at 200 chars.
 
 For full skill authoring validation (frontmatter, peer-matched structure, cross-reference parity), load the bundled skill:
 
@@ -378,4 +407,4 @@ Run this procedure after every `hermes update` (whether triggered manually or by
 
 6. **Test gateway** — send a test message through each configured platform.
 
-For the full post-update procedure including dependency reinstallation and patch re-application, load the `hermes-post-update` skill.
+For the full post-update procedure including dependency reinstallation and patch re-application, load the `hermes-post-update` skill (Hermes-bundled, ships with every install under the `devops` category). For dashboard LAN patch details, load `hermes-service-deployment` (also Hermes-bundled, `devops` category).

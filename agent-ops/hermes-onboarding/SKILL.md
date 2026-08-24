@@ -1,11 +1,11 @@
 ---
 name: hermes-onboarding
-description: "Use when onboarding a new Hermes Agent for a customer."
+description: "Use when configuring Hermes gateway, dashboard, services."
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   author: moonlight-lupin
-  platforms: [linux, macos, windows]
+  platforms: [linux]
   tags: [onboarding, setup, configuration, deployment, customer]
 ---
 
@@ -43,9 +43,10 @@ Run the detection block from `references/setup-details.md` § Detection. Collect
 | root vs user | `whoami` |
 | container vs bare metal | `head -5 /proc/1/cgroup` |
 | Hermes path | `which hermes` |
+| Hermes version | `hermes --version` |
 | Main model vision | Check model capabilities via provider docs or test with `vision_analyze` |
 
-**Done:** all 7 items detected and recorded. No user input required.
+**Done:** all 8 items detected and recorded. No user input required.
 
 ## Step 2 — Ask up-front questions
 
@@ -53,7 +54,7 @@ Ask the customer 3 questions in one batch:
 
 1. **Customer name** — used for profile name and soul.md identity
 2. **Timezone** — IANA timezone (e.g. Asia/Singapore, America/New_York)
-3. **Gateway platform(s)** — Telegram, Discord, WhatsApp, Slack, Signal. Collect bot tokens or pairing info.
+3. **Gateway platform(s)** — Telegram, Discord, WhatsApp, Slack, Signal. Collect bot tokens or pairing info. Tokens are stored in `~/.hermes/.env` (chmod 600). Do not paste tokens into chat transcripts.
 
 If Step 1 detected the main model lacks vision, add a 4th question:
 
@@ -98,11 +99,12 @@ Multi-profile: only if customer specifically mentions needing separate profiles.
 3. Deploy dashboard as systemd service. Use template from `references/setup-details.md` § Dashboard systemd unit:
    - Set `HERMES_DASHBOARD_TUI=1`
    - Set `HERMES_PYTHON` to venv python path
-   - Add `--host 0.0.0.0 --insecure` for remote access
+   - **Default: bind to 127.0.0.1 (loopback only).** Access via SSH tunnel: `ssh -L 9119:127.0.0.1:9119 user@host`
+   - Only bind to `0.0.0.0 --insecure` if the customer explicitly asks for LAN access. Warn: this exposes the dashboard (which fronts an agent with terminal access) without authentication. Require an authenticated reverse proxy (Caddy/nginx with basic auth) for any non-loopback binding.
 4. Enable and start both services
 5. Set timezone: `hermes config set timezone '<customer-timezone>'` + `timedatectl set-timezone '<tz>'`
 
-**Done:** gateway and dashboard running as systemd services. Test message sent through gateway. Dashboard URL accessible.
+**Done:** gateway and dashboard running as systemd services. Test message sent through gateway. Dashboard accessible via SSH tunnel (or authenticated reverse proxy if LAN access was explicitly requested).
 
 ## Step 6 — Approvals and terminal backend
 
@@ -149,7 +151,7 @@ If customer has Nous Portal: Tool Gateway search is already active. Still set a 
 
 ## Step 9 — Extraction
 
-Verify keyless extraction works (Hermes 0.20.5+ has keyless MCP ring: exa, parallel, tavily, firecrawl, keenable):
+Verify keyless extraction works. Step 1 recorded the Hermes version — confirm it is 0.20.5+ for the keyless MCP ring (exa, parallel, tavily, firecrawl, keenable):
 
 ```bash
 hermes chat -q "Extract the content from https://example.com"
@@ -171,7 +173,7 @@ If the extraction succeeds, no action needed. If customer wants a pinned backend
 
 Apply the 7 Matt Pocock principles to self-generated skills. See `references/setup-details.md` § Skill guardrails. The agent should review any skill it creates against these principles.
 
-For full skill authoring validation, load the bundled skill: `skill_view(name='hermes-agent-skill-authoring')`.
+For full skill authoring validation, load the bundled skill: `skill_view(name='hermes-agent-skill-authoring')`. This is a Hermes-bundled skill — it ships with every install under the `software-development` category.
 
 **Done:** guardrail principles loaded. Agent knows where to find full skill authoring validation.
 
@@ -262,9 +264,11 @@ Create 4 scheduled crons + document 1 triggered procedure:
 | Disk cleanup | Monthly (1st, 03:00) | Agent | Uses disk-cleanup skill |
 | Memory consolidation | Every 4 days, 02:00 | Agent | Mnemosyne sleep cycle |
 | Log anomaly scan | Weekly (Sun, 06:00) | no_agent | log-analyzer --quiet, silent when healthy |
-| Backup + update + health | Weekly (Sun, 03:00) | no_agent | hermes backup (max 2 copies) then hermes update then hermes-post-update procedure. Alert on failure only. |
+| Backup + update + health | Weekly (Sun, 03:00) | Agent | hermes backup (max 2 copies), then hermes update, then post-update health check (re-apply LAN patches if needed). Alert on failure. |
 
-Triggered (not scheduled): post-update health check — run `hermes doctor`, verify gateway + dashboard status, re-apply patches if needed. See `references/setup-details.md` § Post-update health check.
+The backup+update cron runs in agent mode (not no_agent) because the post-update health check may need to re-apply dashboard patches that `hermes update` overwrites. A no_agent script cannot re-apply patches or run `skill_view`.
+
+Triggered (not scheduled): post-update health check — run `hermes doctor`, verify gateway + dashboard status, re-apply patches if needed. See `references/setup-details.md` § Post-update health check. Also triggered manually after any `hermes update` outside the weekly cron.
 
 **Done:** 4 crons created. Post-update procedure documented.
 
@@ -313,24 +317,8 @@ Install customer's chosen skills: `hermes skills install <id>`
 - **plugins.enabled stringification:** `hermes config set plugins.enabled '["a"]'` stores a JSON string, not a YAML list. Edit config.yaml directly for plugin lists.
 - **Dashboard TUI on LAN:** Requires HERMES_PYTHON env var and CORS/loopback patches. See hermes-service-deployment skill references.
 
-## Verification Checklist
+## Verification
 
-- [ ] `hermes doctor` reports no errors
-- [ ] Gateway service active and responding to test message
-- [ ] Dashboard service active and URL accessible
-- [ ] Memory recall returns results
-- [ ] Search returns results
-- [ ] Extraction returns content
-- [ ] Browser opens and navigates
-- [ ] 4 maintenance crons created and visible in `hermes cron list`
-- [ ] Cron fleet default set
-- [ ] Compression enabled with correct threshold
-- [ ] Approvals set to smart
-- [ ] Terminal backend set (docker or local)
-- [ ] Toolsets audited and unneeded disabled
-- [ ] Verbosity confirmed
-- [ ] Profile created and soul.md written
-- [ ] Timezone set in both Hermes config and system
-- [ ] library-rag installed (if customer opted in)
-- [ ] Skill guardrails loaded
-- [ ] Use case recorded and skills recommended
+Step 19's verification table is the single source of truth for setup completeness. Do not duplicate it here.
+
+All items must pass before declaring onboarding complete. Failed items get troubleshooting steps from the Common Pitfalls section.

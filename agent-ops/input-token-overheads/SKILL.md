@@ -1,9 +1,9 @@
 ---
 name: input-token-overheads
-description: "Audit every source of per-turn input token cost on a Hermes Agent instance. Measure each, rank by cost, act on the top consumers."
+description: "Use when context window is filling up too fast or input token cost is too high."
 license: MIT
 metadata:
-  version: 1.3.0
+  version: 1.4.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [tokens, overhead, context, optimization, agent-ops]
@@ -96,23 +96,31 @@ for f in files:
         cat = f.split('/skills/')[1].split('/')[0]
         by_cat.setdefault(cat, [0,0]); by_cat[cat][0] += len(desc); by_cat[cat][1] += 1
         total_desc += len(desc); count += 1
-    except: pass
+    except Exception: pass
 avg = total_desc // max(count, 1)
+K = int(os.environ.get('SKILL_RETRIEVAL_TOP_K', '6'))
 print(f'Skills: {count} total, {total_desc} chars in descriptions')
-print(f'  Top-K per turn: ~{6*avg} chars (~{6*avg//4} tokens) at K=6')
+print(f'  Top-K per turn: ~{K*avg} chars (~{K*avg//4} tokens) at K={K}')
 print(f'  By category (top 5):')
 for cat, (sz, cnt) in sorted(by_cat.items(), key=lambda x: -x[1][0])[:5]:
     print(f'    {sz:>6} chars ({cnt:>2} skills) {cat}')
 
 # --- Disabled skills (savings) ---
-with open(os.path.expanduser('~/.hermes/config.yaml')) as fh:
-    cfg = yaml.safe_load(fh)
-disabled = cfg.get('skills',{}).get('disabled',[])
-print(f'  Disabled: {len(disabled)} skills (saves ~{len(disabled)*avg} chars)')
-
-# --- Compression config ---
-comp = cfg.get('compression',{})
-print(f'  Compression: threshold={comp.get(\"threshold\")}, target_ratio={comp.get(\"target_ratio\")}, protect_last={comp.get(\"protect_last_n\")}')
+config_path = os.path.expanduser('~/.hermes/config.yaml')
+if not os.path.exists(config_path):
+    print('  Config: ~/.hermes/config.yaml not found — skipping disabled/compression stats')
+else:
+    try:
+        with open(config_path) as fh:
+            cfg = yaml.safe_load(fh)
+        if cfg is None:
+            cfg = {}
+        disabled = cfg.get('skills',{}).get('disabled',[]) or []
+        print(f'  Disabled: {len(disabled)} skills (saves ~{len(disabled)*avg} chars)')
+        comp = cfg.get('compression',{}) or {}
+        print(f'  Compression: threshold={comp.get(\"threshold\")}, target_ratio={comp.get(\"target_ratio\")}, protect_last={comp.get(\"protect_last_n\")}')
+    except Exception as e:
+        print(f'  Config parse error: {e}')
 "
 ```
 
@@ -131,7 +139,7 @@ for db in glob.glob(os.path.expanduser('~/.hermes/**/mnemosyne.db'), recursive=T
 "
 ```
 
-**Done:** every overhead source measured with a char count and token estimate.
+**Done:** skill descriptions, disabled count, and compression config measured. Tool schemas (#1) and behavioral rules (#2) are fixed costs — estimate from the model's system prompt or check `/tokens` in-session for the total. The script measures the variable sources (#6, #7); the fixed sources (#1-#5) require in-session inspection.
 
 ### 2. Rank by cost
 
@@ -162,7 +170,7 @@ Sort all sources by tokens per turn. The typical ranking:
 
 **Skill descriptions:**
 - Disable unused skills in `config.yaml` under `skills.disabled` — each removed skill saves ~200 chars from the retrieval index
-- Keep descriptions under 60 chars (the system-prompt budget) — longer descriptions are truncated and waste tokens without improving routing
+- Keep descriptions concise — the skill-retrieval plugin truncates at 200 chars. Descriptions over 200 chars waste tokens without improving routing
 
 **Memory provider (if installed):**
 - Run consolidation to move working to episodic, reducing the working set
@@ -181,7 +189,7 @@ Re-run the audit script from step 1. Compare token estimates before and after.
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| Audit script returns 0 skills | YAML frontmatter parse fails on multi-line descriptions | Use regex `re.match(r'^---\n(.*?)\n---\n', text, re.DOTALL)` not `text.index` |
+| Audit script returns 0 skills | Skills path is wrong or `~/.hermes/skills/` is empty | Check `ls ~/.hermes/skills/` exists and contains category subdirectories. If skills are symlinked or on a custom path, adjust the glob |
 | Disabling a toolset breaks a workflow | A skill depends on that toolset | Check `requires_toolsets` in the skill's frontmatter before disabling |
 | Memory pruning removes a needed fact | Aggressive removal without checking last-used | Check recall_count and last_recalled before removing |
 | Compression triggers too early | `threshold` set too low | Raise it for longer context windows, but watch for quality degradation |
