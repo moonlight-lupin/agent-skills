@@ -1,15 +1,13 @@
 ---
 name: input-token-overheads
-description: Use when auditing per-turn input token overhead on Hermes.
-version: 1.3.0
-author: Hermes Agent
+description: "Audit every source of per-turn input token cost on a Hermes Agent instance. Measure each, rank by cost, act on the top consumers."
 license: MIT
 metadata:
-  hermes:
-    tags: [tokens, overhead, context, optimization, agent-ops]
-    category: agent-ops
-    related_skills: [hermes-compression-tuning, skill-curation]
-    requires_toolsets: [terminal]
+  version: 1.3.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
+  tags: [tokens, overhead, context, optimization, agent-ops]
+  related_skills: [skill-maintainer]
 ---
 
 # Input Token Overheads
