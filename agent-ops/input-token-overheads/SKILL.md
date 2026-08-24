@@ -1,13 +1,15 @@
 ---
 name: input-token-overheads
-description: "Audit every source of per-turn input token cost on a Hermes Agent instance. Measure each, rank by cost, act on the top consumers."
+description: Use when auditing per-turn input token overhead on Hermes.
+version: 1.2.0
+author: Hermes Agent
 license: MIT
 metadata:
-  version: 1.1.0
-  author: moonlight-lupin
-  platforms: [linux, macos, windows]
-  tags: [tokens, overhead, context, optimization, agent-ops]
-  related_skills: [skill-maintainer]
+  hermes:
+    tags: [tokens, overhead, context, optimization, agent-ops]
+    category: agent-ops
+    related_skills: [hermes-compression-tuning, skill-curation]
+    requires_toolsets: [terminal]
 ---
 
 # Input Token Overheads
@@ -40,6 +42,27 @@ Every turn, Hermes injects these blocks into the system prompt **before the user
 | Compression summary | After threshold | Replaces older messages with a summary |
 
 **On-demand (not per-turn):** full SKILL.md via `skill_view`, deferred tool schemas via `tool_describe`, reference files via `skill_view(file_path=...)`.
+
+## Health Ratio
+
+The health metric is **overhead ratio**: overhead tokens divided by the model's context window. The absolute number matters for cost; the ratio matters for quality.
+
+| Ratio | Rating | Notes |
+|-------|--------|-------|
+| < 5% | Excellent | Most of the window available for conversation |
+| 5-15% | Healthy | Normal for a capable agent with tools, skills, memory |
+| 15-25% | Acceptable | Approaching the limit. Consider trimming. |
+| > 25% | Unhealthy | Eats conversation capacity. Cost and quality risk. |
+
+**Why the ratio matters:** Three studies confirm that input length degrades model performance independent of content quality:
+
+1. **Lost in the Middle** (Liu et al., TACL 2023) — Models follow a U-shaped curve: best recall at the start and end of context, severe degradation in the middle. Overhead sits at the top of every turn, but it pushes conversation history into the degradation zone. [arxiv.org/abs/2307.03172](https://arxiv.org/abs/2307.03172)
+
+2. **Same Task, More Tokens** (Levy et al., ACL 2024) — Reasoning performance degrades at input lengths far shorter than the model's stated maximum. The degradation appears even when the extra tokens are padding with no distracting content. The model's technical context window is not its effective context window. [aclanthology.org/2024.acl-long.818](https://aclanthology.org/2024.acl-long.818/)
+
+3. **Context Length Alone Hurts** (Du et al., EMNLP 2025) — Performance degrades 14-85% as input length increases, even when retrieval is perfect, irrelevant tokens are replaced with whitespace, or all tokens except relevant ones are masked. The sheer length of the input is itself a limitation. [aclanthology.org/2025.findings-emnlp.1264](https://aclanthology.org/2025.findings-emnlp.1264/)
+
+**Cost compounding:** Overhead is paid every turn. At 10k tokens over 100 turns, that is 1M input tokens spent on overhead alone. Reducing overhead by 2k tokens saves 200k tokens per 100-turn session.
 
 ## Procedure
 
