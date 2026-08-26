@@ -3,7 +3,7 @@ name: hermes-onboarding
 description: "Use when onboarding a new customer — configure gateway, dashboard, memory, services for production."
 license: MIT
 metadata:
-  version: 1.1.0
+  version: 1.2.0
   author: moonlight-lupin
   platforms: [linux]
   tags: [onboarding, setup, configuration, deployment, customer]
@@ -200,13 +200,92 @@ For full skill authoring validation, load the bundled skill: `skill_view(name='h
 
 **Done:** guardrail principles loaded. Agent knows where to find full skill authoring validation.
 
-## Step 12 — BM25 skill search (optional upgrade)
+## Step 12 — Skill retrieval plugin (BM25)
 
-Document as optional upgrade. Hermes' built-in skill retrieval works by default. For better matching accuracy, the skill-retrieval plugin (BM25 top-k) is available from the agent-skills repo.
+Install the skill-retrieval plugin from the agent-skills repo. The plugin replaces the full skill list in the system prompt with a compact names-only index and injects top-K relevant descriptions per turn via BM25 retrieval. Install disabled. Activate only when skill count or token overhead warrants it.
 
-Do not install during base onboarding unless customer asks.
+### 12a — Install (disabled)
 
-**Done:** customer informed of BM25 upgrade path.
+```bash
+hermes plugins install moonlight-lupin/agent-skills/plugins/skill-retrieval --no-enable
+```
+
+### 12b — Assess activation need
+
+Run the assessment to measure skill count and overhead ratio:
+
+```bash
+python3 -c "
+import yaml, pathlib, glob, os, re
+
+files = glob.glob(os.path.expanduser('~/.hermes/skills/**/SKILL.md'), recursive=True)
+count = 0; total_chars = 0
+for f in files:
+    try:
+        text = pathlib.Path(f).read_text()
+        m = re.match(r'^---\n(.*?)\n---\n', text, re.DOTALL)
+        if not m: continue
+        fm = yaml.safe_load(m.group(1))
+        if not fm: continue
+        desc = fm.get('description', '')
+        if desc:
+            count += 1
+            total_chars += min(len(desc), 200)
+    except: pass
+
+desc_tokens = total_chars // 4
+ctx = 128000
+try:
+    with open(os.path.expanduser('~/.hermes/config.yaml')) as fh:
+        cfg = yaml.safe_load(fh) or {}
+    ctx = cfg.get('model', {}).get('context_length', 128000)
+except: pass
+
+skill_ratio = desc_tokens / ctx if ctx else 0
+SKILL_COUNT_THRESHOLD = 50
+SKILL_RATIO_THRESHOLD = 0.05  # 5% of context from skill descriptions alone
+
+print(f'Skills: {count}')
+print(f'Skill description tokens: ~{desc_tokens} ({skill_ratio:.1%} of {ctx} context)')
+print(f'Thresholds: skill count > {SKILL_COUNT_THRESHOLD} OR skill ratio > {SKILL_RATIO_THRESHOLD:.0%}')
+
+if count > SKILL_COUNT_THRESHOLD or skill_ratio > SKILL_RATIO_THRESHOLD:
+    print('RECOMMEND: enable skill-retrieval plugin')
+else:
+    print('RECOMMEND: keep disabled — overhead within healthy range')
+"
+```
+
+Two thresholds trigger the recommendation:
+
+- **Skill count > 50** — the full skill list in the system prompt exceeds ~2.5K tokens. The plugin's compact index (~2.3K) saves more than it costs.
+- **Skill description overhead > 5%** of context window — skill descriptions alone at 5% push total overhead above 15% when combined with fixed costs (tool schemas, system prompt, behavioral rules). The 15% threshold is the upper bound of the healthy range from the `input-token-overheads` skill. Load that skill for the full overhead audit if the customer wants a deeper analysis.
+
+### 12c — Activate if recommended
+
+```bash
+hermes plugins enable skill-retrieval
+```
+
+Restart the session for the plugin to take effect. The plugin patches the system prompt at load time.
+
+If not recommended, the plugin stays installed but disabled. Re-run this assessment after adding skills — the customer can enable it later.
+
+### 12d — Record in memory if not enabled
+
+If the plugin was not enabled, store a Mnemosyne memory so the agent remembers the upgrade path exists:
+
+```python
+mnemosyne_remember(
+    content="Skill-retrieval plugin (BM25) is installed but disabled. Enable with `hermes plugins enable skill-retrieval` if skill count exceeds 50 or input token overhead from skill descriptions exceeds 5% of context window. Re-run the Step 12b assessment after adding skills.",
+    importance=0.6,
+    scope="global",
+    source="onboarding",
+    veracity="stated"
+)
+```
+
+**Done:** skill-retrieval plugin installed (disabled). Activation recommended only if skill count > 50 or skill overhead > 5% of context window. If disabled, Mnemosyne memory records the upgrade path.
 
 ## Step 13 — Light RAG (library-rag)
 
@@ -280,20 +359,50 @@ hermes config set cron.model <main-model>
 
 ## Step 18 — Maintenance crons
 
-Create 4 scheduled crons + document 1 triggered procedure:
+Create 3 scheduled crons + document 1 triggered procedure:
 
 | Cron | Schedule | Mode | What |
 |------|----------|------|------|
-| Disk cleanup | Monthly (1st, 03:00) | Agent | Uses disk-cleanup skill |
-| Memory consolidation | Every 4 days, 02:00 | Agent | Mnemosyne sleep cycle |
-| Log anomaly scan | Weekly (Sun, 06:00) | no_agent | log-analyzer --quiet, silent when healthy |
-| Backup + update + health | Weekly (Sun, 03:00) | Agent | hermes backup (max 2 copies), then hermes update, then post-update health check (re-apply LAN patches if needed). Alert on failure. |
+| Memory consolidation | Every 4 days, 02:00 | no_agent | `mnemosyne_sleep.sh` — working memory → episodic. Silent when done. |
+| Backup + update + health | Weekly (Sun, 03:00) | Agent | `hermes backup` (max 2 copies), then `hermes update`, then post-update health check (re-apply LAN patches if needed). Alert on failure. |
+| Weekly health check | Weekly (Sun, 06:00) | no_agent | `weekly_health_check.sh` — consolidated report: host status, disk usage, log anomalies, input token overhead. Silent when healthy. Alerts with breakdown when any check finds issues. |
 
 The backup+update cron runs in agent mode (not no_agent) because the post-update health check may need to re-apply dashboard patches that `hermes update` overwrites. A no_agent script cannot re-apply patches or run `skill_view`.
 
+The weekly health check script (`~/.hermes/scripts/weekly_health_check.sh`) chains four checks into one report:
+
+1. **Host status** — detects host type (Raspberry Pi, VM, bare metal, Mac, Windows/WSL) via `systemd-detect-virt` and `/proc/device-tree/model`. Reports uptime and load average.
+2. **Disk usage** — `df -h` across all mounts. Alerts when any mount exceeds 80%.
+3. **Log anomalies** — runs `log-analyzer` scan (`analyze_logs.py --since 7d --quiet`) + `state_failures.py --quiet --days 7`. Reports error clusters, rate limits, timeouts, tool failures, crashes, and session failures.
+4. **Input token overhead** — counts skills and measures skill-description token overhead against context window. Alerts when skill count > 50 or skill overhead > 5% of context. Recommends enabling skill-retrieval plugin.
+
+The script always outputs a report (even when healthy) and includes a **Suggested Actions** section with specific remediation steps when alerts are found. The cron delivers the report to the customer's home channel.
+
+Suggested actions are conditionally generated per check:
+
+| Alert | Suggested action |
+|-------|-----------------|
+| High load (> 80% CPU capacity) | Check for runaway processes with `top` or `htop` |
+| Disk above 80% | Run the disk-cleanup skill (`skill_view(name='disk-cleanup')`) |
+| Error clusters in logs | Review the most frequent error; schedule a fix if infrastructure issue |
+| Rate limit hits | Check provider quotas or rotate API keys in `~/.hermes/.env` |
+| Timeout clusters | Check network connectivity to affected endpoints |
+| Tools below 95% success rate | Review failing tool calls and check configurations |
+| Skill overhead exceeds threshold | Enable skill-retrieval plugin (`hermes plugins enable skill-retrieval`) |
+
+When all checks pass, the Suggested Actions section reads: "No actions needed. All checks passed."
+
+Install the script during onboarding:
+
+```bash
+# Script ships with the onboarding skill at scripts/weekly_health_check.sh
+cp ~/.hermes/skills/agent-ops/hermes-onboarding/scripts/weekly_health_check.sh ~/.hermes/scripts/
+chmod +x ~/.hermes/scripts/weekly_health_check.sh
+```
+
 Triggered (not scheduled): post-update health check — run `hermes doctor`, verify gateway + dashboard status, re-apply patches if needed. See `references/setup-details.md` § Post-update health check. Also triggered manually after any `hermes update` outside the weekly cron.
 
-**Done:** 4 crons created. Post-update procedure documented.
+**Done:** 3 crons created. Weekly health check script installed. Post-update procedure documented.
 
 ## Step 19 — Verification summary
 
@@ -309,7 +418,8 @@ Triggered (not scheduled): post-update health check — run `hermes doctor`, ver
 | Search | `web_search` test query returns results |
 | Extraction | `web_extract` test URL returns content |
 | Browser | CDP browser opens and navigates |
-| Crons | `hermes cron list` shows 4 jobs |
+| Crons | `hermes cron list` shows 3 jobs |
+| Weekly health check | `~/.hermes/scripts/weekly_health_check.sh` exists and is executable |
 | Timezone | `hermes config get timezone` matches customer input |
 | Approvals | `hermes config get approvals.mode` returns `smart` |
 | Terminal backend | `hermes config get terminal.backend` matches detection |
@@ -321,6 +431,7 @@ Triggered (not scheduled): post-update health check — run `hermes doctor`, ver
 | Profile | `hermes profile list` shows customer profile |
 | Soul.md | `~/.hermes/SOUL.md` exists and contains customer input |
 | Skill guardrails | 7 principles loaded from references |
+| Skill-retrieval plugin | `hermes plugins list` shows skill-retrieval installed (enabled or disabled per assessment) |
 | Library-rag | `hermes skills list` shows library-rag (if opted in) |
 | Use case | Customer answered, skills recommended |
 
