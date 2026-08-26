@@ -143,6 +143,36 @@ def fetch(url: str) -> str:
 
 Record the swap in the manifest (`"tool": "brightdata-unblocker"` / `"zyte-api"` / etc.) so a consumer reading the data later knows its provenance. Still apply the block-page gate from SKILL.md step 6 — managed services mostly return real content, but a failed solve can still hand back a challenge page, and you want that counted as an error rather than written as a record.
 
+**Retry the incomplete render, not just the failed request.** A browser render (DIY or managed) has *three* failure modes, and the vendor's own server-side retry only covers one of them:
+
+- a hard error (429/5xx/timeout) → retry with backoff, as in Tier 4;
+- a challenge page → the block-page gate catches it;
+- a **stub** — HTTP 200, real-looking HTML, but the DOM hadn't settled, so the price/rate/marker your parser needs isn't there yet. This is the one that silently corrupts, because the vendor sees a 200 and calls it success.
+
+Guard the third with a **validate predicate** that re-fetches when the render is missing the markers you actually need, rather than dropping the item on one flaky render:
+
+```python
+def fetch(url, *, validate=None, retries=2):
+    for attempt in range(retries + 1):
+        html = _one_fetch(url)                     # POST to the unblocker
+        if html and (validate is None or validate(html)):
+            return html
+        time.sleep(2 ** attempt)                   # backoff on stub / transient
+    raise FetchError(f"no complete render for {url}")
+
+# The caller says what "complete" means for THIS page — the markers the parser
+# will need. Use the unblocker's own wait-for-selector flag first (cheaper than
+# a re-fetch); the validate hook is the backstop for when the wait wasn't enough.
+fetch(url, validate=lambda h: "data-price" in h and "selected_currency=" in h)
+```
+
+A determinate wrong value (see next) should *pass* validate and be caught by the assert — don't retry it, the re-fetch returns the same wrong value.
+
+**The exit country changes the DATA, not just whether you get in.** Managed unblockers and residential proxies let you pick an exit country — and for anything localised (travel, retail, marketplaces) that flag changes *what the page says*, not only whether it loads: the currency, the language, the tax treatment, sometimes which items and prices are shown at all. So:
+
+- **Pin the country deliberately and record it in the manifest.** The same URL fetched from `gb` and from `jp` are different observations; a series that silently changed exit country changed its own units mid-stream.
+- **Assert the money/locale convention on every fetch, and refuse to record a mismatch.** Read the currency the page actually rendered (`selected_currency=`, a `data-currency`, a `¥`/`£`/`$` marker) and compare it to what you asked for. A silently converted price is worse than a gap — it's a wrong number that looks right. This is a *determinate* failure (re-fetching from the same country returns the same currency), so abort or skip that item; don't feed it to the render-retry above.
+
 **Caveats**: it costs money (typically a few dollars per thousand requests, more for JS rendering); it's a third-party dependency and ToS still applies to *you*, not the vendor; and for trivial one-off jobs it's overkill — Tiers 0–2 are free and instant.
 
 ### Tier 6 — Specialised tooling
