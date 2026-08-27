@@ -302,11 +302,13 @@ Note: The index grows ~8KB per chunk. Start with a small corpus. A 50-book libra
 1. Check for Chromium: `which chromium-browser || which chromium || which google-chrome`
 2. If missing, install: `apt install -y chromium-browser` (or platform equivalent)
 3. Set browser backend: `hermes config set browser.cdp_url http://127.0.0.1:9222`
-4. Verify: agent can open a browser tab and navigate
+4. Install the chrome-cdp systemd service with memory guardrails and the idle-tab drain from `references/setup-details.md` § "CDP browser systemd service". Headless Chrome leaks renderer memory over weeks — the cap + 6-hourly drain + weekly restart keep it from starving the host.
+5. Verify: agent can open a browser tab and navigate
+6. Verify the drain: `journalctl -t chrome-cdp-drain -n 1` shows activity (defer is fine); `systemctl list-timers 'chrome-cdp*'` shows both timers armed
 
 Browserbase and Firecrawl are documented as upgrades for anti-detection or cloud browser needs.
 
-**Done:** CDP browser configured. Chromium available. Browser test passed.
+**Done:** CDP browser configured with systemd service, memory cap, drain + restart timers. Chromium available. Browser test passed. Drain timers armed.
 
 ## Step 15 — Toolset audit
 
