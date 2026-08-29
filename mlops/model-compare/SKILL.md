@@ -1,20 +1,11 @@
 ---
 name: model-compare
-description: >
-  Blind side-by-side multi-model comparison. Send one prompt to 2-4 models
-  simultaneously, present responses anonymously (Model A / B / C / D), let
-  the user pick a winner, then reveal identities and show which model won.
-  Supports custom evaluation criteria, synthesis of responses, and vote
-  history logging. Trigger when the user says "compare models", "test these
-  models", "which model is better for", "A/B test", "blind comparison",
-  "model evaluation", or wants to see how different AI models handle the same
-  prompt. Can also be used for prompt engineering — testing how different
-  models interpret the same instructions.
+description: "Use when the user says \"compare models\", \"test these models\", \"which model is better for\", \"A/B test\", \"blind comparison\", or wants to see how different AI models handle the same prompt. Blind side-by-side multi-model comparison with anonymous presentation, vote, reveal, and optional synthesis."
+version: 1.2.0
+author: moonlight-lupin
 license: MIT
+platforms: [linux, macos, windows]
 metadata:
-  version: 1.1.0
-  author: moonlight-lupin
-  platforms: [linux, macos, windows]
   hermes:
     tags: [model, comparison, evaluation, a/b-testing, blind, synthesis, openrouter]
     related_skills: [deep-research]
@@ -81,6 +72,12 @@ The primary interface — a standalone CLI tool (no pip dependencies, pure stdli
 # Simple 2-model blind comparison
 python3 scripts/compare.py --prompt "Explain X" --models "ollama-cloud:glm-5.2" "ollama-cloud:kimi-k2.5"
 
+# Reasoning-effort A/B: SAME model, two effort levels (native syntax)
+# Registers a virtual provider per arm; judge can also take an effort suffix.
+python3 scripts/compare.py --mode review --test H7 \
+  --models "ollama-cloud:@medium:glm-5.3-flash" "ollama-cloud:@high:glm-5.3-flash" \
+  --judge "ollama-cloud:@medium:glm-5.3" --reveal
+
 # Tool calling with test bank prompt A + judge + reveal
 python3 scripts/compare.py --mode tools --test A --models "ollama-cloud:glm-5.2" "ollama-cloud:kimi-k2.5" --judge "ollama-cloud:glm-5.2" --reveal
 
@@ -98,6 +95,19 @@ python3 scripts/compare.py --list-providers
 ```
 
 Key flags: `--prompt`, `--models`, `--mode`, `--test` (test bank ID), `--judge`, `--efficiency`, `--reveal`, `--output`, `--timeout`, `--list-providers`, `--list-models`.
+
+### Reasoning-effort A/B (`:@effort` suffix, added 2026-08-29)
+
+Model specs and `--judge` accept an optional effort marker `provider:@effort:model_id`, e.g.
+`ollama-cloud:@medium:glm-5.3-flash`. Each unique (provider, effort) pair registers a
+virtual provider (`ollama-cloud@medium`) that clones the base provider's config — same
+endpoint, same env key, inherited `max_tokens` — and injects `reasoning_effort` into the
+payload. This enables comparing the SAME model at two reasoning levels in one blind run;
+the reveal labels the arms `provider@effort`. Findings from the 2026-08-29
+glm-5.3-flash A/B (Codex-judged, 8 tests): effort→thinking-token count is non-monotonic;
+high was ~3x faster median but non-converged on a 12-turn tool-chain test that medium
+completed; medium won on judged quality overall (8.6 vs 7.8 avg). See
+`~/.hermes/data/glm53flash_effort_ab/ab_results.jsonl` for full traces.
 
 > **`--max-turns` CLI override (added 2026-07-17):** Pass `--max-turns N` to override the test bank's `max_turns` field at runtime without editing source. If not passed, the test bank default is used. This was added because killing a background run to patch `TEST_BANK["A"]["max_turns"]` in source code is fragile and disrupts parallel execution.
 
@@ -529,6 +539,7 @@ CLI tools (Codex CLI, Cursor CLI), use this hybrid pattern:
 - **DDGS CLI syntax changed** — the old `ddgs --json -q ... -m ...` syntax no longer works. The new CLI uses `ddgs text -q ... -m ... -o <file>` (outputs to file, not stdout). The script's DDGS fallback has been updated to use the new syntax. Verify with `ddgs text --help` if fallback fails.
 - **SEARXNG_URL not exported to background processes** — the env var is loaded from `~/.hermes/.env` by the script's `load_env()` function, but if you pass `--mode tools` to a background process (e.g. via `terminal(background=true)`), make sure to `export SEARXNG_URL=http://...` explicitly in the command. The `load_env()` function only sets vars that are NOT already in `os.environ`, but background shells start with a minimal environment.
 - **compare.py requires 2+ models** — the script exits with "Error: need at least 2 models to compare" if you pass only one. To retry a single model after rate limiting, use a direct curl API call instead of the script.
+- **Comparing reasoning-effort levels is now native (v1.2.0)** — use the `provider:@effort:model_id` syntax on `--models` and `--judge` (see the "Reasoning-effort A/B" section above). The old wrapper-harness pattern (`/root/.hermes/cache/ab_effort_run.py`, virtual providers registered in a loader script) still works for multi-test batteries with per-test ground-truth judging; the native syntax covers single-run comparisons. For CLI judges (e.g. Codex gpt-5.6-sol): write the rubric + anonymized responses to a temp file, run `codex exec --skip-git-repo-check -m gpt-5.6-sol "Read the file <path> and follow the instructions inside"`, parse JSON from stdout+stderr, shuffle the Response 1/2 order per test. Ground truth for code_review tests comes from TEST_BANK `evaluation` + `planted_issues` keys (NOT `evaluation_criteria`). Known findings (glm-5.3-flash, 2026-08-29): effort→reasoning-token count is NON-monotonic (high ≠ more thinking); high effort hit a 12-turn non-convergence on long tool chains while medium converged; medium won 4-2-2 on quality (8.6 vs 7.8 avg), high was ~3x faster median.
 - **Kimi K3 rate limiting on OpenRouter** — `moonshotai/kimi-k3` hits HTTP 429 on the shared OpenRouter pool, especially when running multiple tests in parallel. Wait 15-30s and retry, or add a Moonshot API key to OpenRouter (BYOK) for dedicated rate limits.
 - **Sandbox tests (S1-S5) need models that support 5 tools** — the sandbox tests pass all 5 tool definitions (web_search, web_extract, run_python, read_file, write_file) to the model. Some models may not support tool calling with 5 tools, or may only support 1-2 tools at a time. If a model fails on sandbox tests but passes research tests (A/B/C), it may be overwhelmed by the number of tool definitions. Test with a simpler sandbox prompt first.
 - **Sandbox Python execution is not network-isolated** — the `run_python` tool runs `subprocess.run([sys.executable, script])` which can make network calls if the code imports `urllib` or `socket`. The 10-second timeout limits damage but is not a true sandbox. For production hardening, consider running in a container or seccomp filter. For model comparison purposes, the timeout is sufficient.

@@ -28,6 +28,7 @@ import concurrent.futures
 import json
 import os
 import random
+import re
 import sys
 import time
 import urllib.request
@@ -43,6 +44,10 @@ PROVIDERS = {
         "auth_header": "Authorization",
         "auth_scheme": "Bearer",
         "paid": False,
+        # Reasoning models (GLM 5.3, 2026-08-29): reasoning tokens count
+        # against max_tokens; 8192 got fully consumed by reasoning on coding
+        # H3 / review H5, yielding tok_out=8192 + empty content.
+        "max_tokens": 32768,
     },
     "nvidia": {
         "base_url": "https://integrate.api.nvidia.com/v1/chat/completions",
@@ -74,6 +79,56 @@ PROVIDERS = {
         "payload_extra": {"reasoning_effort": "low"},
     },
 }
+
+# ─── Per-model reasoning_effort overrides (@effort suffix) ──────────────────
+#
+# Model specs (and --judge) accept an optional ":@effort" suffix:
+#   ollama-cloud:@medium:glm-5.3-flash
+#   ollama-cloud:@high:glm-5.3
+# This lets you A/B the SAME model at two reasoning levels in one run. It is
+# implemented by registering a virtual provider derived from the base
+# provider, with payload_extra={"reasoning_effort": effort}. The virtual
+# provider inherits max_tokens (including reasoning-model-sized overrides
+# like Ollama Cloud's 32768) and reuses the same env key, so nothing is
+# duplicated. Verified against Ollama Cloud /v1/chat/completions on
+# 2026-08-29: top-level "reasoning_effort" is accepted and changes behavior.
+def register_effort_provider(base_provider: str, effort: str) -> str:
+    """Return a virtual provider name for (base_provider, effort), registering it on first use.
+
+    Raises ValueError for unknown base providers.
+    """
+    if base_provider not in PROVIDERS:
+        raise ValueError(f"unknown provider '{base_provider}'")
+    name = f"{base_provider}@{effort}"
+    if name in PROVIDERS:
+        return name
+    base = dict(PROVIDERS[base_provider])
+    extra = dict(base.get("payload_extra") or {})
+    extra["reasoning_effort"] = effort
+    base["payload_extra"] = extra
+    base["paid"] = base.get("paid", False)
+    PROVIDERS[name] = base
+    return name
+
+
+def parse_model_spec(spec: str) -> tuple[str, str, str | None]:
+    """Parse 'provider:model_id' or 'provider:@effort:model_id'.
+
+    Returns (provider, model_id, effort_or_None). Raises ValueError on
+    malformed specs. Effort syntax uses the literal ':@' marker so multi-colon
+    model IDs (e.g. qwen3-coder:480b) stay unambiguous.
+    """
+    if not isinstance(spec, str) or ":" not in spec:
+        raise ValueError(f"model spec '{spec}' must be 'provider:model_id' or 'provider:@effort:model_id'")
+    # Find an effort marker: provider:@effort:<rest>
+    m = re.match(r"^([^:@\s]+):@([A-Za-z0-9_\-]+):(.+)$", spec)
+    if m:
+        return m.group(1), m.group(3), m.group(2)
+    provider, model_id = spec.split(":", 1)
+    if "@" in spec or provider == "" or model_id == "":
+        raise ValueError(f"model spec '{spec}' must be 'provider:model_id' or 'provider:@effort:model_id'")
+    return provider, model_id, None
+
 
 # ─── Tool definitions for tool-calling mode ─────────────────────────────────
 
@@ -1184,7 +1239,7 @@ def main():
     parser.add_argument("--prompt", "-p", help="Prompt text (inline)")
     parser.add_argument("--prompt-file", "-f", help="Read prompt from file")
     parser.add_argument("--models", "-m", nargs="+",
-                        help='Models in "provider:model_id" format')
+                        help='Models in "provider:model_id" or "provider:@effort:model_id" format (e.g. ollama-cloud:@medium:glm-5.3-flash)')
     parser.add_argument("--test", "-t", help="Use a test from the test bank (e.g. A, J, O)")
     parser.add_argument("--reveal", action="store_true", help="Reveal model identities immediately")
     parser.add_argument("--judge", help="Judge model in provider:model format")
@@ -1283,13 +1338,21 @@ def main():
     else:
         prompt = args.prompt
 
-    # Parse model specs
+    # Parse model specs (supports provider:@effort:model_id for reasoning-effort A/B)
     model_specs = []
     for spec in args.models:
-        if ":" not in spec:
-            print(f"Error: model spec '{spec}' must be 'provider:model_id'")
+        try:
+            provider, model_id, effort = parse_model_spec(spec)
+        except ValueError as e:
+            print(f"Error: {e}")
             sys.exit(1)
-        provider, model_id = spec.split(":", 1)
+        if effort is not None:
+            try:
+                provider = register_effort_provider(provider, effort)
+            except ValueError as e:
+                print(f"Error: {e}")
+                sys.exit(1)
+            print(f"[arm] {spec} -> virtual provider '{provider}' (reasoning_effort={effort})", file=sys.stderr)
         if provider not in PROVIDERS:
             print(f"Error: unknown provider '{provider}'. Available: {', '.join(PROVIDERS.keys())}")
             sys.exit(1)
@@ -1375,12 +1438,20 @@ def main():
 
     # ─── Judge ───────────────────────────────────────────────────────────────
     if args.judge:
-        if ":" not in args.judge:
-            print("Error: --judge must be 'provider:model_id'")
+        try:
+            j_provider, j_model, j_effort = parse_model_spec(args.judge)
+        except ValueError as e:
+            print(f"Error: --judge {e}")
             sys.exit(1)
-        j_provider, j_model = args.judge.split(":", 1)
+        if j_effort is not None:
+            try:
+                j_provider = register_effort_provider(j_provider, j_effort)
+            except ValueError as e:
+                print(f"Error: --judge {e}")
+                sys.exit(1)
         print(f"\n{'='*60}")
-        print(f"⚖️  Judge: {j_provider}:{j_model}")
+        judge_display = f"{j_provider}:{j_model}" + (f" (reasoning_effort={j_effort})" if j_effort else "")
+        print(f"⚖️  Judge: {judge_display}")
         print(f"{'='*60}", file=sys.stderr)
 
         judgment = judge_responses(prompt, results, j_model, j_provider, args.mode, test_eval)
