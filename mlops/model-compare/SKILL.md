@@ -1,11 +1,21 @@
 ---
 name: model-compare
-description: "Use when the user says \"compare models\", \"test these models\", \"which model is better for\", \"A/B test\", \"blind comparison\", or wants to see how different AI models handle the same prompt. Blind side-by-side multi-model comparison with anonymous presentation, vote, reveal, and optional synthesis."
-version: 1.2.0
-author: moonlight-lupin
+description: >
+  Blind side-by-side multi-model comparison. Send one prompt to 2-4 models
+  simultaneously, present responses anonymously (Model A / B / C / D), let
+  the user pick a winner, then reveal identities and show which model won.
+  Supports custom evaluation criteria, synthesis of responses, and vote
+  history logging. Trigger when the user says "compare models", "test these
+  models", "which model is better for", "A/B test", "blind comparison",
+  "model evaluation", or wants to see how different AI models handle the same
+  prompt. Can also be used for prompt engineering — testing how different
+  models interpret the same instructions. Supports reasoning-effort A/B via
+  provider:@effort:model_id specs.
 license: MIT
-platforms: [linux, macos, windows]
 metadata:
+  version: 1.2.0
+  author: moonlight-lupin
+  platforms: [linux, macos, windows]
   hermes:
     tags: [model, comparison, evaluation, a/b-testing, blind, synthesis, openrouter]
     related_skills: [deep-research]
