@@ -45,6 +45,17 @@
       },
       "required_output_fields": ["per-person enriched fields", "styled .xlsx output"],
       "forbidden_patterns": ["(?i)scrape linkedin", "(?i)as an ai language model"]
+    },
+    {
+      "id": "ws-05-public-x-actors",
+      "request": "Collect up to 50 public posts and 100 public followers for @example on X using maintained Apify Actors instead of a hand-rolled scraper.",
+      "expected_routing": {
+        "skill": "website-scraping",
+        "reason": "Bounded public X post and relationship extraction is a structured website-scraping job with a maintained Actor route.",
+        "not": ["people-enrichment"]
+      },
+      "required_output_fields": ["Tweet Actor selection", "Follower Actor selection", "bounded inputs", "run manifest"],
+      "forbidden_patterns": ["(?i)[?&]token=", "(?i)(private|protected)[ -]account scraping"]
     }
   ]
 }
