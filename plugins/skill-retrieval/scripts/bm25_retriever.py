@@ -30,7 +30,25 @@ B = 0.75
 # ─── Tokenizer ────────────────────────────────────────────────────────────────
 
 def tokenize(text: str) -> list[str]:
-    """Simple whitespace + punctuation tokenizer, lowercased."""
+    """Simple whitespace + punctuation tokenizer, lowercased.
+
+    Defends against non-str queries: Telegram can deliver the user message
+    as a list of content parts (str or {"text": ...} dicts). Flatten to a
+    plain string before tokenizing; anything else is stringified.
+    """
+    if not isinstance(text, str):
+        if isinstance(text, (list, tuple)):
+            parts: list[str] = []
+            for part in text:
+                if isinstance(part, str):
+                    parts.append(part)
+                elif isinstance(part, dict):
+                    value = part.get("text") or part.get("caption")
+                    if isinstance(value, str):
+                        parts.append(value)
+            text = " ".join(parts)
+        else:
+            text = str(text)
     text = text.lower()
     text = re.sub(r"[^\w\s]", " ", text)
     return text.split()
