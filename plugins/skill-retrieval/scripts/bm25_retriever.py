@@ -6,6 +6,7 @@ Indexed once at plugin load; retrieval is sub-millisecond for 128 skills.
 """
 
 import re
+import os
 import time
 import math
 import logging
@@ -15,9 +16,31 @@ logger = logging.getLogger(__name__)
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-SKILLS_ROOT = Path.home() / ".hermes" / "skills"
-PLUGINS_ROOT = Path.home() / ".hermes" / "plugins"
-CONFIG_PATH = Path.home() / ".hermes" / "config.yaml"
+try:
+    from hermes_constants import get_config_path, get_hermes_home, get_skills_dir
+except ImportError:  # pragma: no cover - standalone test fallback
+    def get_hermes_home() -> Path:
+        val = os.environ.get("HERMES_HOME", "").strip()
+        return Path(val).expanduser() if val else Path.home() / ".hermes"
+
+    def get_config_path() -> Path:
+        return get_hermes_home() / "config.yaml"
+
+    def get_skills_dir() -> Path:
+        return get_hermes_home() / "skills"
+
+
+def get_plugins_dir() -> Path:
+    """Return the profile-scoped plugins directory."""
+    return get_hermes_home() / "plugins"
+
+
+# Backward-compatible test override points. Runtime code resolves paths through
+# Hermes' official home helpers on every load so multiplexed/named profiles do
+# not read the default profile by accident.
+SKILLS_ROOT = get_skills_dir()
+PLUGINS_ROOT = get_plugins_dir()
+CONFIG_PATH = get_config_path()
 
 # Directories under any plugin's skills/ tree to skip (mirrors the
 # .archive / .curator_backups / .hub exclusions used for standalone skills).
@@ -130,16 +153,44 @@ def _iter_skill_files(root: Path, prefix: str = "") -> list[tuple[Path, str, str
     return out
 
 
-def load_active_skills() -> list[dict]:
-    """Load all non-disabled skills with their descriptions.
+def _runtime_paths_are_overridden() -> bool:
+    """Return True when tests monkeypatch the legacy path constants."""
+    return (
+        SKILLS_ROOT != get_skills_dir()
+        or PLUGINS_ROOT != get_plugins_dir()
+        or CONFIG_PATH != get_config_path()
+    )
 
-    Indexes both standalone skills (~/.hermes/skills) and plugin-bundled
-    skills (~/.hermes/plugins/<plugin>/skills). Plugin skills are keyed as
-    "<plugin>:<leaf>" so they never collide with standalone ids.
-    """
+
+def _skill_id_from_entry(entry: dict, prefix: str = "") -> str:
+    category = str(entry.get("category") or "general")
+    skill_name = str(entry.get("skill_name") or entry.get("frontmatter_name") or "")
+    if category and category != "general":
+        return f"{prefix}{category}/{skill_name}"
+    return f"{prefix}{skill_name}"
+
+
+def _record_skill(skills: list[dict], seen_names: set[str], entry: dict, *, prefix: str = "") -> None:
+    """Append a parsed Hermes skill entry while preserving first-seen precedence."""
+    name = str(entry.get("frontmatter_name") or entry.get("skill_name") or "").strip()
+    if not name or name in seen_names:
+        return
+    seen_names.add(name)
+    desc = str(entry.get("description") or "")
+    skills.append({
+        "skill_id": _skill_id_from_entry(entry, prefix=prefix),
+        "leaf_name": str(entry.get("skill_name") or name),
+        "name": name,
+        "description": desc,
+        "text": f"{name}: {desc}",
+    })
+
+
+def _load_active_skills_legacy() -> list[dict]:
+    """Original standalone loader used by tests that monkeypatch path constants."""
     import yaml
 
-    # Load disabled list
+    # Load disabled list and profile-configured external skill directories.
     disabled = set()
     if CONFIG_PATH.exists():
         # A malformed or unreadable config must not abort the index build —
@@ -186,6 +237,86 @@ def load_active_skills() -> list[dict]:
             "description": desc,
             "text": f"{name}: {desc}",
         })
+
+    return skills
+
+
+def load_active_skills() -> list[dict]:
+    """Load active skills using Hermes' own profile-aware discovery helpers.
+
+    Runtime path/config resolution is delegated to Hermes core helpers so named
+    profiles, context-local home overrides, ``skills.external_dirs``, trusted
+    project-local skills, disabled lists, platform gates, and condition gates
+    match the agent's normal skill index as closely as a plugin can. Plugin-
+    bundled skills are scanned from the active profile's plugin directory.
+    """
+    if _runtime_paths_are_overridden():
+        return _load_active_skills_legacy()
+
+    try:
+        from agent.prompt_builder import (
+            _build_snapshot_entry,
+            _current_session_platform_hint,
+            _parse_skill_file,
+            _skill_should_show,
+            extract_skill_conditions,
+        )
+        from agent.skill_utils import (
+            get_all_skills_dirs,
+            get_disabled_skill_names,
+            get_project_skills_dirs,
+            iter_project_skill_files,
+            iter_skill_index_files,
+        )
+    except ImportError as exc:
+        logger.warning("Cannot import Hermes skill discovery helpers: %s", exc)
+        return _load_active_skills_legacy()
+
+    platform_hint = _current_session_platform_hint() or None
+    disabled = get_disabled_skill_names(platform_hint)
+    skills: list[dict] = []
+    seen_names: set[str] = set()
+
+    def add_skill_file(skill_file: Path, root: Path, *, prefix: str = "") -> None:
+        try:
+            is_compatible, frontmatter, desc = _parse_skill_file(skill_file)
+            if not is_compatible:
+                return
+            entry = _build_snapshot_entry(skill_file, root, frontmatter, desc)
+            if entry["frontmatter_name"] in disabled or entry["skill_name"] in disabled:
+                return
+            if not _skill_should_show(
+                extract_skill_conditions(frontmatter),
+                None,
+                None,
+                platform_hint,
+            ):
+                return
+            _record_skill(skills, seen_names, entry, prefix=prefix)
+        except Exception as exc:
+            logger.debug("Error reading skill %s: %s", skill_file, exc)
+
+    # Precedence mirrors Hermes: trusted project-local → profile-local →
+    # configured external dirs. First seen name wins.
+    for project_dir in get_project_skills_dirs():
+        for skill_file in iter_project_skill_files(project_dir):
+            add_skill_file(skill_file, project_dir)
+
+    all_skill_dirs = get_all_skills_dirs()
+    for skill_root in all_skill_dirs:
+        for skill_file in iter_skill_index_files(skill_root, "SKILL.md"):
+            add_skill_file(skill_file, skill_root)
+
+    plugins_root = get_plugins_dir()
+    if plugins_root.exists():
+        for plugin_dir in sorted(plugins_root.iterdir()):
+            if not plugin_dir.is_dir() or plugin_dir.name.startswith("."):
+                continue
+            plugin_skills = plugin_dir / "skills"
+            if not plugin_skills.is_dir():
+                continue
+            for skill_file in iter_skill_index_files(plugin_skills, "SKILL.md"):
+                add_skill_file(skill_file, plugin_skills, prefix=f"{plugin_dir.name}:")
 
     return skills
 
@@ -297,28 +428,50 @@ class BM25Index:
 
 # ─── Singleton index ─────────────────────────────────────────────────────────
 
+_indexes_by_home: dict[str, BM25Index] = {}
+_skills_by_home_and_id: dict[str, dict[str, dict]] = {}
 _index: BM25Index | None = None
 _skills_by_id: dict[str, dict] = {}
 
 
 def get_index() -> BM25Index | None:
     global _index, _skills_by_id
-    if _index is not None:
+    if _runtime_paths_are_overridden():
+        if _index is not None:
+            return _index
+        skills = load_active_skills()
+        if not skills:
+            logger.warning("No active skills found for BM25 index")
+            return None
+        _index = BM25Index()
+        _index.build(
+            [s["skill_id"] for s in skills],
+            [s["text"] for s in skills],
+        )
+        _skills_by_id = {s["skill_id"]: s for s in skills}
         return _index
+
+    home_key = str(get_hermes_home().expanduser().resolve(strict=False))
+    if home_key in _indexes_by_home:
+        return _indexes_by_home[home_key]
 
     skills = load_active_skills()
     if not skills:
         logger.warning("No active skills found for BM25 index")
         return None
 
-    _index = BM25Index()
-    _index.build(
+    index = BM25Index()
+    index.build(
         [s["skill_id"] for s in skills],
         [s["text"] for s in skills],
     )
-    _skills_by_id = {s["skill_id"]: s for s in skills}
-    return _index
+    _indexes_by_home[home_key] = index
+    _skills_by_home_and_id[home_key] = {s["skill_id"]: s for s in skills}
+    return index
 
 
 def get_skill_info(skill_id: str) -> dict | None:
-    return _skills_by_id.get(skill_id)
+    if _runtime_paths_are_overridden():
+        return _skills_by_id.get(skill_id)
+    home_key = str(get_hermes_home().expanduser().resolve(strict=False))
+    return _skills_by_home_and_id.get(home_key, {}).get(skill_id)
