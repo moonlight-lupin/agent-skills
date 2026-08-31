@@ -30,7 +30,7 @@ photographer and link to Pexels.
 |--------------|------|
 | "find a photo of Singapore" / "search for office pictures" / "stock image of a desk" | **Pexels** (this skill) |
 | "I need a real photo for this slide" / "find pictures for my article" | **Pexels** (this skill) |
-| "generate an image of a cat" / "create a picture of..." / "make me an illustration" | Host's image generation tool |
+| "generate an image of a cat" / "create a picture of..." / "make me an illustration" | `atlas-image-generation` when Atlas Cloud is explicitly selected; otherwise the host's image tool or `image-studio` |
 | "upscale this" / "remove background" / "edit: make warmer" | Host's AI image editing skill |
 | "production-ready hero image" / "let's do this properly" | Host's multi-stage image generation skill |
 
@@ -47,7 +47,7 @@ or **find/search** → Pexels. If the user says **generate**, **create**, **make
 - Any request for "real" images vs AI-generated
 
 **Don't use for:**
-- AI art / creative generation → host's image generation tool
+- AI art / creative generation → `atlas-image-generation` when Atlas Cloud is explicitly selected; otherwise the host's image tool or `image-studio`
 - Editing existing images → host's image editing skill
 - Screenshots or diagrams → use appropriate tools
 
