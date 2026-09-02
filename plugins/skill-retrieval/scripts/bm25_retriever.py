@@ -5,6 +5,7 @@ Source: https://github.com/oneal2000/SR-Agents/blob/main/src/sragents/retrieve/b
 Indexed once at plugin load; retrieval is sub-millisecond for 128 skills.
 """
 
+import os
 import re
 import time
 import math
@@ -15,9 +16,27 @@ logger = logging.getLogger(__name__)
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-SKILLS_ROOT = Path.home() / ".hermes" / "skills"
-PLUGINS_ROOT = Path.home() / ".hermes" / "plugins"
-CONFIG_PATH = Path.home() / ".hermes" / "config.yaml"
+def _hermes_home() -> Path:
+    """Resolve the Hermes home directory, preferring $HERMES_HOME.
+
+    On Windows, Hermes homes live under %LOCALAPPDATA%\\hermes (not
+    ~/.hermes), and per-profile layouts use $HERMES_HOME too. Fall back to
+    the plugin's own install location (plugins/ lives directly under the
+    Hermes home), then to the POSIX default.
+    """
+    env = os.environ.get("HERMES_HOME")
+    if env and str(env).strip():
+        return Path(env).expanduser()
+    # __file__ = <hermes_home>/plugins/<plugin>/scripts/bm25_retriever.py
+    guess = Path(__file__).resolve().parents[3]
+    if (guess / "skills").is_dir():
+        return guess
+    return Path.home() / ".hermes"
+
+
+SKILLS_ROOT = _hermes_home() / "skills"
+PLUGINS_ROOT = _hermes_home() / "plugins"
+CONFIG_PATH = _hermes_home() / "config.yaml"
 
 # Directories under any plugin's skills/ tree to skip (mirrors the
 # .archive / .curator_backups / .hub exclusions used for standalone skills).
@@ -124,7 +143,10 @@ def _iter_skill_files(root: Path, prefix: str = "") -> list[tuple[Path, str, str
         if any(part in _SKIP_DIRS for part in rel_parts):
             continue
         skill_dir = skill_md.parent
-        rel_name = prefix + str(skill_dir.relative_to(root))
+        # Normalize to forward slashes: on Windows str(Path) yields
+        # backslashes, which break skill_id lookups and cross-platform tests.
+        rel_parts = skill_dir.relative_to(root).parts
+        rel_name = prefix + "/".join(rel_parts)
         leaf_name = skill_dir.name
         out.append((skill_md, rel_name, leaf_name))
     return out
