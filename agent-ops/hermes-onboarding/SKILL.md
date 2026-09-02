@@ -361,13 +361,14 @@ hermes config set cron.model <main-model>
 
 ## Step 18 — Maintenance crons
 
-Create 3 scheduled crons + document 1 triggered procedure:
+Create 4 scheduled crons + document 1 triggered procedure:
 
 | Cron | Schedule | Mode | What |
 |------|----------|------|------|
 | Memory consolidation | Every 4 days, 02:00 | no_agent | `mnemosyne_sleep.sh` — working memory → episodic. Silent when done. |
 | Backup + update + health | Weekly (Sun, 03:00) | Agent | `hermes backup` (max 2 copies), then `hermes update`, then post-update health check (re-apply LAN patches if needed). Alert on failure. |
 | Weekly health check | Weekly (Sun, 06:00) | no_agent | `weekly_health_check.sh` — consolidated report: host status, disk usage, log anomalies, input token overhead. Silent when healthy. Alerts with breakdown when any check finds issues. |
+| Input token audit | Every 30 days, 09:30 | Agent | Run the `input-token-analysis` skill (`scripts/audit.py --days 30`): rank consumers, pre-check levers, report deltas vs the prior baseline, propose changes with verified config values. Delivers a full report each run — the deep audit the weekly check only samples. Requires the `input-token-analysis` skill installed (see Step 20). |
 
 The backup+update cron runs in agent mode (not no_agent) because the post-update health check may need to re-apply dashboard patches that `hermes update` overwrites. A no_agent script cannot re-apply patches or run `skill_view`.
 
@@ -404,7 +405,26 @@ chmod +x ~/.hermes/scripts/weekly_health_check.sh
 
 Triggered (not scheduled): post-update health check — run `hermes doctor`, verify gateway + dashboard status, re-apply patches if needed. See `references/setup-details.md` § Post-update health check. Also triggered manually after any `hermes update` outside the weekly cron.
 
-**Done:** 3 crons created. Weekly health check script installed. Post-update procedure documented.
+Create the input-token audit cron (agent mode — it needs `skill_view` and reasoning):
+
+```
+Prompt skeleton (adapt to the customer):
+
+"You are the input-token auditor. Load the `input-token-analysis` skill and run
+its scripts/audit.py for the last 30 days. Compare against the previous audit's
+baseline (read it from the prior cron output if available, else establish this
+run as the first baseline). Pre-check every lever before proposing changes:
+read current values with `hermes config get`, confirm mechanisms against
+config_defaults.py or the Hermes docs, mark unverifiable claims UNVERIFIED.
+Report under 600 words: (1) total vs baseline with % change, (2) breakdown by
+task, (3) verdict on any previously applied changes with proving numbers,
+(4) top 3 remaining consumers, (5) one recommended next tweak citing the
+pre-checked current value."
+
+Schedule: every 30 days. Delivery: customer's home channel.
+```
+
+**Done:** 4 crons created. Weekly health check script installed. Post-update procedure documented.
 
 ## Step 19 — Verification summary
 
@@ -420,8 +440,9 @@ Triggered (not scheduled): post-update health check — run `hermes doctor`, ver
 | Search | `web_search` test query returns results |
 | Extraction | `web_extract` test URL returns content |
 | Browser | CDP browser opens and navigates |
-| Crons | `hermes cron list` shows 3 jobs |
+| Crons | `hermes cron list` shows 4 jobs |
 | Weekly health check | `~/.hermes/scripts/weekly_health_check.sh` exists and is executable |
+| Input token audit | `hermes cron list` shows a 30-day audit job; `input-token-analysis` skill installed and `scripts/audit.py` runs |
 | Timezone | `hermes config get timezone` matches customer input |
 | Approvals | `hermes config get approvals.mode` returns `smart` |
 | Terminal backend | `hermes config get terminal.backend` matches detection |
@@ -454,7 +475,9 @@ hermes skills search <use-case-keyword>
 
 Install customer's chosen skills: `hermes skills install <id>`
 
-**Done:** use case recorded. Relevant skills recommended and installed.
+Also install the `input-token-analysis` skill from this repo (`agent-ops/input-token-analysis`) — the 30-day audit cron from Step 18 depends on it.
+
+**Done:** use case recorded. Relevant skills recommended and installed. Input-token-analysis skill installed for the Step 18 audit cron.
 
 ## Common Pitfalls
 
