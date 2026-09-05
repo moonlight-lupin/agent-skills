@@ -16,6 +16,7 @@ agent_skills/
 ├── LICENSE
 ├── creative/                         ← image and video generation workflows
 │   ├── image-studio/                 ← staged fal.ai image generation/editing/cleanup
+│   ├── atlas-image-generation/       ← opt-in Atlas Cloud text-to-image with live schema validation
 │   ├── clips-studio/                 ← staged fal.ai short-video generation/animation/camera moves
 │   └── pexels-stock-photos/          ← free real-world stock photo search + download (Pexels API)
 ├── research/                         ← source-grounded research, enrichment, and RAG skills
@@ -59,6 +60,7 @@ New skills are added as folders under the relevant domain directory.
 | Skill | Domain | What it does | Pairs with |
 |-------|--------|-------------|------------|
 | [image-studio](creative/image-studio/) | creative | Staged fal.ai image gen/edit/upscale/cleanup with cost logging + `--dry-run` | pexels-stock-photos |
+| [atlas-image-generation](creative/atlas-image-generation/) | creative | Opt-in Atlas Cloud text-to-image with live model/schema validation + one-submit safety | pexels-stock-photos, image-studio |
 | [clips-studio](creative/clips-studio/) | creative | Staged fal.ai short-video: text-to-video, animate still, camera moves | image-studio |
 | [pexels-stock-photos](creative/pexels-stock-photos/) | creative | Free real-world stock photos (Pexels API, 20k/month) with attribution handling | image-studio |
 | [deep-research](research/deep-research/) | research | Iterative research engine: structured evidence, source quality ranking (primary/secondary/tertiary), refute polarity, overview-first reports, four-label evidence-basis discipline ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]) | fact-checker, source-tracker |
@@ -95,6 +97,7 @@ New skills are added as folders under the relevant domain directory.
 | Skill | Status | Tests | Dependencies |
 |-------|--------|-------|-------------|
 | image-studio | Stable | ✓ | fal.ai key |
+| atlas-image-generation | Beta | ✓ | Atlas Cloud API key |
 | clips-studio | Stable | ✓ | fal.ai key |
 | pexels-stock-photos | Stable | ✓ | Pexels API key (free) |
 | deep-research | Stable | evals, references | None (prompt-only) |
