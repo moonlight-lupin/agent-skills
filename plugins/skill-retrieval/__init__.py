@@ -65,11 +65,10 @@ def _compact_skills_prompt():
     We wrap it: call the original, then strip all descriptions, keeping
     only skill names organized by category.
 
-    Partial-patch scenario: if ``run_agent`` cannot be imported (e.g. the
-    plugin is loaded outside a full Hermes runtime), only ``prompt_builder``
-    is patched.  Callers that resolve ``build_skills_system_prompt`` via
-    ``run_agent`` will still see the original (uncompacted) prompt.  The
-    retrieval hook (Phase 2) remains functional regardless.
+    Since the Sep 2026 decomposition, only ``agent.prompt_builder`` is
+    patched — every caller (including the ``run_agent`` PLUGIN-COMPAT
+    facade) resolves the function through it. The retrieval hook
+    (Phase 2) is unaffected.
     """
     try:
         from agent import prompt_builder
@@ -80,20 +79,15 @@ def _compact_skills_prompt():
             logger.warning("Cannot locate prompt_builder — compaction skipped")
             return False
 
-    # The function is called via run_agent.build_skills_system_prompt(...)
-    # (see agent/system_prompt.py _ra() lazy reference). We must patch it
-    # on BOTH prompt_builder (source module) AND run_agent (caller module)
-    # so the patched version is resolved at call time.
-    try:
-        import run_agent
-    except ImportError:
-        try:
-            import hermes_agent.run_agent as run_agent
-        except ImportError:
-            logger.warning(
-                "Cannot locate run_agent — patching prompt_builder only"
-            )
-            run_agent = None
+    # Sep 2026 decomposition (v0.21.0, PR #102117): callers resolve
+    # build_skills_system_prompt via agent.prompt_builder directly
+    # (agent/system_prompt.py uses _pb.build_skills_system_prompt), and the
+    # run_agent PLUGIN-COMPAT shim resolves the attribute through
+    # agent.prompt_builder at call time too. Patching prompt_builder alone
+    # therefore covers every resolution path. The old run_agent attribute
+    # patch is gone: it triggered `hermes doctor`'s plugin-compat AST scan
+    # (removed-on-2026-09-14 warning) and would get the plugin disabled
+    # after that date. Do NOT re-add run_agent patching.
 
     original = prompt_builder.build_skills_system_prompt
     if getattr(original, "_skill_retrieval_patched", False):
@@ -160,8 +154,7 @@ def _compact_skills_prompt():
 
     compact_build._skill_retrieval_patched = True
     prompt_builder.build_skills_system_prompt = compact_build
-    if run_agent is not None:
-        run_agent.build_skills_system_prompt = compact_build
+
     logger.info("System prompt compaction enabled (names-only skill index)")
     return True
 

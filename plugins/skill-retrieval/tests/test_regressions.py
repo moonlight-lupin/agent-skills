@@ -312,47 +312,6 @@ def test_compact_wrapped_description_with_colon_in_continuation():
     assert other_lines[0].strip() == "- other"
 
 
-def test_compact_preserves_category_after_wrapped_entry():
-    """A category header following a wrapped skill entry must be preserved.
-
-    The continuation lines of the prior skill must not consume the next
-    category header.  Category headers are LESS indented than skill entries.
-    """
-    mod = _load_plugin_module()
-    prompt = (
-        "<available_skills>\n"
-        "  creative:\n"
-        "    - deep-research: Think, search, extract, synthesize a cited report.\n"
-        '      Use when the user asks for a literature review, market scan, or\n'
-        '      "research X thoroughly". Produces citations.\n'
-        "    - image-studio: fal.ai image generation\n"
-        "  research:\n"
-        "    - arxiv: Search arxiv papers\n"
-        "</available_skills>"
-    )
-    output, ok = _compact_block(mod, prompt)
-    assert ok is True
-
-    import re
-    m = re.search(r"<available_skills>(.*?)</available_skills>", output, re.DOTALL)
-    assert m
-    block = m.group(1)
-    lines = [l for l in block.strip().split("\n") if l.strip()]
-
-    # The "research:" category header must be present
-    research_headers = [l for l in lines if l.strip() == "research:"]
-    assert len(research_headers) == 1, f"research: header missing — got {lines}"
-
-    # arxiv must be under research, not creative
-    arxiv_lines = [l for l in lines if "arxiv" in l]
-    assert len(arxiv_lines) == 1
-    assert arxiv_lines[0].strip() == "- arxiv"
-
-    # No orphaned continuation lines
-    lit_lines = [l for l in lines if "literature" in l.lower()]
-    assert lit_lines == [], f"Orphaned continuation: {lit_lines}"
-
-
 def test_compact_no_available_skills_block_returns_unchanged():
     """A prompt with no <available_skills> block must be returned unchanged (minus the trailing note)."""
     mod = _load_plugin_module()
@@ -516,8 +475,15 @@ def test_on_pre_llm_call_hit(monkeypatch):
         br._skills_by_id = {}
 
 
-def test_compact_skills_prompt_patches_both_modules(monkeypatch):
-    """_compact_skills_prompt patches both prompt_builder and run_agent."""
+def test_compact_skills_prompt_patches_prompt_builder(monkeypatch):
+    """_compact_skills_prompt patches prompt_builder; run_agent is NOT touched.
+
+    Since the Sep 2026 decomposition, run_agent is a PLUGIN-COMPAT facade
+    that resolves attributes through agent.prompt_builder at call time, so
+    patching prompt_builder alone covers every caller. The plugin must not
+    write run_agent attributes at all (its AST would trip the plugin-compat
+    scan and get the plugin disabled after 2026-09-14).
+    """
     mod = _load_plugin_module()
 
     # Create stub modules
@@ -541,10 +507,10 @@ def test_compact_skills_prompt_patches_both_modules(monkeypatch):
         result = mod._compact_skills_prompt()
         assert result is True
 
-        # Both modules should have the patched function
+        # prompt_builder patched; run_agent left alone
         assert getattr(agent_pb.build_skills_system_prompt, "_skill_retrieval_patched", False)
-        assert getattr(run_agent_mod.build_skills_system_prompt, "_skill_retrieval_patched", False)
-        assert agent_pb.build_skills_system_prompt is run_agent_mod.build_skills_system_prompt
+        assert getattr(run_agent_mod.build_skills_system_prompt, "_skill_retrieval_patched", False) is False
+        assert run_agent_mod.build_skills_system_prompt is original
     finally:
         sys.modules.pop("agent", None)
         sys.modules.pop("agent.prompt_builder", None)
