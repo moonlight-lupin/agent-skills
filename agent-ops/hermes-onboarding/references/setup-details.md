@@ -331,6 +331,21 @@ Google, Brave, and Startpage may return CAPTCHA, 429, or silent-empty results fr
 2. Route through a residential proxy via `outgoing.proxies`
 3. Keep SearXNG for aggregation and rely on DDG fallback for blocked engines
 
+## Web tool routing (SOUL.md template)
+
+Write this section into the customer's SOUL.md at Step 4. Adjust tool names if the customer's setup differs.
+
+```markdown
+## Web tool routing (DonSeTch primary)
+- Research or precision search → `mcp_donsetch_web_search` FIRST, not built-in `web_search`. "Research or precision" INCLUDES: any comparison ("X vs Y", "compare"), "look for other sources", multi-source verification, product/hardware/benchmark lookup, "find out about", and any query whose answer you would cite from 2+ web pages. Built-in `web_search` = single-fact quick lookup ONLY (one URL, one version number, one price) — never the first call for comparisons or multi-source work.
+- Bot-walled, captcha-adjacent, or JS-rendered public URL → `mcp_donsetch_web_fetch` (tier-2 escalation through walls; honest structured errors). Built-in `web_extract` = plain pages and local/non-HTTP files only.
+- Escalation: if built-in `web_search` results contain junk (unrelated domains, dictionary/forum noise) or fewer than 3 usable hits, re-run the SAME query with `mcp_donsetch_web_search` before answering.
+- Site-wide inventory → `mcp_donsetch_web_crawl`.
+- Authenticated sites, file uploads, interactive flows → `browser_exec` (donsetch cannot log in).
+- Scanned-PDF/OCR → pdftoppm + tesseract pipeline, not donsetch.
+- LAN/loopback URLs → built-ins (donsetch SSRF-blocks them via `guard.ssrf`).
+```
+
 ## Skill guardrails (7 Matt Pocock principles)
 
 Apply these to every skill the agent creates:

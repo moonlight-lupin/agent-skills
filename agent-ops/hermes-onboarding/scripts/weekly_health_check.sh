@@ -193,28 +193,76 @@ fi
 OVERHEAD_OUTPUT=$(python3 -c "
 import yaml, pathlib, glob, os, re, sys
 
-files = glob.glob(os.path.expanduser('~/.hermes/skills/**/SKILL.md'), recursive=True)
+# Count skills the way Hermes resolves them: discovery helpers when importable
+# (honors named profiles, external_dirs, plugin-bundled skills, symlinks),
+# glob fallback for standalone contexts.
 count = 0; total_chars = 0
-for f in files:
-    try:
-        text = pathlib.Path(f).read_text()
-        m = re.match(r'^---\n(.*?)\n---\n', text, re.DOTALL)
-        if not m: continue
-        fm = yaml.safe_load(m.group(1))
-        if not fm: continue
-        desc = fm.get('description', '')
-        if desc:
-            count += 1
-            total_chars += min(len(desc), 200)
-    except: pass
+try:
+    from agent.skill_utils import get_all_skills_dirs, get_project_skills_dirs, iter_skill_index_files
+    from agent.prompt_builder import _parse_skill_file, _skill_should_show, extract_skill_conditions, _current_session_platform_hint
+    hint = _current_session_platform_hint() or None
+    seen = set()
+    for root in list(get_project_skills_dirs()) + list(get_all_skills_dirs()):
+        for f in iter_skill_index_files(root, 'SKILL.md'):
+            try:
+                ok, fm, desc = _parse_skill_file(f)
+                if not ok or not desc: continue
+                name = fm.get('name', '')
+                if name in seen: continue
+                if not _skill_should_show(extract_skill_conditions(fm), None, None, hint): continue
+                seen.add(name); count += 1
+                total_chars += min(len(desc), 200)
+            except Exception: pass
+    # Plugin-bundled skills also occupy the system prompt (keyed prefix:name)
+    from hermes_constants import get_hermes_home
+    plugins_root = get_hermes_home() / 'plugins'
+    if plugins_root.is_dir():
+        for pdir in sorted(plugins_root.iterdir()):
+            pskills = pdir / 'skills'
+            if not pdir.is_dir() or pdir.name.startswith('.') or not pskills.is_dir(): continue
+            for f in iter_skill_index_files(pskills, 'SKILL.md'):
+                try:
+                    ok, fm, desc = _parse_skill_file(f)
+                    if not ok or not desc: continue
+                    name = fm.get('name', '')
+                    if name in seen: continue
+                    if not _skill_should_show(extract_skill_conditions(fm), None, None, hint): continue
+                    seen.add(name); count += 1
+                    total_chars += min(len(desc), 200)
+                except Exception: pass
+except ImportError:
+    for f in glob.glob(os.path.expanduser('~/.hermes/skills/**/SKILL.md'), recursive=True):
+        try:
+            text = pathlib.Path(f).read_text()
+            m = re.match(r'^---\n(.*?)\n---\n', text, re.DOTALL)
+            if not m: continue
+            fm = yaml.safe_load(m.group(1))
+            if not fm: continue
+            desc = fm.get('description', '')
+            if desc:
+                count += 1
+                total_chars += min(len(desc), 200)
+        except Exception: pass
 
 desc_tokens = total_chars // 4
-ctx = 128000
+
+# Context window: provider-aware resolution when Hermes is importable,
+# else config, else 128K default.
+ctx = 0
 try:
-    with open(os.path.expanduser('~/.hermes/config.yaml')) as fh:
-        cfg = yaml.safe_load(fh) or {}
-    ctx = cfg.get('model', {}).get('context_length', 128000)
-except: pass
+    from model_tools import _resolve_active_context_length
+    ctx = int(_resolve_active_context_length() or 0)
+except Exception:
+    pass
+if not ctx:
+    try:
+        with open(os.path.expanduser('~/.hermes/config.yaml')) as fh:
+            cfg = yaml.safe_load(fh) or {}
+        ctx = int(cfg.get('model', {}).get('context_length', 0))
+    except Exception:
+        pass
+if not ctx:
+    ctx = 128000
 
 skill_ratio = desc_tokens / ctx if ctx else 0
 SKILL_COUNT_THRESHOLD = 50

@@ -3,7 +3,7 @@ name: hermes-onboarding
 description: "Use when onboarding a new customer — configure gateway, dashboard, memory, services for production."
 license: MIT
 metadata:
-  version: 1.2.0
+  version: 1.3.0
   author: moonlight-lupin
   platforms: [linux]
   tags: [onboarding, setup, configuration, deployment, customer]
@@ -27,7 +27,7 @@ Do not use if the main model is not yet configured. Fix the provider first.
 
 ## Step 0 — Load references
 
-Load `references/setup-details.md`. It holds config snippets, systemd templates, SearXNG engine settings, skill guardrail principles, and verbosity examples.
+Load `references/setup-details.md`. It holds config snippets, systemd templates, DonSeTch MCP config, skill guardrail principles, and verbosity examples.
 
 **Done:** references file loaded into context.
 
@@ -155,22 +155,70 @@ hermes config set compression.target_ratio 0.20
 
 **Done:** compression enabled with threshold matched to model context length.
 
-## Step 8 — Search backend
+## Step 8 — Search and fetch backend (DonSeTch + fallback)
 
-If Docker detected:
+Primary: DonSeTch MCP server (`mcp_donsetch_web_search` / `web_fetch` / `web_crawl`). It handles research-grade queries, bot-walled pages, and JS-rendered content. Install and wire it, then set a lightweight fallback for single-fact lookups.
 
-1. Deploy SearXNG container. See `references/setup-details.md` § SearXNG deployment.
-2. Configure engines. See `references/setup-details.md` § SearXNG engine settings.
-3. Set `web.search_backend: searxng` in config
+### 8a — Install DonSeTch
 
-If no Docker:
+```bash
+npm install -g donsetch
+```
 
-1. Install ddgs: `pip install ddgs`
-2. Set `web.search_backend: ddgs` in config
+### 8b — Register as MCP server
 
-If customer has Nous Portal: Tool Gateway search is already active. Still set a search backend as fallback.
+Add to `mcp:` in `~/.hermes/config.yaml` (edit directly — `hermes config set` stringifies nested values):
 
-**Done:** search backend configured and verified with a test query.
+```yaml
+  donsetch:
+    command: /usr/local/lib/node_modules/donsetch/binaries/donsetch
+    args:
+      - mcp
+      - --supervised
+    env:
+      DONGHOST_CHROME: /usr/bin/google-chrome-stable
+      DONGHOST_NO_SANDBOX: '1'
+    enabled: true
+```
+
+Verify: `hermes plugins list` or session info shows `donsetch` with 3 tools connected. Test with a query through `mcp_donsetch_web_search`.
+
+### 8c — Fallback backend
+
+If Docker detected: deploy SearXNG. See `references/setup-details.md` § SearXNG deployment. Set `web.search_backend: searxng`.
+
+If no Docker: `pip install ddgs`, set `web.search_backend: ddgs`.
+
+The fallback serves single-fact quick lookups (one URL, one version, one price) and covers the case where DonSeTch is down.
+
+### 8d — Web-routing rules in SOUL.md
+
+Write the web-routing section into the customer's SOUL.md at Step 4 (soul.md write), not later. Use the template in `references/setup-details.md` § Web tool routing (SOUL.md template). Core rules:
+
+- Research or precision search, comparisons, multi-source verification → `mcp_donsetch_web_search` FIRST
+- Built-in `web_search` = single-fact quick lookup ONLY
+- Bot-walled, captcha-adjacent, or JS-rendered URL → `mcp_donsetch_web_fetch`; built-in `web_extract` = plain pages only
+- Site-wide inventory → `mcp_donsetch_web_crawl`
+- Authenticated sites, file uploads, interactive flows → `browser_exec`
+- Scanned-PDF/OCR → pdftoppm + tesseract, not donsetch
+- LAN/loopback URLs → built-ins (donsetch SSRF-blocks them)
+
+### 8e — DonSeTch weekly update cron
+
+Install the release-binary self-updater (no source builds — lighter dependency footprint):
+
+```bash
+# Script ships with the onboarding skill
+cp ~/.hermes/skills/agent-ops/hermes-onboarding/scripts/donsetch_update.sh ~/.hermes/scripts/
+chmod +x ~/.hermes/scripts/donsetch_update.sh
+hermes cron create --name "DonSeTch weekly update" --schedule "0 9 * * 1" --mode no_agent ~/.hermes/scripts/donsetch_update.sh
+```
+
+The script gates on GitHub `releases/latest` (published releases with assets), NOT tags — a tag without published assets makes `donsetch update` 404. Silent (empty stdout) when already latest: the no_agent cron only alerts on failure or update.
+
+If customer has Nous Portal: Tool Gateway search is already active. Still install DonSeTch + fallback — Tool Gateway search does not fetch bot-walled pages.
+
+**Done:** DonSeTch installed and connected as MCP server (3 tools). Fallback backend set. Web-routing rules written into SOUL.md. Update cron armed. Search verified with a test query.
 
 ## Step 9 — Extraction
 
@@ -202,7 +250,7 @@ For full skill authoring validation, load the bundled skill: `skill_view(name='h
 
 ## Step 12 — Skill retrieval plugin (BM25)
 
-Install the skill-retrieval plugin from the agent-skills repo. The plugin replaces the full skill list in the system prompt with a compact names-only index and injects top-K relevant descriptions per turn via BM25 retrieval. Install disabled. Activate only when skill count or token overhead warrants it.
+Install the skill-retrieval plugin from the agent-skills repo. The plugin replaces the full skill list in the system prompt with a compact names-only index and injects top-K relevant descriptions per turn via a `pre_llm_call` hook. It honors named profiles, `skills.external_dirs`, disabled lists, and platform/condition gates — the corpus matches what Hermes itself resolves. Install disabled. Activate only when skill count or token overhead warrants it.
 
 ### 12a — Install (disabled)
 
@@ -216,30 +264,80 @@ Run the assessment to measure skill count and overhead ratio:
 
 ```bash
 python3 -c "
-import yaml, pathlib, glob, os, re
+import yaml, pathlib, glob, os, re, sys
 
-files = glob.glob(os.path.expanduser('~/.hermes/skills/**/SKILL.md'), recursive=True)
+# Count skills the way Hermes resolves them: discovery helpers when importable
+# (honors named profiles, external_dirs, plugin-bundled skills, symlinks),
+# glob fallback for standalone contexts.
 count = 0; total_chars = 0
-for f in files:
-    try:
-        text = pathlib.Path(f).read_text()
-        m = re.match(r'^---\n(.*?)\n---\n', text, re.DOTALL)
-        if not m: continue
-        fm = yaml.safe_load(m.group(1))
-        if not fm: continue
-        desc = fm.get('description', '')
-        if desc:
-            count += 1
-            total_chars += min(len(desc), 200)
-    except: pass
+try:
+    from hermes_constants import get_skills_dir
+    from agent.skill_utils import get_all_skills_dirs, get_project_skills_dirs, iter_skill_index_files
+    from agent.prompt_builder import _parse_skill_file, _skill_should_show, extract_skill_conditions, _current_session_platform_hint
+    hint = _current_session_platform_hint() or None
+    seen = set()
+    for root in list(get_project_skills_dirs()) + list(get_all_skills_dirs()):
+        for f in iter_skill_index_files(root, 'SKILL.md'):
+            try:
+                ok, fm, desc = _parse_skill_file(f)
+                if not ok or not desc: continue
+                name = fm.get('name', '')
+                if name in seen: continue
+                if not _skill_should_show(extract_skill_conditions(fm), None, None, hint): continue
+                seen.add(name); count += 1
+                total_chars += min(len(desc), 200)
+            except Exception: pass
+    # Plugin-bundled skills also occupy the system prompt (keyed prefix:name)
+    from hermes_constants import get_hermes_home
+    plugins_root = get_hermes_home() / 'plugins'
+    if plugins_root.is_dir():
+        for pdir in sorted(plugins_root.iterdir()):
+            pskills = pdir / 'skills'
+            if not pdir.is_dir() or pdir.name.startswith('.') or not pskills.is_dir(): continue
+            for f in iter_skill_index_files(pskills, 'SKILL.md'):
+                try:
+                    ok, fm, desc = _parse_skill_file(f)
+                    if not ok or not desc: continue
+                    name = fm.get('name', '')
+                    if name in seen: continue
+                    if not _skill_should_show(extract_skill_conditions(fm), None, None, hint): continue
+                    seen.add(name); count += 1
+                    total_chars += min(len(desc), 200)
+                except Exception: pass
+except ImportError:
+    for f in glob.glob(os.path.expanduser('~/.hermes/skills/**/SKILL.md'), recursive=True):
+        try:
+            text = pathlib.Path(f).read_text()
+            m = re.match(r'^---\n(.*?)\n---\n', text, re.DOTALL)
+            if not m: continue
+            fm = yaml.safe_load(m.group(1))
+            if not fm: continue
+            desc = fm.get('description', '')
+            if desc:
+                count += 1
+                total_chars += min(len(desc), 200)
+        except Exception: pass
 
 desc_tokens = total_chars // 4
-ctx = 128000
+
+# Context window: provider-aware resolution when Hermes is importable
+# (covers OpenRouter probing and cached per-model metadata), else config,
+# else 128K default.
+ctx = 0
 try:
-    with open(os.path.expanduser('~/.hermes/config.yaml')) as fh:
-        cfg = yaml.safe_load(fh) or {}
-    ctx = cfg.get('model', {}).get('context_length', 128000)
-except: pass
+    from model_tools import _resolve_active_context_length
+    ctx = int(_resolve_active_context_length() or 0)
+except Exception:
+    pass
+if not ctx:
+    try:
+        with open(os.path.expanduser('~/.hermes/config.yaml')) as fh:
+            cfg = yaml.safe_load(fh) or {}
+        ctx = int(cfg.get('model', {}).get('context_length', 0))
+    except Exception:
+        pass
+if not ctx:
+    ctx = 128000
 
 skill_ratio = desc_tokens / ctx if ctx else 0
 SKILL_COUNT_THRESHOLD = 50
@@ -267,7 +365,7 @@ Two thresholds trigger the recommendation:
 hermes plugins enable skill-retrieval
 ```
 
-Restart the session for the plugin to take effect. The plugin patches the system prompt at load time.
+Restart the session for the plugin to take effect. Per-turn injection runs from the `pre_llm_call` hook; the names-only compaction applies at prompt build.
 
 If not recommended, the plugin stays installed but disabled. Re-run this assessment after adding skills — the customer can enable it later.
 
@@ -369,6 +467,7 @@ Create 4 scheduled crons + document 1 triggered procedure:
 | Backup + update + health | Weekly (Sun, 03:00) | Agent | `hermes backup` (max 2 copies), then `hermes update`, then post-update health check (re-apply LAN patches if needed). Alert on failure. |
 | Weekly health check | Weekly (Sun, 06:00) | no_agent | `weekly_health_check.sh` — consolidated report: host status, disk usage, log anomalies, input token overhead. Silent when healthy. Alerts with breakdown when any check finds issues. |
 | Input token audit | Every 30 days, 09:30 | Agent | Run the `input-token-analysis` skill (`scripts/audit.py --days 30`): rank consumers, pre-check levers, report deltas vs the prior baseline, propose changes with verified config values. Delivers a full report each run — the deep audit the weekly check only samples. Requires the `input-token-analysis` skill installed (see Step 20). |
+| DonSeTch weekly update | Weekly (Mon, 09:00) | no_agent | `donsetch_update.sh` — release-binary self-updater. Gates on GitHub `releases/latest`, not tags. Silent when already latest. See Step 8e. |
 
 The backup+update cron runs in agent mode (not no_agent) because the post-update health check may need to re-apply dashboard patches that `hermes update` overwrites. A no_agent script cannot re-apply patches or run `skill_view`.
 
@@ -437,10 +536,12 @@ Schedule: every 30 days. Delivery: customer's home channel.
 | Dashboard | `systemctl status hermes-dashboard` + URL accessible |
 | Dashboard auth | Browser shows login page (LAN mode) or SSH tunnel works (loopback) |
 | Memory | `mnemosyne_recall` returns results |
-| Search | `web_search` test query returns results |
+| Search (primary) | `mcp_donsetch_web_search` test query returns results; session info shows donsetch connected with 3 tools |
+| Search (fallback) | `web_search` test query returns results |
+| Web routing | SOUL.md contains the web-routing section (donsetch first, built-in for single-fact lookups) |
 | Extraction | `web_extract` test URL returns content |
 | Browser | CDP browser opens and navigates |
-| Crons | `hermes cron list` shows 4 jobs |
+| Crons | `hermes cron list` shows 5 jobs (incl. DonSeTch weekly update) |
 | Weekly health check | `~/.hermes/scripts/weekly_health_check.sh` exists and is executable |
 | Input token audit | `hermes cron list` shows a 30-day audit job; `input-token-analysis` skill installed and `scripts/audit.py` runs |
 | Timezone | `hermes config get timezone` matches customer input |
@@ -484,7 +585,7 @@ Also install the `input-token-analysis` skill from this repo (`agent-ops/input-t
 - **Gateway crash loop with --replace:** Never use `--replace` in systemd unit files for multiple profiles. It SIGTERMs other gateway processes.
 - **TimeoutStopSec too short:** Always set 240s. Default 90s causes SIGKILL mid-drain on WhatsApp/Telegram bridges.
 - **Cron drift guard:** Unpinned cron jobs fail closed when global model changes. Set cron fleet default early (Step 17).
-- **SearXNG IP reputation:** Google/Brave may block datacenter IPs. No config fix — use residential proxy or accept DDG fallback.
+- **SearXNG IP reputation:** Google/Brave may block datacenter IPs. No config fix — use residential proxy or accept DDG fallback. This affects the fallback backend only; DonSeTch is the primary search path.
 - **Double-indexing in library-rag:** Keep raw files outside LIBRARY_ROOT. Only structured markdown goes under LIBRARY_ROOT.
 - **plugins.enabled stringification:** `hermes config set plugins.enabled '["a"]'` stores a JSON string, not a YAML list. Edit config.yaml directly for plugin lists.
 - **Dashboard TUI on LAN:** Requires HERMES_PYTHON env var and CORS/loopback patches. See hermes-service-deployment skill references.
