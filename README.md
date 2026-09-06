@@ -50,6 +50,8 @@ agent_skills/
 │   └── hermes-onboarding/            ← 21-step customer onboarding: gateway, dashboard, memory, crons
 ├── devops/                           ← infrastructure and system maintenance skills
 │   └── disk-cleanup/                 ← triage survey → safe/ask buckets → execute → verify delta
+└── plugins/                          ← installable Hermes Agent plugins
+    └── skill-retrieval/              ← BM25 retrieval that injects the top-K relevant skills per turn
 ```
 
 New skills are added as folders under the relevant domain directory.
@@ -89,6 +91,21 @@ New skills are added as folders under the relevant domain directory.
 | [disk-cleanup](devops/disk-cleanup/) | devops | Triage disk space: survey all mounts → safe/ask buckets → execute approved set → verify delta | — |
 
 > **Related work:** [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus) (PewDiePie's self-hosted AI workspace) ships similar features as a standalone web app — "Deep Research" and "Compare" — while `deep-research` and `model-compare` cover the same ground as pure-prompt workflows + stdlib scripts inside any agent's tool loop.
+
+## Plugins
+
+Beyond skills, the repo ships installable [Hermes Agent](https://hermes-agent.nousresearch.com) plugins under `plugins/`.
+
+### skill-retrieval
+
+A Hermes plugin that scales skill usage to large libraries. As a skill catalog grows past a few dozen entries, the per-turn `<available_skills>` block costs input tokens and buries the right skill in noise. This plugin replaces the full block with BM25 retrieval: each user turn is scored against a stdlib inverted index built from skill names and descriptions, and only the top-K most relevant skills are injected into the prompt (default K=6, configurable via `plugin.yaml`).
+
+- **Stdlib only** — no numpy/scipy; the index builds in milliseconds and retrieval is sub-millisecond for 128+ skills.
+- **Profile-aware discovery** — paths resolve through Hermes' own helpers (`get_hermes_home`, `get_skills_dir`), so named profiles, `skills.external_dirs`, trusted project-local skills, disabled lists, and platform/condition gates all match what the agent itself sees. The index cache is keyed per Hermes home, so multiplexed profiles never share an index.
+- **Windows-safe** — skill ids normalize to forward slashes; `$HERMES_HOME`-aware path resolution.
+- **Graceful degradation** — if Hermes core modules are unavailable, it falls back to a standalone loader; malformed configs never abort the index build.
+
+Install by copying or symlinking `plugins/skill-retrieval/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/skill-retrieval/tests/`.
 
 ## Skill maturity
 
