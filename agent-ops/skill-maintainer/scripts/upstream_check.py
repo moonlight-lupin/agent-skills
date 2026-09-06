@@ -53,6 +53,7 @@ ENGINE_DEPS = [
     # Example:
     # {"name": "my-cli-tool", "command": ["my-cli", "--version"], "version_regex": r"(\d+\.\d+\.\d+)"},
     # {"name": "my-pip-pkg", "command": ["pip", "show", "my-pip-pkg"], "version_regex": r"(\d+\.\d+\.\d+)"},
+    {"name": "mnemosyne-hermes", "command": ["pip", "show", "mnemosyne-hermes"], "version_regex": r"(\d+\.\d+\.\d+)"},
 ]
 
 # ─── END CONFIGURATION ────────────────────────────────────────────────────

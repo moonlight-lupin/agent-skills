@@ -3,7 +3,7 @@
 NotebookLM-mode atomic ingest: write a source file AND optionally index it
 into the vault's rag_index.db in a single call.
 
-If library-rag (bge-m3 + sqlite-vec) is available, indexes the source for
+If library-rag (Nemotron-3-Embed-1B + sqlite-vec) is available, indexes the source for
 semantic search. If not, writes the file only — the skill still works, just
 without semantic search (use direct file reading for small vaults).
 

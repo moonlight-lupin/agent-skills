@@ -1,9 +1,9 @@
 ---
 name: log-analyzer
-description: "Parse agent log files to identify error patterns, rate limit hits, timeout clusters, tool failures, and component-level error counts. Produces a structured anomaly report. Cron-compatible — silent if no issues, alert digest if anomalies found."
+description: "Parse agent log files to identify error patterns, rate limit hits, timeout clusters, tool failures, and component-level error counts. Produces a structured anomaly report. Cron-compatible — silent if no issues, alert digest if anomalies found. Also computes per-tool failure rates from a Hermes profile state.db (scripts/state_failures.py)."
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [logs, analysis, errors, patterns, anomalies, monitoring, debugging, cron]
@@ -33,6 +33,19 @@ unstructured logs.
 cd agent-ops/log-analyzer
 python scripts/analyze_logs.py scan --log-file agent.log --since 24h
 ```
+
+For per-tool failure rates from a Hermes profile's session DB (structured
+exit_code signals, NOT regex-over-content):
+
+```bash
+python scripts/state_failures.py                 # last 7 days, dashboard
+python scripts/state_failures.py --days 30 --json
+python scripts/state_failures.py --quiet         # cron: silent when healthy
+```
+
+See `references/state-failure-monitor.md` for provenance (adapted concept
+from hermes-dojo), the spike evidence for why structured signals matter,
+and interpretation notes.
 
 To write JSON for later Markdown rendering:
 
@@ -173,6 +186,18 @@ A `scheduled-summary` job can append the Markdown output under a "Log anomalies"
 heading. Keep the analysis window aligned with the summary window (for example,
 24 hours for a daily digest) so counts do not overlap or disappear.
 
+For a state.db failure-rate digest (weekly is a sensible cadence given the
+volume of sessions):
+
+```bash
+python scripts/state_failures.py --quiet --days 7
+```
+
+This prints nothing (exit 0) when the window has zero failures, so it can be
+used as a `no_agent` cron job that only pings when something is wrong. See
+`references/state-failure-monitor.md` for what the categories mean (timeout
+is the most actionable on real data).
+
 ## Common Pitfalls
 
 1. **Log rotation breaks time windows.** If yesterday's file was rotated out, a
@@ -193,16 +218,34 @@ heading. Keep the analysis window aligned with the summary window (for example,
    clusters even when the root cause is the same.
 6. **Time-only logs depend on the scan date.** `12:30:45 ERROR ...` lines do not
    contain a date. For historical files, prefer full timestamps.
-7. **The error timeline buckets by hour-of-day, not date.** On a multi-day
+7. **Comma-millisecond Python-logging lines silently defeat `--since`.** Lines
+   shaped `2026-07-06 12:30:45,123 INFO module: ...` (Hermes agent/gateway/errors
+   logs) are NOT matched by the built-in timestamp regexes. They fall to the
+   unstructured fallback with `timestamp=null`, so `--since` cannot filter them
+   and the **whole unrotated file is scanned**. Symptoms: error/traceback counts
+   wildly exceed the true windowed count, every cluster reports
+   "First: unknown / Last: unknown", the error timeline says "No timestamped
+   errors detected", and crashes are inflated (each stack-trace continuation
+   line counts as a separate crash). **Fix:** for Hermes profile logs use the
+   windowed counter `scripts/hermes_log_window.py` (handles the comma-ms format,
+   de-duplicates multiline tracebacks by counting `Traceback (most recent call
+   last)` first-lines only) and see `references/hermes-profile-audit.md` for
+   pulling skill-usage/tool-call counts from the profile's `state.db`.
+8. **Skill-usage counts are not in agent.log.** `tool skill_view completed
+   (0.05s, 13890 chars)` lines do not carry the skill-name argument. Query the
+   profile's `state.db` `messages` table — the `tool_calls` JSON column holds
+   the full arguments. `messages.timestamp` is a Unix epoch (REAL), not ISO.
+   See `references/hermes-profile-audit.md` for a ready-to-run snippet.
+9. **The error timeline buckets by hour-of-day, not date.** On a multi-day
    window (`--since 7d`), errors from 08:00 on different days merge into one
    `08:00` bar. Use the clusters (which carry full timestamps) for multi-day
    forensics; treat the timeline as a time-of-day profile.
-8. **Crash detection is substring-based.** The crash regex matches words like
-   `fatal` or `Exception` anywhere in a line, so mentions inside INFO lines
-   (e.g. "retry succeeded after TimeoutException", "non-fatal warning") count
-   as crash signals and can set `has_anomalies`. Treat crash counts as leads
-   to eyeball, and tune the regex if your logs legitimately chat about
-   exceptions at INFO level.
+10. **Crash detection is substring-based.** The crash regex matches words like
+    `fatal` or `Exception` anywhere in a line, so mentions inside INFO lines
+    (e.g. "retry succeeded after TimeoutException", "non-fatal warning") count
+    as crash signals and can set `has_anomalies`. Treat crash counts as leads
+    to eyeball, and tune the regex if your logs legitimately chat about
+    exceptions at INFO level.
 
 ## What This Skill Is NOT
 
@@ -224,5 +267,11 @@ heading. Keep the analysis window aligned with the summary window (for example,
 - [ ] Render Markdown from the scan JSON and confirm all anomaly sections appear.
 - [ ] Run `python -m pytest tests/test_analyze_logs.py -v` from this skill
       directory.
+- [ ] Run `python -m pytest tests/test_state_failures.py -v` from this skill
+      directory (state.db failure-rate monitor; the spike regression test —
+      content merely mentioning error words must not count as failure — lives
+      here).
 - [ ] For cron use, test a no-anomaly log with `--quiet` and confirm stdout is
       empty with exit code 0.
+- [ ] For state.db cron use, `python scripts/state_failures.py --quiet` against
+      a live profile DB exits 0 and prints nothing when the window is clean.
