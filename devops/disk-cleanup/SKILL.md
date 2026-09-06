@@ -3,7 +3,7 @@ name: disk-cleanup
 description: "Use when df says disk is above 80% full or the user wants to reclaim storage space on a VM."
 license: MIT
 metadata:
-  version: 1.3.0
+  version: 1.3.1
   author: moonlight-lupin
   platforms: [linux]
   tags: [disk, cleanup, storage, cache, git, docker, vm]
