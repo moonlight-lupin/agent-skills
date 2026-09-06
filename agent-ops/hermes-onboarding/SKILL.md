@@ -183,11 +183,15 @@ Add to `mcp:` in `~/.hermes/config.yaml` (edit directly — `hermes config set` 
 
 Verify: `hermes plugins list` or session info shows `donsetch` with 3 tools connected. Test with a query through `mcp_donsetch_web_search`.
 
-### 8c — Fallback backend
+### 8c — Fallback backend (keyless Firecrawl)
 
-If Docker detected: deploy SearXNG. See `references/setup-details.md` § SearXNG deployment. Set `web.search_backend: searxng`.
+Set `web.search_backend: firecrawl` in config. With no `FIRECRAWL_API_KEY` set, Hermes uses Firecrawl's anonymous public cloud mode (`api.firecrawl.dev`, no auth header) — verified: explicit selection + no credentials routes to keyless, zero install steps. It supports both search and extraction.
 
-If no Docker: `pip install ddgs`, set `web.search_backend: ddgs`.
+If the customer later buys a Firecrawl plan, set `FIRECRAWL_API_KEY` — the same backend upgrades to keyed mode automatically, no config change.
+
+Alternatives only if the customer objects to anonymous cloud calls:
+- Docker available: deploy SearXNG (`references/setup-details.md` § SearXNG deployment), set `web.search_backend: searxng`
+- No Docker: `pip install ddgs`, set `web.search_backend: ddgs`
 
 The fallback serves single-fact quick lookups (one URL, one version, one price) and covers the case where DonSeTch is down.
 
@@ -228,7 +232,7 @@ Verify keyless extraction works. Step 1 recorded the Hermes version — confirm 
 hermes chat -q "Extract the content from https://example.com"
 ```
 
-If the extraction succeeds, no action needed. If customer wants a pinned backend, set `web.extract_backend` and the corresponding API key.
+If the extraction succeeds, no action needed. If customer wants a pinned backend, set `web.extract_backend: firecrawl` — keyless anonymous mode works with no API key (same mechanism as Step 8c); set `FIRECRAWL_API_KEY` later to upgrade to keyed.
 
 **Done:** keyless extraction verified working.
 
@@ -537,7 +541,7 @@ Schedule: every 30 days. Delivery: customer's home channel.
 | Dashboard auth | Browser shows login page (LAN mode) or SSH tunnel works (loopback) |
 | Memory | `mnemosyne_recall` returns results |
 | Search (primary) | `mcp_donsetch_web_search` test query returns results; session info shows donsetch connected with 3 tools |
-| Search (fallback) | `web_search` test query returns results |
+| Search (fallback) | `web_search` test query returns results via keyless firecrawl |
 | Web routing | SOUL.md contains the web-routing section (donsetch first, built-in for single-fact lookups) |
 | Extraction | `web_extract` test URL returns content |
 | Browser | CDP browser opens and navigates |
