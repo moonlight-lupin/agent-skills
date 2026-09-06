@@ -4,7 +4,7 @@ description: "Use when the user wants to organize, tidy, or restructure a messy 
 license: MIT
 metadata:
   version: 1.0.0
-  author: Hermes Agent
+  author: moonlight-lupin
   platforms: [linux, macos, windows]
   hermes:
     tags: [file-management, organization, cleanup, productivity]

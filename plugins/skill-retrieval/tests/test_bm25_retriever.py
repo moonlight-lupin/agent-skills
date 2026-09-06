@@ -57,7 +57,7 @@ def test_parse_skill_md_multiline_description(tmp_path):
         "description: >-\n"
         "  BM25-based skill retrieval plugin.\n"
         "  Saves tokens per turn.\n"
-        "author: MH\n"
+        "author: moonlight-lupin\n"
         "---\n"
     )
     name, desc = br._parse_skill_md(skill_md)

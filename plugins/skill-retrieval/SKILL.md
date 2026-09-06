@@ -9,7 +9,7 @@ description: >-
 license: MIT
 metadata:
   version: 0.1.0
-  author: MH
+  author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [bm25, skill-retrieval, system-prompt, token-optimization, plugin]
   hermes:
