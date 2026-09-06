@@ -5,6 +5,7 @@ Source: https://github.com/oneal2000/SR-Agents/blob/main/src/sragents/retrieve/b
 Indexed once at plugin load; retrieval is sub-millisecond for 128 skills.
 """
 
+import os
 import re
 import os
 import time
@@ -147,7 +148,10 @@ def _iter_skill_files(root: Path, prefix: str = "") -> list[tuple[Path, str, str
         if any(part in _SKIP_DIRS for part in rel_parts):
             continue
         skill_dir = skill_md.parent
-        rel_name = prefix + str(skill_dir.relative_to(root))
+        # Normalize to forward slashes: on Windows str(Path) yields
+        # backslashes, which break skill_id lookups and cross-platform tests.
+        rel_parts = skill_dir.relative_to(root).parts
+        rel_name = prefix + "/".join(rel_parts)
         leaf_name = skill_dir.name
         out.append((skill_md, rel_name, leaf_name))
     return out
