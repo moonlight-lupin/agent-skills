@@ -87,7 +87,7 @@ Split every found target into two buckets. Present the table to the user before 
 | Rotated logs | `find /var/log \( -name "*.gz" -o -name "*.1" -o -name "*.old" \) -delete` | ~20M typical |
 | Browser automation caches | `rm -rf ~/.cache/puppeteer ~/.cache/ms-playwright` | ~650M; re-downloads if needed |
 | Dangling Docker images | `docker image prune -f` | Varies |
-| Docker build cache | `docker builder prune -f` | Often multi-GB; largest Docker consumer |
+| Docker build cache | `docker builder prune -f --filter until=168h --reserved-space 10GB` | Often multi-GB; bounded: skips cache younger than 7 days, always keeps 10GB |
 
 **Ask first — user must confirm:**
 
