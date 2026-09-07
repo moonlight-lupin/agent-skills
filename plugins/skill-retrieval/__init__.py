@@ -113,13 +113,11 @@ def _capability_kwargs_for_session(session_id: str | None) -> dict | None:
     """Return get_index/get_skill_info kwargs for a session, or None if unknown."""
     sid = session_id or ""
     snap = _session_capability_snaps.get(sid)
-    if snap is None and sid:
-        snap = _session_capability_snaps.get("")
     if snap is None:
         return None
     captured_at, tools, toolsets = snap
     if time.monotonic() - captured_at > _SNAPSHOT_MAX_AGE_S:
-        # Stale snapshot — belongs to another session's turn. Fail open.
+        # Stale snapshot — belongs to another turn. Fail open.
         _session_capability_snaps.pop(sid, None)
         return None
     return {
