@@ -1,5 +1,5 @@
 name: skill-retrieval
-version: 0.1.0
+version: 0.2.0
 description: "BM25-based skill retrieval — injects top-K relevant skill descriptions per turn via pre_llm_call hook, replacing the full skill list in the system prompt."
 author: moonlight-lupin
 license: MIT

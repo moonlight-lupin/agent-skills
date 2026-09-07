@@ -283,6 +283,27 @@ def test_load_active_skills_uses_hermes_discovery_precedence(tmp_path, monkeypat
     monkeypatch.setattr(br, "PLUGINS_ROOT", plugins_root)
     monkeypatch.setattr(br, "CONFIG_PATH", br.get_config_path())
 
+    # Registry-aware loader: with the real Hermes registry reachable, plugin
+    # skills come from the registry, not the fixture dir. Stub it to report
+    # the fixture plugin's bundled skill so this test keeps exercising the
+    # precedence chain (project → local → external → plugin).
+    plugin_registry = types.ModuleType("hermes_cli.plugins")
+    plugin_registry.discover_plugins = lambda: None
+
+    class _FakePM:
+        def list_plugin_skill_metadata(self):
+            return [
+                {
+                    "name": "helper:bundled",
+                    "description": "Bundled skill",
+                    "category": "plugin",
+                    "frontmatter": {"name": "bundled", "description": "Bundled skill"},
+                }
+            ]
+
+    plugin_registry.get_plugin_manager = lambda: _FakePM()
+    monkeypatch.setitem(sys.modules, "hermes_cli.plugins", plugin_registry)
+
     prompt_builder = types.ModuleType("agent.prompt_builder")
     prompt_builder._current_session_platform_hint = lambda: ""
     prompt_builder.extract_skill_conditions = lambda frontmatter: {}
@@ -321,7 +342,8 @@ def test_load_active_skills_uses_hermes_discovery_precedence(tmp_path, monkeypat
 
     assert by_name["shared"]["description"] == "Project copy wins"
     assert by_name["external-only"]["description"] == "External skill"
-    assert by_name["bundled"]["skill_id"] == "helper:bundled"
+    # Registry-sourced plugin skills are keyed by their qualified name.
+    assert by_name["helper:bundled"]["skill_id"] == "helper:bundled"
 
 
 def test_get_index_cache_is_scoped_by_hermes_home(monkeypatch, tmp_path):

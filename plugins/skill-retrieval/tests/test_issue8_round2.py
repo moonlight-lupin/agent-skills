@@ -98,7 +98,13 @@ def _install_hermes_stubs(monkeypatch, *, conditions_map=None):
     monkeypatch.setitem(sys.modules, "agent", agent_pkg)
     monkeypatch.setitem(sys.modules, "agent.prompt_builder", pb)
     monkeypatch.setitem(sys.modules, "agent.skill_utils", su)
-    return pb
+    return {"su": su, "pb": pb}
+
+
+def _point_discovery_at(monkeypatch, stubs, *roots):
+    """Point the stubbed discovery helpers at fixture roots."""
+    su = stubs["su"]
+    monkeypatch.setattr(su, "get_all_skills_dirs", lambda: list(roots))
 
 
 # ─── Divergence 1: capability gates must be evaluated ───────────────────────
@@ -109,10 +115,11 @@ def test_requires_tools_hidden_when_tool_absent(monkeypatch, tmp_path):
     br = _load_fresh()
     root = tmp_path / "skills"
     _write_skill(root, "gated", "gated-skill", "quasarneedle9z unique token")
-    _install_hermes_stubs(
+    stubs = _install_hermes_stubs(
         monkeypatch,
         conditions_map={"gated-skill": {"requires_tools": ["special_tool"]}},
     )
+    _point_discovery_at(monkeypatch, stubs, root)
     skills = br.load_active_skills(
         available_tools={"other_tool"}, available_toolsets=set()
     )
@@ -124,10 +131,11 @@ def test_requires_tools_visible_when_tool_present(monkeypatch, tmp_path):
     br = _load_fresh()
     root = tmp_path / "skills"
     _write_skill(root, "gated", "gated-skill", "needs tool")
-    _install_hermes_stubs(
+    stubs = _install_hermes_stubs(
         monkeypatch,
         conditions_map={"gated-skill": {"requires_tools": ["special_tool"]}},
     )
+    _point_discovery_at(monkeypatch, stubs, root)
     skills = br.load_active_skills(
         available_tools={"special_tool"}, available_toolsets=set()
     )
@@ -139,10 +147,11 @@ def test_requires_toolsets_hidden_when_toolset_absent(monkeypatch, tmp_path):
     br = _load_fresh()
     root = tmp_path / "skills"
     _write_skill(root, "gated", "gated-skill", "needs toolset")
-    _install_hermes_stubs(
+    stubs = _install_hermes_stubs(
         monkeypatch,
         conditions_map={"gated-skill": {"requires_toolsets": ["special_set"]}},
     )
+    _point_discovery_at(monkeypatch, stubs, root)
     skills = br.load_active_skills(
         available_tools=set(), available_toolsets={"other_set"}
     )
@@ -154,10 +163,11 @@ def test_fallback_for_tools_hidden_when_target_present(monkeypatch, tmp_path):
     br = _load_fresh()
     root = tmp_path / "skills"
     _write_skill(root, "fb", "fallback-skill", "fallback for primary")
-    _install_hermes_stubs(
+    stubs = _install_hermes_stubs(
         monkeypatch,
         conditions_map={"fallback-skill": {"fallback_for_tools": ["primary_tool"]}},
     )
+    _point_discovery_at(monkeypatch, stubs, root)
     skills = br.load_active_skills(
         available_tools={"primary_tool"}, available_toolsets=set()
     )
@@ -171,10 +181,11 @@ def test_no_capability_args_fails_open(monkeypatch, tmp_path):
     br = _load_fresh()
     root = tmp_path / "skills"
     _write_skill(root, "gated", "gated-skill", "needs tool")
-    _install_hermes_stubs(
+    stubs = _install_hermes_stubs(
         monkeypatch,
         conditions_map={"gated-skill": {"requires_tools": ["special_tool"]}},
     )
+    _point_discovery_at(monkeypatch, stubs, root)
     skills = br.load_active_skills()
     ids = {s["frontmatter_name"] for s in skills}
     assert "gated-skill" in ids
@@ -306,10 +317,11 @@ def test_corpus_parity_gated_and_plugin(monkeypatch, tmp_path):
         plugins_root / "ponytail" / "skills", "audit", "ponytail-audit",
         "zebraquill7x",
     )
-    _install_hermes_stubs(
+    stubs = _install_hermes_stubs(
         monkeypatch,
         conditions_map={"gated-skill": {"requires_tools": ["special_tool"]}},
     )
+    _point_discovery_at(monkeypatch, stubs, root)
 
     class FakePM:
         def list_plugin_skill_metadata(self):
