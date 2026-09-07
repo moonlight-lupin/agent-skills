@@ -386,26 +386,10 @@ def load_active_skills(
         qualified = str(plugin_skill.get("name") or "").strip()
         if not qualified:
             return
-        try:
-            if not skill_matches_platform(frontmatter):
-                return
-        except Exception as exc:
-            logger.debug("skill_matches_platform failed for %s: %s", qualified, exc)
-        bare = str(
-            frontmatter.get("name")
-            or plugin_skill.get("bare_name")
-            or qualified.split(":")[-1]
-        )
-        if qualified in disabled or bare in disabled:
-            return
-        if not _skill_should_show(
-            extract_skill_conditions(frontmatter),
-            available_tools,
-            available_toolsets,
-            platform_hint,
-        ):
-            return
         desc = str(plugin_skill.get("description") or "")
+        # Parse on-disk SKILL.md before platform/disabled/capability gates so
+        # gating uses file frontmatter. Registry metadata is the fallback when
+        # the file cannot be resolved or read.
         skill_path = plugin_skill.get("path")
         finder = getattr(pm, "find_plugin_skill", None) if pm is not None else None
         if skill_path is None and callable(finder):
@@ -425,6 +409,25 @@ def load_active_skills(
                         frontmatter = file_fm
             except Exception as exc:
                 logger.debug("Error reading registry skill %s: %s", skill_path, exc)
+        try:
+            if not skill_matches_platform(frontmatter):
+                return
+        except Exception as exc:
+            logger.debug("skill_matches_platform failed for %s: %s", qualified, exc)
+        bare = str(
+            frontmatter.get("name")
+            or plugin_skill.get("bare_name")
+            or qualified.split(":")[-1]
+        )
+        if qualified in disabled or bare in disabled:
+            return
+        if not _skill_should_show(
+            extract_skill_conditions(frontmatter),
+            available_tools,
+            available_toolsets,
+            platform_hint,
+        ):
+            return
         entry = {
             "category": "general",
             "skill_name": qualified,
@@ -567,6 +570,10 @@ _indexes_by_home: dict = {}
 _skills_by_home_and_id: dict = {}
 _index: BM25Index | None = None
 _skills_by_id: dict[str, dict] = {}
+# Runtime-override (legacy-test) caches keyed by capability snapshot. The
+# zero-arg path keeps using ``_index`` / ``_skills_by_id`` exactly as before.
+_override_indexes_by_cap: dict = {}
+_override_skills_by_cap: dict = {}
 
 
 def _load_active_skills_for_index(
@@ -591,29 +598,41 @@ def get_index(
 ) -> BM25Index | None:
     global _index, _skills_by_id
     if _runtime_paths_are_overridden():
-        if _index is not None:
+        if available_tools is None and available_toolsets is None:
+            if _index is not None:
+                return _index
+            skills = _load_active_skills_for_index(available_tools, available_toolsets)
+            if not skills:
+                logger.warning("No active skills found for BM25 index")
+                return None
+            _index = BM25Index()
+            _index.build(
+                [s["skill_id"] for s in skills],
+                [s["text"] for s in skills],
+            )
+            _skills_by_id = {s["skill_id"]: s for s in skills}
             return _index
+        cap_key = _index_cache_key("", available_tools, available_toolsets)
+        cached = _override_indexes_by_cap.get(cap_key)
+        if cached is not None:
+            return cached
         skills = _load_active_skills_for_index(available_tools, available_toolsets)
         if not skills:
             logger.warning("No active skills found for BM25 index")
             return None
-        _index = BM25Index()
-        _index.build(
+        index = BM25Index()
+        index.build(
             [s["skill_id"] for s in skills],
             [s["text"] for s in skills],
         )
-        _skills_by_id = {s["skill_id"]: s for s in skills}
-        return _index
+        _override_indexes_by_cap[cap_key] = index
+        _override_skills_by_cap[cap_key] = {s["skill_id"]: s for s in skills}
+        return index
 
     home_key = str(get_hermes_home().expanduser().resolve(strict=False))
     cache_key = _index_cache_key(home_key, available_tools, available_toolsets)
     if cache_key in _indexes_by_home:
         return _indexes_by_home[cache_key]
-    # Plain-string keys remain valid for fail-open callers and older tests.
-    if cache_key != home_key and home_key in _indexes_by_home and (
-        available_tools is None and available_toolsets is None
-    ):
-        return _indexes_by_home[home_key]
 
     skills = _load_active_skills_for_index(available_tools, available_toolsets)
     if not skills:
@@ -630,18 +649,16 @@ def get_index(
     return index
 
 
-def get_skill_info(skill_id: str) -> dict | None:
+def get_skill_info(
+    skill_id: str,
+    available_tools: "set[str] | None" = None,
+    available_toolsets: "set[str] | None" = None,
+) -> dict | None:
     if _runtime_paths_are_overridden():
-        return _skills_by_id.get(skill_id)
+        if available_tools is None and available_toolsets is None:
+            return _skills_by_id.get(skill_id)
+        cap_key = _index_cache_key("", available_tools, available_toolsets)
+        return _override_skills_by_cap.get(cap_key, {}).get(skill_id)
     home_key = str(get_hermes_home().expanduser().resolve(strict=False))
-    info = _skills_by_home_and_id.get(home_key, {}).get(skill_id)
-    if info is not None:
-        return info
-    for key, mapping in _skills_by_home_and_id.items():
-        if key == home_key:
-            continue
-        if isinstance(key, tuple) and key and key[0] == home_key:
-            info = mapping.get(skill_id)
-            if info is not None:
-                return info
-    return None
+    cache_key = _index_cache_key(home_key, available_tools, available_toolsets)
+    return _skills_by_home_and_id.get(cache_key, {}).get(skill_id)

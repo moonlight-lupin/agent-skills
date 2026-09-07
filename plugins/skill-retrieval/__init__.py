@@ -55,6 +55,55 @@ def _parse_top_k(raw: str | None, default: int = _DEFAULT_TOP_K) -> int:
 
 TOP_K = _parse_top_k(os.environ.get("SKILL_RETRIEVAL_TOP_K"))
 
+# Capability snapshots captured from compact_build (Hermes'
+# build_skills_system_prompt kwargs) so the retrieval hook can rebuild the
+# BM25 corpus with the same available_tools / available_toolsets. Keyed by
+# session_id; empty string is the "latest" slot when session_id is missing.
+_MAX_SESSION_CAPABILITY_SNAPS = 8
+_session_capability_snaps: dict[str, tuple[frozenset | None, frozenset | None]] = {}
+
+
+def _freeze_capability_set(value) -> frozenset | None:
+    if value is None:
+        return None
+    return frozenset(value)
+
+
+def _remember_capability_snapshot(*args, **kwargs) -> None:
+    """Store available_tools / available_toolsets from a compact_build call."""
+    has_kw_tools = "available_tools" in kwargs
+    has_kw_toolsets = "available_toolsets" in kwargs
+    if not has_kw_tools and not has_kw_toolsets and not args:
+        return
+    tools = kwargs["available_tools"] if has_kw_tools else (args[0] if len(args) > 0 else None)
+    toolsets = kwargs["available_toolsets"] if has_kw_toolsets else (args[1] if len(args) > 1 else None)
+    session_id = kwargs.get("session_id") or ""
+    if not isinstance(session_id, str):
+        session_id = str(session_id) if session_id else ""
+    _session_capability_snaps[session_id] = (
+        _freeze_capability_set(tools),
+        _freeze_capability_set(toolsets),
+    )
+    if len(_session_capability_snaps) > _MAX_SESSION_CAPABILITY_SNAPS:
+        for key in list(_session_capability_snaps):
+            if key != session_id:
+                del _session_capability_snaps[key]
+
+
+def _capability_kwargs_for_session(session_id: str | None) -> dict | None:
+    """Return get_index/get_skill_info kwargs for a session, or None if unknown."""
+    sid = session_id or ""
+    snap = _session_capability_snaps.get(sid)
+    if snap is None and sid:
+        snap = _session_capability_snaps.get("")
+    if snap is None:
+        return None
+    tools, toolsets = snap
+    return {
+        "available_tools": set(tools) if tools is not None else None,
+        "available_toolsets": set(toolsets) if toolsets is not None else None,
+    }
+
 
 # ─── Phase 1: System prompt compaction ───────────────────────────────────────
 
@@ -94,6 +143,7 @@ def _compact_skills_prompt():
         return True  # Already patched
 
     def compact_build(*args, **kwargs):
+        _remember_capability_snapshot(*args, **kwargs)
         # Call original to get the full prompt
         full_prompt = original(*args, **kwargs)
         if not full_prompt:
@@ -168,7 +218,8 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
     a "context" key whose value is appended to the user message.
     """
     try:
-        index = get_index()
+        cap_kwargs = _capability_kwargs_for_session(session_id)
+        index = get_index(**cap_kwargs) if cap_kwargs is not None else get_index()
         if index is None:
             return None
 
@@ -183,7 +234,11 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
             "",
         ]
         for skill_id, score in results:
-            info = get_skill_info(skill_id)
+            info = (
+                get_skill_info(skill_id, **cap_kwargs)
+                if cap_kwargs is not None
+                else get_skill_info(skill_id)
+            )
             if info:
                 name = info["name"]
                 desc = info["description"]
