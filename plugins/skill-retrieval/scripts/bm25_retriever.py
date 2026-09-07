@@ -566,8 +566,14 @@ class BM25Index:
 
 # ─── Singleton index ─────────────────────────────────────────────────────────
 
+# Bounded caches: distinct (home × capability-snapshot) combinations could grow
+# without limit in long-lived processes; evict the oldest snapshot per home
+# beyond the cap so stale snapshots cannot accumulate.
+_MAX_CACHED_CAP_KEYS_PER_HOME = 8
+
 _indexes_by_home: dict = {}
 _skills_by_home_and_id: dict = {}
+_cap_key_order_by_home: dict = {}
 _index: BM25Index | None = None
 _skills_by_id: dict[str, dict] = {}
 # Runtime-override (legacy-test) caches keyed by capability snapshot. The
@@ -646,6 +652,13 @@ def get_index(
     )
     _indexes_by_home[cache_key] = index
     _skills_by_home_and_id[cache_key] = {s["skill_id"]: s for s in skills}
+    _cap_key_order_by_home.setdefault(home_key, []).append(cache_key)
+    if len(_cap_key_order_by_home[home_key]) > _MAX_CACHED_CAP_KEYS_PER_HOME:
+        stale = _cap_key_order_by_home[home_key][:-_MAX_CACHED_CAP_KEYS_PER_HOME]
+        _cap_key_order_by_home[home_key] = _cap_key_order_by_home[home_key][-_MAX_CACHED_CAP_KEYS_PER_HOME:]
+        for key in stale:
+            _indexes_by_home.pop(key, None)
+            _skills_by_home_and_id.pop(key, None)
     return index
 
 

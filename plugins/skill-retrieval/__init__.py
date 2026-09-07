@@ -20,6 +20,7 @@ Configuration:
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 # Ensure scripts/ is importable
@@ -57,37 +58,55 @@ TOP_K = _parse_top_k(os.environ.get("SKILL_RETRIEVAL_TOP_K"))
 
 # Capability snapshots captured from compact_build (Hermes'
 # build_skills_system_prompt kwargs) so the retrieval hook can rebuild the
-# BM25 corpus with the same available_tools / available_toolsets. Keyed by
-# session_id; empty string is the "latest" slot when session_id is missing.
-_MAX_SESSION_CAPABILITY_SNAPS = 8
-_session_capability_snaps: dict[str, tuple[frozenset | None, frozenset | None]] = {}
+# BM25 corpus with the same available_tools / available_toolsets.
+#
+# Hermes' build_skills_system_prompt() has no session_id parameter, so capture
+# cannot be keyed per session. A single "latest" slot with a STALENESS WINDOW
+# is the safe contract: a prompt build and the pre_llm_call hook for the same
+# turn are adjacent in time; a snapshot older than the window belongs to
+# another session's turn and must NOT be applied (hook falls back to the
+# fail-open bare get_index()).
+_SNAPSHOT_MAX_AGE_S = 30.0
+_session_capability_snaps: dict[str, tuple[float, frozenset | None, frozenset | None]] = {}
 
 
 def _freeze_capability_set(value) -> frozenset | None:
-    if value is None:
-        return None
-    return frozenset(value)
+    try:
+        return None if value is None else frozenset(value)
+    except TypeError:
+        return None  # unhashable/odd input — treat as unknown, never raise
 
 
 def _remember_capability_snapshot(*args, **kwargs) -> None:
-    """Store available_tools / available_toolsets from a compact_build call."""
-    has_kw_tools = "available_tools" in kwargs
-    has_kw_toolsets = "available_toolsets" in kwargs
-    if not has_kw_tools and not has_kw_toolsets and not args:
-        return
-    tools = kwargs["available_tools"] if has_kw_tools else (args[0] if len(args) > 0 else None)
-    toolsets = kwargs["available_toolsets"] if has_kw_toolsets else (args[1] if len(args) > 1 else None)
-    session_id = kwargs.get("session_id") or ""
-    if not isinstance(session_id, str):
-        session_id = str(session_id) if session_id else ""
-    _session_capability_snaps[session_id] = (
-        _freeze_capability_set(tools),
-        _freeze_capability_set(toolsets),
-    )
-    if len(_session_capability_snaps) > _MAX_SESSION_CAPABILITY_SNAPS:
-        for key in list(_session_capability_snaps):
-            if key != session_id:
+    """Store available_tools / available_toolsets from a compact_build call.
+
+    Fail-soft: must never break Hermes' system-prompt construction.
+    """
+    try:
+        has_kw_tools = "available_tools" in kwargs
+        has_kw_toolsets = "available_toolsets" in kwargs
+        if not has_kw_tools and not has_kw_toolsets and not args:
+            return
+        tools = kwargs["available_tools"] if has_kw_tools else (args[0] if len(args) > 0 else None)
+        toolsets = kwargs["available_toolsets"] if has_kw_toolsets else (args[1] if len(args) > 1 else None)
+        session_id = kwargs.get("session_id") or ""
+        if not isinstance(session_id, str):
+            session_id = str(session_id) if session_id else ""
+        _session_capability_snaps[session_id] = (
+            time.monotonic(),
+            _freeze_capability_set(tools),
+            _freeze_capability_set(toolsets),
+        )
+        # Bounded map: keep the current session's entry, evict the oldest others.
+        if len(_session_capability_snaps) > 8:
+            others = sorted(
+                (k for k in _session_capability_snaps if k != session_id),
+                key=lambda k: _session_capability_snaps[k][0],
+            )
+            for key in others[: len(_session_capability_snaps) - 8]:
                 del _session_capability_snaps[key]
+    except Exception:
+        logger.debug("capability snapshot capture failed", exc_info=True)
 
 
 def _capability_kwargs_for_session(session_id: str | None) -> dict | None:
@@ -98,7 +117,11 @@ def _capability_kwargs_for_session(session_id: str | None) -> dict | None:
         snap = _session_capability_snaps.get("")
     if snap is None:
         return None
-    tools, toolsets = snap
+    captured_at, tools, toolsets = snap
+    if time.monotonic() - captured_at > _SNAPSHOT_MAX_AGE_S:
+        # Stale snapshot — belongs to another session's turn. Fail open.
+        _session_capability_snaps.pop(sid, None)
+        return None
     return {
         "available_tools": set(tools) if tools is not None else None,
         "available_toolsets": set(toolsets) if toolsets is not None else None,
