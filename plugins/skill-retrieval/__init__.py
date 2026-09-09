@@ -15,6 +15,9 @@ better discovery than dumping every description into the system prompt.
 
 Configuration:
   TOP_K defaults to 6. Override with env var ``SKILL_RETRIEVAL_TOP_K``.
+  System prompt compaction is enabled by default. Set
+  ``SKILL_RETRIEVAL_COMPACT=0`` to keep retrieval injection while leaving the
+  original Hermes skills prompt untouched.
 """
 
 import logging
@@ -54,7 +57,21 @@ def _parse_top_k(raw: str | None, default: int = _DEFAULT_TOP_K) -> int:
     return value
 
 
+def _parse_bool_env(raw: str | None, *, default: bool = True) -> bool:
+    """Parse a permissive boolean env var without failing plugin startup."""
+    if raw is None or not str(raw).strip():
+        return default
+    value = str(raw).strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    logger.warning("Invalid SKILL_RETRIEVAL_COMPACT=%r — using default %s", raw, default)
+    return default
+
+
 TOP_K = _parse_top_k(os.environ.get("SKILL_RETRIEVAL_TOP_K"))
+COMPACT_SYSTEM_PROMPT = _parse_bool_env(os.environ.get("SKILL_RETRIEVAL_COMPACT"))
 
 # Capability snapshots captured from compact_build (Hermes'
 # build_skills_system_prompt kwargs) so the retrieval hook can rebuild the
@@ -278,14 +295,21 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
 
 
 def register(ctx):
-    """Register the pre_llm_call hook and compact the skills system prompt."""
+    """Register the pre_llm_call hook and optionally compact the skills system prompt."""
     # Phase 1: Compact system prompt (names-only). Failures are logged inside
     # _compact_skills_prompt — never abort registration of the retrieval hook.
-    try:
-        _compact_skills_prompt()
-    except Exception as e:
-        logger.warning("System prompt compaction failed: %s", e, exc_info=True)
+    if COMPACT_SYSTEM_PROMPT:
+        try:
+            _compact_skills_prompt()
+        except Exception as e:
+            logger.warning("System prompt compaction failed: %s", e, exc_info=True)
+    else:
+        logger.info("System prompt compaction disabled by SKILL_RETRIEVAL_COMPACT")
 
     # Phase 2: Per-turn retrieval
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)
-    logger.info("Skill retrieval plugin registered (top_k=%d, compact=true)", TOP_K)
+    logger.info(
+        "Skill retrieval plugin registered (top_k=%d, compact=%s)",
+        TOP_K,
+        str(COMPACT_SYSTEM_PROMPT).lower(),
+    )
