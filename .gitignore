@@ -38,3 +38,4 @@ rag_index.db
 sources.db
 **/sources.db
 *.tar
+tests/_tmp_*/

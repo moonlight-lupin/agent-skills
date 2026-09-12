@@ -67,3 +67,17 @@ If a token has no value for a row (no mapped column, or the cell is blank), the 
 `«MISSING: Token»` in place — a visible, greppable flag, never a silent blank or a guessed value.
 These are listed per file in the `generate` report. Resolve them by fixing the data or the mapping
 and re-running; do not hand-edit an invented value into the output.
+
+## Extracting a template from a filled example
+
+`extract_template` is the reverse of tokenise: it finds values that **differ across repeating
+instances** and replaces them with `{{Token}}`, leaving boilerplate literal.
+
+- Token names come from five typed shapes only: after `Dear ` → `Recipient`; `$…` → `Amount`;
+  `INV-123` → `InvoiceRef`; dates like `12 Mar 2026` → `Date`; `ACME-0042` → `AccountRef`.
+  Collisions become `Amount2`, …. A generic `Value1`/`Value2` fallback is **not implemented**;
+  untyped variation is left literal. Fall back to manual `tokenise` for those fields.
+- Values identical in every instance stay boilerplate.
+- A document with no repeats is one instance: the five typed shapes are still tokenised;
+  untyped variation is left literal (never-invent). Show `uncertain` with the mapping before reuse.
+- The source file is never written. Outputs are `<name>_tokenised.docx` and `<name>_data.csv`.

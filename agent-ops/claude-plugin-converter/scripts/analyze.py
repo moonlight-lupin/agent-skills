@@ -304,7 +304,12 @@ def analyze_plugin(plugin_dir: Path) -> dict:
     if not manifest_path.exists():
         return {"error": f"No .claude-plugin/plugin.json found in {plugin_dir}"}
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"error": f"malformed plugin manifest {manifest_path}: invalid JSON"}
+    if not isinstance(manifest, dict):
+        return {"error": f"malformed plugin manifest {manifest_path}: must be an object"}
 
     # Also check for inline hooks/MCP in plugin.json
     inline_mcp = manifest.get("mcpServers", {})
@@ -357,9 +362,16 @@ def analyze_plugin(plugin_dir: Path) -> dict:
     components["mcp_servers"] = []
     mcp_file = plugin_dir / ".mcp.json"
     if mcp_file.exists():
-        mcp_data = json.loads(mcp_file.read_text(encoding="utf-8"))
+        try:
+            mcp_data = json.loads(mcp_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {"error": f"malformed MCP config {mcp_file}: invalid JSON"}
+        if not isinstance(mcp_data, dict) or not isinstance(mcp_data.get("mcpServers"), dict):
+            return {"error": f"malformed MCP config {mcp_file}: mcpServers must be an object"}
         components["mcp_servers"] = analyze_mcp(mcp_data)
     elif inline_mcp:
+        if not isinstance(inline_mcp, dict):
+            return {"error": f"malformed MCP config in plugin.json: mcpServers must be an object"}
         components["mcp_servers"] = analyze_mcp({"mcpServers": inline_mcp})
 
     # LSP servers

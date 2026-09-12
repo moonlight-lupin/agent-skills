@@ -2,18 +2,20 @@
 name: fill-template
 description: >
   Bulk-fill ONE master template — a Word (.docx) letter/form or an Excel (.xlsx)
-  form — from a data table, producing one filled file per row (mail-merge). Use
-  whenever the user wants to "fill in this letter for each person", "mail merge",
-  "generate letters for this list", "run this template over a spreadsheet", or
-  hands over a template plus a list. The skill reads the master, proposes a
-  TOKENISED version (varying parts become {{tokens}}), confirms the template and
-  the token-to-column mapping with the user, then regenerates one output per data
-  row — preserving the master's layout and styling exactly. Data is an .xlsx or
-  .csv (one row per output); outputs are one named file per record. Never invents:
-  a token with no data is written as a VISIBLE flag, never a silent blank. Runs
-  fully local and generates files only — it does not send, post or sign. Not for
-  extracting data OUT of documents, and not a substitute for a hand-crafted single
-  letter.
+  form — from a data table, one filled file per row (mail-merge). Also the
+  reverse: extract a reusable tokenised .docx template + data-table skeleton
+  from a filled example document, confirm the mapping, then fill. Use whenever
+  the user wants to "fill in this letter for each person", "mail merge",
+  "generate letters for this list", "turn this filled letter into a template",
+  or hands over a template plus a list. The skill reads the master, proposes a
+  TOKENISED version (varying parts become {{tokens}}), confirms the mapping,
+  then regenerates one output per data row, preserving the master's layout
+  exactly. Data is an .xlsx or .csv (one row per output); outputs are one named
+  file per record. Never invents: a token with no data is a VISIBLE flag, never
+  a silent blank. Runs fully local and generates files only — it does not send,
+  post or sign. Extract is .docx only this round (not .xlsx). Not a substitute
+  for a hand-crafted single letter.
+
 license: MIT
 metadata:
   version: 1.0.0
@@ -29,9 +31,11 @@ only: nothing is sent, posted or signed.
 
 ## Scope and routing
 
-Use this skill when the user has **one** template and **a list**, and wants a filled copy per row. Do
-**not** use it to get data *out* of documents (that's an extraction task), to produce a single bespoke
-letter (just edit one document), or where the host environment mandates a different document pipeline.
+Use this skill when the user has **one** template and **a list**, and wants a filled copy per row;
+or when they have a **filled/example .docx** and want a reusable tokenised template derived from it
+(`extract_template`). Do **not** use it to produce a single bespoke letter (just edit one document),
+or where the host environment mandates a different document pipeline. Extract of `.xlsx` forms is
+out of scope this round.
 
 ## Inputs the user provides
 
@@ -43,6 +47,31 @@ letter (just edit one document), or where the host environment mandates a differ
    `<template>_<row-number>`.
 
 ## Workflow (do this, in order)
+
+If the user hands you a **filled example** rather than a master, run **extract first** (step 0), show
+`ext["mapping"]`, and wait for confirmation before generating. Otherwise start at step 1.
+
+0. **Extract from a filled .docx (optional reverse path).**
+   `extract_template(src, out_dir, name=None)` writes `<name>_tokenised.docx` and `<name>_data.csv`
+   (name defaults to the source stem) and returns a report. Varying values become `{{Token}}` using
+   the same run-aware replacement as `tokenise`. The CSV has one row per repeating instance. Show
+   `report["mapping"]` (literal → token → where) and any `report["uncertain"]` entries — those spans
+   were left literal rather than guessed. Token names come only from five typed shapes:
+   after `Dear ` → `Recipient`; `$…` → `Amount`; `INV-123` → `InvoiceRef`; dates like
+   `12 Mar 2026` → `Date`; `ACME-0042` → `AccountRef`. Collisions become `Amount2`, ….
+   Untyped variation is left literal — a generic `Value1`/`Value2` fallback is **not**
+   implemented; fall back to manual `tokenise` for those fields. Then continue from
+   step 3 with the extracted template and skeleton, or let the user edit the mapping
+   and re-tokenise.
+   ```python
+   from fill_template import (
+       read_content, tokenise, tokens_in, load_rows, generate, extract_template,
+   )
+
+   ext = extract_template("filled_letters.docx", "extracted")
+   print(ext["mapping"])       # confirm-before-reuse digest
+   print(ext["uncertain"])     # left literal; do not invent
+   ```
 
 1. **Analyse the master.** Read it with `read_content(path)` and identify the parts that **vary** row
    to row — names, salutations, amounts, dates, reference numbers — versus the boilerplate that stays
@@ -57,7 +86,9 @@ letter (just edit one document), or where the host environment mandates a differ
    and show its text) and **wait for explicit confirmation** before generating anything. This is the
    review gate — get the template right once, then fan it out.
    ```python
-   from fill_template import read_content, tokenise, tokens_in, load_rows, generate
+   from fill_template import (
+       read_content, tokenise, tokens_in, load_rows, generate, extract_template,
+   )
 
    print(read_content("Letter_master.docx"))                       # step 1
 
@@ -118,8 +149,10 @@ letter (just edit one document), or where the host environment mandates a differ
 
 ## Files
 
-- `scripts/fill_template.py` — the engine: `read_content` (analyse) · `tokenise` / `tokens_in` ·
-  `load_rows` (.xlsx/.csv) · `generate` (one file per row + report).
+- `scripts/fill_template.py` — the engine: `extract_template` (filled .docx → template + skeleton) ·
+  `read_content` (analyse) · `tokenise` / `tokens_in` · `load_rows` (.xlsx/.csv) · `generate` (one
+  file per row + report). `generate` accepts a list of row-dicts or the `(headers, rows)` tuple from
+  `load_rows`.
 - `references/tokenising-guide.md` — how to choose and name tokens, letters vs forms, the confirm
   step, and the MISSING-flag rule.
 - `examples/example-run.md` — a worked end-to-end run (bring your own master + data; no binaries are
@@ -133,7 +166,8 @@ letter (just edit one document), or where the host environment mandates a differ
 - **Deterministic where it counts** — tokenising, mapping and generation are deterministic and
   reported; the LLM only proposes the token list for the user to confirm.
 - **Honesty and calibration** — surface every missing/unmapped token and where files were written.
-- **Workspace hygiene** — write outputs to a clear folder; keep the master and data untouched.
+- **Workspace hygiene** — write outputs to a clear folder; keep the master, the filled source, and
+  the data untouched. `extract_template` never writes back to its input file.
 
 ## Data handling
 
@@ -154,9 +188,10 @@ the user. This skill itself needs no network and no credentials.
 
 ## Verification checklist
 
-- [ ] Master analysed; varying parts identified vs boilerplate.
+- [ ] Master analysed; varying parts identified vs boilerplate. Or extract_template run on a
+  filled .docx and mapping confirmed.
 - [ ] Token list proposed and **confirmed by the user** before generating.
-- [ ] `not_found` list from `tokenise` is empty (or resolved).
+- [ ] `not_found` list from `tokenise` is empty (or resolved). `uncertain` from extract surfaced.
 - [ ] Token→column mapping checked; defaults verified.
 - [ ] Batch generated; file count and output folder reported.
 - [ ] Every `«MISSING:…»` and `unmapped_tokens` entry surfaced to the user.
