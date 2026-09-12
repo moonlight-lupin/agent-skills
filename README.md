@@ -38,15 +38,16 @@ agent_skills/
 │   ├── fill-template/                ← bulk-fill Word/Excel templates from a data table (mail-merge)
 │   ├── travel-itinerary/             ← business-trip itineraries: parse → structure → export
 │   ├── decision-log/                 ← ADR-style decision journal + superseding chains + cron reviews
-│   ├── document-converter/           ← wide-range format converter (Markdown↔HTML, CSV↔JSON, YAML↔TOML, PDF)
 │   ├── scheduled-summary/            ← cron-driven cross-session digest for messaging platforms
 │   ├── file-organizer/               ← LLM-powered directory organizer: scan → propose → confirm → move
+│   ├── receipt-compiler/             ← phone-camera receipt photos → straightened B&W A4 expense-claim PDF
 │   └── task-brief/                   ← goal/context/constraints brief compiled + confirmed before substantial tasks
 ├── agent-ops/                        ← agent infrastructure and maintenance skills
 │   ├── claude-plugin-converter/      ← convert Claude Code plugins → self-contained Hermes plugins
 │   ├── skill-maintainer/             ← end-to-end skill library maintenance + upstream sync
 │   ├── log-analyzer/                 ← log pattern detection: error clusters, rate limits, timeouts
 │   ├── input-token-overheads/        ← audit per-turn input token cost: measure, rank, reduce
+│   ├── operator-brain/               ← 8-module behavioral stack: act, lead with outcome, ground claims
 │   └── hermes-onboarding/            ← 21-step customer onboarding: gateway, dashboard, memory, crons
 ├── devops/                           ← infrastructure and system maintenance skills
 │   └── disk-cleanup/                 ← triage survey → safe/ask buckets → execute → verify delta
@@ -79,14 +80,15 @@ New skills are added as folders under the relevant domain directory.
 | [fill-template](productivity/fill-template/) | productivity | Bulk-fill Word/Excel templates from a data table (mail-merge) | — |
 | [travel-itinerary](productivity/travel-itinerary/) | productivity | Business-trip itineraries from emails/PDFs → Markdown + `.ics` + chat variants | — |
 | [decision-log](productivity/decision-log/) | productivity | ADR-style decision journal with superseding chains + cron review reminders | — |
-| [document-converter](productivity/document-converter/) | productivity | Wide-range format converter: Markdown↔HTML, CSV↔JSON, YAML↔TOML, PDF, Excel | fill-template |
 | [scheduled-summary](productivity/scheduled-summary/) | productivity | Cron-driven cross-session digest — surfaces activity invisible on chat platforms | decision-log, news-monitoring |
 | [file-organizer](productivity/file-organizer/) | productivity | LLM-powered directory organizer: scan → propose structure → confirm → chunked moves | — |
+| [receipt-compiler](productivity/receipt-compiler/) | productivity | Phone-camera receipt photos → straightened B&W scans → A4 expense-claim PDF with confirmation gate | pdf |
 | [task-brief](productivity/task-brief/) | productivity | Goal/context/constraints/tooling brief compiled and confirmed before substantial work starts | — |
 | [claude-plugin-converter](agent-ops/claude-plugin-converter/) | agent-ops | Two-phase converter: analyze Claude Code plugins → generate installable Hermes plugins | skill-maintainer |
 | [skill-maintainer](agent-ops/skill-maintainer/) | agent-ops | Skill library maintenance: author, curate, upstream drift tracking, publish | — |
 | [log-analyzer](agent-ops/log-analyzer/) | agent-ops | Log pattern detection: error clusters, rate limits, timeout clusters, tool failures | scheduled-summary |
 | [input-token-overheads](agent-ops/input-token-overheads/) | agent-ops | Audit per-turn input token cost: measure each source, rank by cost, act on top consumers | skill-maintainer |
+| [operator-brain](agent-ops/operator-brain/) | agent-ops | 8-module behavioral stack from Anthropic's Fable guide: act, lead with outcome, ground every claim | controlled-english-output |
 | [hermes-onboarding](agent-ops/hermes-onboarding/) | agent-ops | 21-step customer onboarding: gateway, dashboard, memory, search, guardrails, maintenance crons | disk-cleanup, log-analyzer |
 | [disk-cleanup](devops/disk-cleanup/) | devops | Triage disk space: survey all mounts → safe/ask buckets → execute approved set → verify delta | — |
 
@@ -130,14 +132,15 @@ Install by copying or symlinking `plugins/skill-retrieval/` into `~/.hermes/plug
 | fill-template | Stable | ✓ | python-docx, openpyxl |
 | travel-itinerary | Stable | ✓ | None (stdlib) |
 | decision-log | Stable | ✓ | None (stdlib) |
-| document-converter | Stable | ✓ | pandoc (PDF), openpyxl (Excel), PyYAML (optional) |
+| receipt-compiler | Beta | ✓ | opencv-python-headless, pillow, pillow-heif, pytesseract, reportlab, numpy; tesseract-ocr binary |
 | scheduled-summary | Stable | ✓ | None (stdlib) |
 | file-organizer | Stable | ✓ | None (stdlib); optional external LLM via urllib (deepseek/openrouter/ollama) |
 | task-brief | Beta | — | None (prompt-only) |
 | claude-plugin-converter | Beta | ✓ | None (stdlib) |
 | skill-maintainer | Beta | ✓ | None (stdlib; curl for GitHub API). Unix-first — cron, curl, `which`, shell loops. Windows via WSL/MSYS2 untested. |
 | log-analyzer | Stable | ✓ | None (stdlib) |
-| input-token-overheads | Beta | evals | PyYAML (optional) |
+| input-token-overheads | Beta | evals, scripts | PyYAML (optional) |
+| operator-brain | Beta | — | None (prompt-only) |
 | hermes-onboarding | Beta | evals | None (prompt-only) |
 | disk-cleanup | Beta | evals | None (prompt-only) |
 

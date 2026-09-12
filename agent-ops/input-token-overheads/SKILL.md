@@ -3,7 +3,7 @@ name: input-token-overheads
 description: "Use when context window is filling up too fast or input token cost is too high. Audits overhead sources."
 license: MIT
 metadata:
-  version: 1.4.0
+  version: 1.5.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [tokens, overhead, context, optimization, agent-ops]
@@ -13,6 +13,8 @@ metadata:
 # Input Token Overheads
 
 Audit every source of per-turn input token cost on a Hermes Agent instance. Measure each, rank by cost, act on the top consumers.
+
+Run the consolidated audit with `scripts/audit_overheads.py` (procedure step 1, in one command): `--json` for structured output, `--chart <png>` for a shareable chart, plus a context-doctor-style check of every always-injected file — `TRUNCATED` (over injection cap, silently cut every turn) and `MISSING` statuses, exit 1 when any file needs attention. Ported from jzOcb/context-doctor (MIT; OpenClaw-only — concepts only, script is native).
 
 ## When to Use
 
