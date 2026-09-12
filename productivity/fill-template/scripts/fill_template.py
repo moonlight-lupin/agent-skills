@@ -663,8 +663,9 @@ def _group_instances(
     one pattern; each instance is one occurrence of every role, in document
     order. No repeats → the whole document is a single instance (third return
     value True, so constants may be promoted). Repeats with no varying values
-    stay as one blob and constants are not promoted. Extra tuple fields
-    (paragraph objects) travel with the record.
+    stay as one blob and constants are not promoted. Aligned repeating
+    instances also return False: identical values across instances stay
+    literal. Extra tuple fields (paragraph objects) travel with the record.
     """
     uncertain: list[str] = []
     if not records:
@@ -719,7 +720,7 @@ def _group_instances(
             continue
         if _paragraph_xml_id(para) not in claimed:
             uncertain.append(f"{rec[1]} kept as boilerplate; confirm")
-    return instances, uncertain, True
+    return instances, uncertain, False
 
 
 def _typed_signature(text: str) -> tuple:
@@ -845,18 +846,30 @@ def _delete_paragraph(paragraph) -> None:
         parent.remove(el)
 
 
-_XML_PATH_CACHE: dict[int, tuple[int, str]] = {}
+_XML_PATH_CACHE: dict = {}
 
 
-def _xml_path(el) -> tuple[int, str]:
-    """Part-unique identity. getpath() collides across header parts."""
-    key = id(el)
-    hit = _XML_PATH_CACHE.get(key)
+def _xml_path(el) -> tuple:
+    """Part-unique identity. getpath() collides across header parts.
+
+    Cached by the element proxy (a strong ref). ``id(el)`` is reused when
+    lxml proxies are collected, so it is not a cache key. The value pins
+    the tree root object plus getpath, and is rebuilt per extract().
+    """
+    hit = _XML_PATH_CACHE.get(el)
     if hit is not None:
         return hit
     tree = el.getroottree()
-    val = (id(tree.getroot()), tree.getpath(el))
-    _XML_PATH_CACHE[key] = val
+    if not _XML_PATH_CACHE:
+        root = tree.getroot()
+        for node in root.iter():
+            _XML_PATH_CACHE[node] = (root, tree.getpath(node))
+        hit = _XML_PATH_CACHE.get(el)
+        if hit is not None:
+            return hit
+    root = tree.getroot()
+    val = (root, tree.getpath(el))
+    _XML_PATH_CACHE[el] = val
     return val
 
 
@@ -912,13 +925,11 @@ def _cell_has_unclaimed_content(tc, claimed_paths: set) -> bool:
     for el in tc.iter():
         if el.tag in (_W_DRAWING, _W_PICT):
             return True
-    for nested_tbl in tc.findall(_W_TBL):
-        nested_trs = nested_tbl.findall(_W_TR)
-        if not nested_trs:
+    # Nested paragraphs are already covered by iter(_W_P) above.
+    # This pass only catches an empty nested table (no rows, still content).
+    for nested_tbl in tc.iter(_W_TBL):
+        if not nested_tbl.findall(_W_TR):
             return True
-        for nested_tr in nested_trs:
-            if _row_has_unclaimed_content(nested_tr, claimed_paths):
-                return True
     return False
 
 
@@ -1139,6 +1150,7 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
             "pass a different name or out_dir"
         )
 
+    _reset_xml_path_cache()
     doc = Document(str(src_p))
     records = _collect_located_texts(doc)
     instances, uncertain, promote_constants = _group_instances(records)
@@ -1229,6 +1241,8 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
             vals = s.get("values") or []
             if i < len(vals):
                 row[s["token"]] = vals[i]
+            elif len(vals) == 1:
+                row[s["token"]] = vals[0]
         data_rows.append(row)
     _write_skeleton(csv_path, skeleton_fields, data_rows)
 
@@ -1261,4 +1275,5 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
             f"{pre_existing}; inferred slots will not reuse these names. "
             "Empty skeleton columns were added so you can fill them"
         )
+    _reset_xml_path_cache()
     return report

@@ -1005,8 +1005,8 @@ class TestRound5Fixes:
             with pytest.raises(ValueError, match="command"):
                 mod.convert_ap_mcp_server({"command": cmd})
 
-    def test_all_mcp_servers_dropped_exits_nonzero(self, tmp_path):
-        """R3-5: skipped servers print to stderr; all-dropped exits 1."""
+    def test_all_mcp_servers_dropped_warns_when_skills_converted(self, tmp_path):
+        """F6: skipped MCP with ≥1 skill converted is a warning, exit 0."""
         plugin = tmp_path / "srcplug"
         plugin.mkdir()
         (plugin / ".claude-plugin").mkdir()
@@ -1035,13 +1035,15 @@ class TestRound5Fixes:
              "--format", "agent-plugins"],
             capture_output=True, text=True, timeout=60,
         )
-        assert proc.returncode != 0
+        assert proc.returncode == 0, proc.stderr
         assert "skipped MCP server bad" in proc.stderr
         assert "bin/relative-no-dot" in proc.stderr or "bare token" in proc.stderr
         assert "✅ Converted" not in proc.stderr
-        assert "❌" in proc.stderr
+        assert "❌" not in proc.stderr
+        assert "⚠ completed with skipped skills" in proc.stderr
         assert (pkg / "skills" / "greet" / "SKILL.md").is_file()
         assert not (pkg / "mcp.json").is_file()
+        assert (pkg / "plugin.json").is_file()
         assert (pkg / "conversion_results.json").is_file()
         assert (pkg / "CONVERSION_REPORT.md").is_file()
 
@@ -1336,6 +1338,38 @@ class TestFix9OwnedDestAndReport:
         )
         assert "### Warnings" in report
         assert "/usr/local/bin/uvx" in report
+
+    def test_credential_like_args_are_masked_with_warning(self):
+        """F4: --token=sk-... and --api-key VALUE become ***; warning is recorded."""
+        mod = _load_convert()
+        secret = "sk-live-DEADBEEF1234"
+        token = "ghp_SECRETVALUE"
+        warns: list[str] = []
+        out = mod.convert_ap_mcp_server(
+            {
+                "command": "node",
+                "args": ["--api-key", secret, f"--token={token}", "--strict"],
+            },
+            warnings=warns,
+        )
+        assert out["args"] == ["--api-key", "***", "--token=***", "--strict"]
+        dumped = json.dumps(out)
+        assert secret not in dumped
+        assert token not in dumped
+        assert any("credential-like value in args masked" == w for w in warns)
+
+    def test_dot_slash_dot_and_trailing_slash_commands_rejected(self):
+        """F7: ./., bare dots, and rewritten plugin-root/. are directories."""
+        mod = _load_convert()
+        for cmd in (".", "./", "./.", ".."):
+            with pytest.raises(ValueError, match="command"):
+                mod.convert_ap_mcp_server({"command": cmd})
+        with pytest.raises(ValueError, match="command"):
+            mod.convert_ap_mcp_server({"command": "${CLAUDE_PLUGIN_ROOT}/."})
+        with pytest.raises(ValueError, match="command"):
+            mod.convert_ap_mcp_server({"command": "${CLAUDE_PLUGIN_ROOT}/./"})
+        out = mod.convert_ap_mcp_server({"command": "${CLAUDE_PLUGIN_ROOT}/bin/x"})
+        assert out["command"] == "./bin/x"
 
 
 

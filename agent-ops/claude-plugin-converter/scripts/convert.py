@@ -70,9 +70,38 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
     return fm, body
 
 
+_YAML_PLAIN_FORBIDDEN = frozenset(":#{}[],&!*|>'\"%@`\n\r\t\\")
+_YAML_RESERVED_PLAIN = frozenset({
+    "y", "n", "yes", "no", "true", "false", "on", "off", "null", "nil", "~",
+})
+
+
+def _yaml_plain_ok(s: str) -> bool:
+    if not s or s.strip() != s:
+        return False
+    if s.lower() in _YAML_RESERVED_PLAIN:
+        return False
+    if s[0] in "?:[]{}#&*!|>'\"%@`+0123456789":
+        return False
+    if s.startswith("-") and not s.startswith("--"):
+        return False
+    if any(c in _YAML_PLAIN_FORBIDDEN for c in s):
+        return False
+    return not any(ord(c) in (0x85, 0x2028, 0x2029) for c in s)
+
+
 def yaml_quote(s: str) -> str:
-    """Quote a string for YAML. JSON string literals are valid YAML 1.2 scalars."""
-    return json.dumps("" if s is None else str(s))
+    """Quote a string for YAML 1.2. Bare when it is a safe plain scalar."""
+    if not isinstance(s, str):
+        raise ValueError(f"yaml_quote expects str, got {type(s).__name__}")
+    if _yaml_plain_ok(s):
+        return s
+    dumped = json.dumps(s, ensure_ascii=False)
+    return (
+        dumped.replace("\u0085", "\\u0085")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
 
 
 # ── Skill conversion ────────────────────────────────────────────────────
@@ -331,7 +360,14 @@ def convert_mcp(mcp_list: list, plugin_dir: Path) -> tuple[str, list[dict]]:
         lines.append(f"{name}:")
         lines.append(f"  command: {yaml_quote(command)}")
         if args:
-            args_str = ", ".join(yaml_quote(a) for a in args)
+            quoted = []
+            for a in args:
+                if not isinstance(a, str):
+                    raise ValueError(
+                        f"args entries must be strings, got {type(a).__name__}"
+                    )
+                quoted.append(yaml_quote(a))
+            args_str = ", ".join(quoted)
             lines.append(f"  args: [{args_str}]")
         if env_vars:
             lines.append("  env:")
@@ -993,11 +1029,13 @@ def _command_is_dots_only(cmd: str) -> bool:
 
 
 def _validate_stdio_command(cmd: str) -> None:
-    if cmd in {".", "./"}:
+    normalized = cmd.rstrip("/") or cmd
+    if cmd in {".", "./", "./.", ".."} or normalized in {".", "./", "./.", ".."}:
         raise ValueError(
             "command is a directory, not an executable "
             "(bare ${CLAUDE_PLUGIN_ROOT} is not a command)"
         )
+    cmd = normalized
     if any(c.isspace() for c in cmd):
         raise ValueError(f"command contains whitespace: {cmd!r}")
     if _path_has_dotdot(cmd) or _command_is_dots_only(cmd):
@@ -1017,6 +1055,38 @@ def _validate_stdio_cwd(cwd: str) -> None:
         raise ValueError(f"cwd must match ./ or ${{PLUGIN_ROOT}}/${{PLUGIN_DATA}}: {cwd!r}")
     if _path_has_dotdot(cwd):
         raise ValueError(f"cwd escapes plugin root: {cwd!r}")
+
+
+def _mask_stdio_args(args: list[str], warnings: list[str] | None = None) -> list[str]:
+    """Replace credential-like --flag values with *** so secrets never land in mcp.json."""
+    out: list[str] = []
+    masked = False
+    i = 0
+    n = len(args)
+    while i < n:
+        a = args[i]
+        if a.startswith("--") and "=" in a:
+            flag, _, val = a.partition("=")
+            if val and _is_credential_shaped_key(flag.lstrip("-")):
+                out.append(f"{flag}=***")
+                masked = True
+            else:
+                out.append(a)
+            i += 1
+            continue
+        key = a.lstrip("-") if a.startswith("-") and len(a) > 1 else ""
+        nxt = args[i + 1] if i + 1 < n else ""
+        if key and _is_credential_shaped_key(key) and nxt and not nxt.startswith("-"):
+            out.append(a)
+            out.append("***")
+            masked = True
+            i += 2
+            continue
+        out.append(a)
+        i += 1
+    if masked and warnings is not None:
+        warnings.append("credential-like value in args masked")
+    return out
 
 
 def _validate_stdio_arg(arg: str) -> None:
@@ -1086,6 +1156,7 @@ def convert_ap_mcp_server(config: dict, warnings: list[str] | None = None) -> di
             ra = rewrite_ap_placeholders(a)
             _validate_stdio_arg(ra)
             rewritten.append(ra)
+        rewritten = _mask_stdio_args(rewritten, warnings)
         entry["args"] = rewritten
     env = config.get("env")
     if isinstance(env, dict) and env:
@@ -1681,8 +1752,19 @@ def main():
         sys.exit(1)
 
     skipped_mcp = results.get("skipped_mcp_servers") or []
-    failed = bool(skipped_mcp) and not results.get("mcp_servers")
-    banner = "❌ Conversion failed" if failed else "✅ Converted"
+    skills = results.get("skills") or []
+    converted_skills = [
+        s for s in skills
+        if not any("not found" in str(i).lower() for i in (s.get("issues") or []))
+    ]
+    failed = not converted_skills and not results.get("mcp_servers")
+    skipped_any = bool(skipped_mcp) or (len(converted_skills) < len(skills))
+    if failed:
+        banner = "❌ Conversion failed"
+    elif skipped_any:
+        banner = "⚠ completed with skipped skills"
+    else:
+        banner = "✅ Converted"
     print(f"\n{banner}: {results['plugin_name']}", file=sys.stderr)
     print(f"   Output: {results['output_dir']}", file=sys.stderr)
     
@@ -1701,7 +1783,7 @@ def main():
     results_path = results_dir / "conversion_results.json"
     results_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\nResults: {results_path}", file=sys.stderr)
-    if skipped_mcp and not results.get("mcp_servers"):
+    if failed:
         sys.exit(1)
 
 

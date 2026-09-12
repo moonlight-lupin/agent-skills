@@ -1177,6 +1177,50 @@ class TestExtractTemplate(unittest.TestCase):
             self.assertEqual(paras, letter + letter)
             self.assertEqual(Path(report["skeleton"]).stat().st_size, 0)
 
+    def test_aligned_repeating_constant_stays_literal(self):
+        """E1: identical values across aligned instances stay literal."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "pay.docx"
+            _make_docx(src, [
+                "Pay $10.00; fee $5.00.",
+                "Pay $20.00; fee $5.00.",
+            ])
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            self.assertEqual(report["tokens"], ["Amount"])
+            text = ft.read_content(report["template"])
+            self.assertIn("fee $5.00.", text)
+            self.assertIn("Pay {{Amount}}; fee $5.00.", text)
+            self.assertNotIn("{{Amount2}}", text)
+
+    def test_singleton_header_slot_broadcasts_to_every_row(self):
+        """E2: a singleton header value is copied onto every skeleton row."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "hdr.docx"
+            _make_docx(
+                src,
+                [
+                    "Pay $10.00; fee $10.00.",
+                    "Pay $20.00; fee $30.00.",
+                ],
+                header="Account ACME-0042",
+            )
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            headers, rows = ft.load_rows(report["skeleton"])
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0]["AccountRef"], "ACME-0042")
+            self.assertEqual(rows[1]["AccountRef"], "ACME-0042")
+            self.assertEqual(report.get("not_found") or [], [])
+            gen = ft.generate(
+                report["template"], (headers, rows), outdir=str(tdp / "filled")
+            )
+            self.assertEqual(gen["written"][0]["missing"], [])
+            self.assertEqual(gen["written"][1]["missing"], [])
+            for written in gen["written"]:
+                filled = ft.read_content(written["file"])
+                self.assertIn("ACME-0042", filled)
+
     def test_accountref_contained_in_invoiceref_is_silent(self):
         """N14: AccountRef fully inside InvoiceRef is not an overlap note."""
         hits, notes = ft._typed_hits(
@@ -1316,6 +1360,27 @@ class TestExtractTemplate(unittest.TestCase):
             self.assertIn("{{", hd_text)
             self.assertNotIn("INV-1024", fp_text)
             self.assertNotIn("INV-1025", hd_text)
+
+    def test_many_table_rows_collapse_to_one(self):
+        """F1: extra rows must not be mistaken for the retained row via a stale path."""
+        from docx.oxml.ns import qn
+
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "many.docx"
+            doc = Document()
+            n = 20
+            table = doc.add_table(rows=n, cols=1)
+            for i in range(n):
+                table.cell(i, 0).text = f"Pay ${10 + i}.00"
+            doc.save(str(src))
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            extracted = Document(str(report["template"]))
+            self.assertEqual(len(extracted.tables), 1)
+            self.assertEqual(len(extracted.tables[0].rows), 1)
+            trs = extracted.element.body.findall(".//" + qn("w:tr"))
+            self.assertEqual(len(trs), 1)
+            self.assertEqual(report["instances_collapsed"], n - 1)
 
 
 def _add_hyperlink(paragraph, text, url="https://example.com"):
