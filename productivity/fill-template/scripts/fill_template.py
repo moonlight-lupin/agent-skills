@@ -79,6 +79,8 @@ from docx.oxml.ns import qn
 
 _W_TR = qn("w:tr")
 _W_TC = qn("w:tc")
+_W_P = qn("w:p")
+_W_T = qn("w:t")
 
 # ----------------------------------------------------------------------------
 # Token plumbing
@@ -806,12 +808,44 @@ def _paragraph_run_text(paragraph) -> str:
     return "".join(r.text or "" for r in paragraph.runs)
 
 
-def _collapse_extra_instances(instances: list[list[tuple]]) -> int:
-    """Drop extra instances. Extra-only table rows are removed whole.
+def _xml_paragraph_text(p_el) -> str:
+    return "".join(t.text or "" for t in p_el.iter(_W_T))
 
-    Mixed rows keep one empty ``<w:p>`` per extra cell so ``<w:tc>`` stays
-    valid. Body paragraphs not in a row are deleted. Returns how many extra
-    instances were collapsed.
+
+def _tr_row_number(tr) -> int:
+    parent = tr.getparent()
+    if parent is None:
+        return 0
+    n = 0
+    for child in parent:
+        if child.tag == _W_TR:
+            n += 1
+            if child == tr:
+                return n
+    return 0
+
+
+def _row_has_unclaimed_content(tr, claimed_elements: set) -> bool:
+    for tc in tr.findall(_W_TC):
+        for p_el in tc.findall(_W_P):
+            if not _xml_paragraph_text(p_el).strip():
+                continue
+            if p_el not in claimed_elements:
+                return True
+    return False
+
+
+def _collapse_extra_instances(
+    instances: list[list[tuple]],
+    uncertain: list[str] | None = None,
+) -> int:
+    """Drop extra instances. Extra-only table rows are removed whole only
+    when every non-empty paragraph in the row is a claimed extra record.
+
+    Otherwise the row is kept, matched extra paragraphs are cleared, and an
+    uncertain note is recorded. Mixed retained/extra rows keep one empty
+    ``<w:p>`` per extra cell so ``<w:tc>`` stays valid. Body paragraphs not
+    in a row are deleted. Returns how many extra instances were collapsed.
     """
     if len(instances) <= 1:
         return 0
@@ -863,6 +897,14 @@ def _collapse_extra_instances(instances: list[list[tuple]]) -> int:
         if any(tr == retained for retained in retained_trs):
             for para in paras:
                 _clear_paragraph_keep_p(para)
+            continue
+        claimed_elements = {para._element for para in paras}
+        if _row_has_unclaimed_content(tr, claimed_elements):
+            for para in paras:
+                _clear_paragraph_keep_p(para)
+            if uncertain is not None:
+                n = _tr_row_number(tr)
+                uncertain.append(f"row {n} had unclaimed content; kept")
             continue
         parent = tr.getparent()
         if parent is not None and not any(tr == d for d in deleted_tr):
@@ -1017,7 +1059,7 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
         hits_counts[token] += 1
     for pid, spans in spans_by_para.items():
         _apply_spans(para_by_id[pid], spans)
-    instances_collapsed = _collapse_extra_instances(instances)
+    instances_collapsed = _collapse_extra_instances(instances, uncertain)
     tmpl_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(tmpl_path))
 

@@ -847,13 +847,10 @@ def _path_has_dotdot(value: str) -> bool:
     return ".." in PurePosixPath(value.replace("\\", "/")).parts
 
 
-_CREDENTIAL_KEY_BITS = frozenset({"token", "secret", "key", "password"})
+_CREDENTIAL_KEY_BITS = frozenset({"api", "token", "secret", "key", "password", "auth"})
+_CREDENTIAL_KEY_OVERRIDES = frozenset({"file", "path", "url", "mode", "id"})
 _PLACEHOLDER_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$")
 _PLUGIN_PATH_PLACEHOLDER_RE = re.compile(r"\$\{(?:PLUGIN_ROOT|PLUGIN_DATA)\}")
-_PATH_LIKE_EXTS = (
-    ".json", ".txt", ".pem", ".key", ".crt", ".cer", ".env",
-    ".yml", ".yaml", ".ini", ".conf", ".cfg", ".toml", ".file",
-)
 
 
 def _env_placeholder_name(key: str) -> str:
@@ -865,15 +862,10 @@ def _is_credential_shaped_key(key: str) -> bool:
     if kl in _CREDENTIAL_HEADER_NAMES:
         return True
     segments = [s for s in re.split(r"[-_]", key.lower()) if s]
-    return any(s in _CREDENTIAL_KEY_BITS for s in segments)
-
-
-def _looks_like_path(val: str) -> bool:
-    v = val.strip()
-    if "/" in v or "\\" in v:
-        return True
-    lower = v.lower()
-    return any(lower.endswith(ext) for ext in _PATH_LIKE_EXTS)
+    if segments and segments[-1] in _CREDENTIAL_KEY_OVERRIDES:
+        return False
+    compact = "".join(segments)
+    return any(bit in compact for bit in _CREDENTIAL_KEY_BITS)
 
 
 def _redact_credential_value(key: str, val: str, warnings: list[str] | None, where: str) -> str:
@@ -883,8 +875,6 @@ def _redact_credential_value(key: str, val: str, warnings: list[str] | None, whe
     already = re.fullmatch(r"\$\{([^}]+)\}", stripped)
     if already:
         return "${" + _env_placeholder_name(already.group(1)) + "}"
-    if _looks_like_path(val):
-        return val
     placeholder = "${" + _env_placeholder_name(key) + "}"
     msg = (
         f"{where}[{key}] looks credential-shaped; value replaced with {placeholder} "

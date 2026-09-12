@@ -742,7 +742,7 @@ class TestRound4Fixes:
         assert "X-Api-Key" not in out["env"]["X-Api-Key"]
 
     def test_credential_heuristic_skips_monkey_mode_and_key_file(self):
-        """N13: whole-segment match; path-looking values are left alone."""
+        """N13: MONKEY_MODE and API_KEY_FILE pass; token/password keys redact."""
         mod = _load_convert()
         warns: list[str] = []
         out = mod.convert_ap_mcp_server(
@@ -764,6 +764,35 @@ class TestRound4Fixes:
         dumped = json.dumps(out)
         assert "sk-live-secret" not in dumped
         assert "hunter2" not in dumped
+
+    def test_credential_redaction_covers_path_shaped_and_compact_keys(self):
+        """C1: credential-shaped keys always redact; compact names count; FILE/MODE pass."""
+        mod = _load_convert()
+        warns: list[str] = []
+        out = mod.convert_ap_mcp_server(
+            {
+                "command": "node",
+                "env": {
+                    "API_KEY": "abc/DEF123=",
+                    "API_TOKEN": "secret.json",
+                    "APIKEY": "x",
+                    "API_KEY_FILE": "/etc/x",
+                    "MONKEY_MODE": "1",
+                    "CLIENT_ID": "abc123",
+                },
+            },
+            warnings=warns,
+        )
+        assert out["env"]["API_KEY"] == "${API_KEY}"
+        assert out["env"]["API_TOKEN"] == "${API_TOKEN}"
+        assert out["env"]["APIKEY"] == "${APIKEY}"
+        assert out["env"]["API_KEY_FILE"] == "/etc/x"
+        assert out["env"]["MONKEY_MODE"] == "1"
+        assert out["env"]["CLIENT_ID"] == "abc123"
+        dumped = json.dumps(out)
+        assert "abc/DEF123=" not in dumped
+        assert "secret.json" not in dumped
+        assert "abc123" in dumped
 
     def test_url_and_command_discards_url_with_warning(self):
         """N16: both url and command → stdio, warn that url is discarded."""

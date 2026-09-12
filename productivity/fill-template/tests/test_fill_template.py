@@ -958,6 +958,56 @@ class TestExtractTemplate(unittest.TestCase):
             self.assertIn("{{InvoiceRef}}", text)
             self.assertIn("{{Amount}}", text)
 
+    def test_mixed_extra_row_keeps_unclaimed_content(self):
+        """C2: extra row with an unclaimed cell is kept; clean invoice still collapses."""
+        from docx.oxml.ns import qn
+
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "mixed.docx"
+            doc = Document()
+            table = doc.add_table(rows=2, cols=2)
+            table.cell(0, 0).text = "Pay $10.00."
+            table.cell(0, 1).text = ""
+            table.cell(1, 0).text = "Pay $20.00."
+            table.cell(1, 1).text = "Unique important note"
+            doc.save(str(src))
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            tmpl = Path(report["template"])
+            extracted = Document(str(tmpl))
+            self.assertEqual(len(extracted.tables), 1)
+            self.assertEqual(len(extracted.tables[0].rows), 2)
+            row2 = [c.text for c in extracted.tables[0].rows[1].cells]
+            self.assertIn("Unique important note", row2)
+            text = ft.read_content(str(tmpl))
+            self.assertIn("Unique important note", text)
+            self.assertIn("{{Amount}}", text)
+            self.assertTrue(
+                any("unclaimed" in u.lower() and "kept" in u.lower()
+                    for u in report["uncertain"]),
+                report["uncertain"],
+            )
+            body = extracted.element.body
+            tcs = body.findall(".//" + qn("w:tc"))
+            empty_tc = [tc for tc in tcs if tc.find(qn("w:p")) is None]
+            self.assertEqual(empty_tc, [])
+
+            clean = tdp / "invoice.docx"
+            inv = Document()
+            inv_table = inv.add_table(rows=3, cols=2)
+            rows = [
+                ("Invoice INV-1024", "Due $10.00"),
+                ("Invoice INV-1025", "Due $20.00"),
+                ("Invoice INV-1026", "Due $30.00"),
+            ]
+            for i, (left, right) in enumerate(rows):
+                inv_table.cell(i, 0).text = left
+                inv_table.cell(i, 1).text = right
+            inv.save(str(clean))
+            clean_report = ft.extract_template(str(clean), str(tdp / "clean"))
+            clean_doc = Document(str(clean_report["template"]))
+            self.assertEqual(len(clean_doc.tables[0].rows), 1)
+
     def test_extract_name_rejects_path_escape(self):
         """N5: name with separators or '..' must not write outside out_dir."""
         with tempfile.TemporaryDirectory() as td:
