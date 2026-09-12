@@ -71,11 +71,11 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
 
 
 def yaml_quote(s: str) -> str:
-    """Quote a string for YAML."""
+    """Quote a string for YAML. JSON string literals are valid YAML scalars."""
     if not s:
         return '""'
     if any(c in s for c in [":", "#", "{", "}", "[", "]", ",", "&", "*", "!", "|", ">", "'", '"', "%", "@", "`"]):
-        return f'"{s}"'
+        return json.dumps(s)
     return s
 
 
@@ -111,9 +111,6 @@ def convert_skill(skill_info: dict, source_plugin_dir: Path, dest_skills_dir: Pa
         f"name: {skill_name}",
         f"description: {yaml_quote(desc)}",
     ]
-
-    if orig_fm.get("disable-model-invocation", "").lower() == "true":
-        pass
 
     new_body = body
     if "$ARGUMENTS" in new_body:
@@ -702,6 +699,21 @@ _AP_OWNED_OUTPUT_FILES = frozenset({
     "conversion_results.json",
     "CONVERSION_REPORT.md",
 })
+_AP_OWNED_OUTPUT_DIRS = frozenset({"skills", "agents"})
+
+
+def _clear_ap_owned_outputs(dest: Path) -> None:
+    """Remove converter-owned files/dirs so a rerun cannot ship stale output."""
+    for name in _AP_OWNED_OUTPUT_FILES:
+        p = dest / name
+        if p.is_file() or p.is_symlink():
+            p.unlink()
+    for name in _AP_OWNED_OUTPUT_DIRS:
+        p = dest / name
+        if p.is_dir() and not p.is_symlink():
+            shutil.rmtree(p)
+        elif p.is_file() or p.is_symlink():
+            p.unlink()
 
 
 def ap_slug(name: str, fallback: str = "plugin") -> str:
@@ -930,6 +942,10 @@ def _validate_mcp_url(url: str, warnings: list[str] | None = None) -> None:
             warnings.append(msg)
 
 
+def _command_is_dots_only(cmd: str) -> bool:
+    return bool(cmd) and set(cmd) <= {"."}
+
+
 def _validate_stdio_command(cmd: str) -> None:
     if cmd in {".", "./"}:
         raise ValueError(
@@ -938,12 +954,16 @@ def _validate_stdio_command(cmd: str) -> None:
         )
     if any(c.isspace() for c in cmd):
         raise ValueError(f"command contains whitespace: {cmd!r}")
+    if _path_has_dotdot(cmd) or _command_is_dots_only(cmd):
+        raise ValueError(f"command escapes plugin root: {cmd!r}")
     if "/" not in cmd:
         return
+    if cmd.startswith("/"):
+        return
     if not cmd.startswith("./"):
-        raise ValueError(f"command must be a bare token or ./relative: {cmd!r}")
-    if _path_has_dotdot(cmd):
-        raise ValueError(f"command escapes plugin root: {cmd!r}")
+        raise ValueError(
+            f"command must be a bare token, absolute path, or ./relative: {cmd!r}"
+        )
 
 
 def _validate_stdio_cwd(cwd: str) -> None:
@@ -954,6 +974,7 @@ def _validate_stdio_cwd(cwd: str) -> None:
 
 
 def _validate_stdio_arg(arg: str) -> None:
+    # Args are opaque strings: containment applies only to ./ and ${PLUGIN_*} paths.
     if arg.startswith("./") and _path_has_dotdot(arg):
         raise ValueError(f"args path escapes plugin root: {arg!r}")
     for m in _PLUGIN_PATH_PLACEHOLDER_RE.finditer(arg):
@@ -1216,11 +1237,8 @@ def _validate_or_die(doc: dict, kind: str) -> None:
             validate_ap_plugin_json(doc)
         else:
             validate_ap_mcp_json(doc)
-    except SystemExit:
-        raise
     except Exception as e:
-        print(f"Error: Agent Plugins {kind} validation failed: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"Agent Plugins {kind} validation failed: {e}") from e
 
 
 def generate_ap_report(analysis: dict, conversion_results: dict, plugin_name: str) -> str:
@@ -1339,6 +1357,7 @@ def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: P
     plugin_name = ap_slug(str(manifest.get("name") or plugin_dir.name), "plugin")
     dest = output_dir
     dest.mkdir(parents=True, exist_ok=True)
+    _clear_ap_owned_outputs(dest)
 
     components = analysis.get("components") or {}
     _raise_on_ap_skill_slug_collision(components.get("skills") or [])
@@ -1422,12 +1441,11 @@ def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: P
 
     results["ignored_source_files"] = ignored_source_files
     report = generate_ap_report(analysis, results, plugin_name)
-    report_dir = dest.parent
-    (report_dir / "CONVERSION_REPORT.md").write_text(report, encoding="utf-8")
+    (dest / "CONVERSION_REPORT.md").write_text(report, encoding="utf-8")
 
     results["plugin_name"] = plugin_name
     results["output_dir"] = str(dest)
-    results["results_dir"] = str(report_dir)
+    results["results_dir"] = str(dest)
     return results
 
 
@@ -1577,12 +1595,20 @@ def main():
         count = len(results.get(component_type, []))
         if count:
             print(f"   {component_type}: {count}", file=sys.stderr)
+
+    skipped_mcp = results.get("skipped_mcp_servers") or []
+    for item in skipped_mcp:
+        name = item.get("name", "unnamed")
+        reason = item.get("reason") or "non-conforming"
+        print(f"   skipped MCP server {name}: {reason}", file=sys.stderr)
     
-    # Write results JSON beside the AP package root, inside the Hermes package.
+    # Write results JSON inside the package root (--output).
     results_dir = Path(results.get("results_dir") or results["output_dir"])
     results_path = results_dir / "conversion_results.json"
     results_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\nResults: {results_path}", file=sys.stderr)
+    if skipped_mcp and not results.get("mcp_servers"):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

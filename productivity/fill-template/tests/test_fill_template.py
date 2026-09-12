@@ -1058,8 +1058,8 @@ class TestExtractTemplate(unittest.TestCase):
             joined_uncertain = " ".join(report["uncertain"])
             self.assertTrue("Recipient" in joined_uncertain or "hyperlink" in joined_uncertain.lower())
 
-    def test_token_free_doc_is_no_tokens_not_empty_csv(self):
-        """N12: no typed values → status no-tokens and a non-empty skeleton file."""
+    def test_token_free_doc_is_no_tokens_empty_csv(self):
+        """N12/R3-13: no typed values → status no-tokens and a zero-byte skeleton."""
         with tempfile.TemporaryDirectory() as td:
             tdp = Path(td)
             src = tdp / "plain.docx"
@@ -1069,7 +1069,107 @@ class TestExtractTemplate(unittest.TestCase):
             self.assertEqual(report["tokens"], [])
             csv_path = Path(report["skeleton"])
             self.assertTrue(csv_path.is_file())
-            self.assertGreater(csv_path.stat().st_size, 0)
+            self.assertEqual(csv_path.stat().st_size, 0)
+
+    def test_no_tokens_skips_collapse(self):
+        """R3-1: typed-pattern mismatch keeps every paragraph and does not collapse."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "mix.docx"
+            _make_docx(src, ["Code INV-2001", "Code $10.00"])
+            before = src.read_bytes()
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            self.assertEqual(report["status"], "no-tokens")
+            self.assertEqual(report["tokens"], [])
+            self.assertEqual(report["instances_collapsed"], 0)
+            tmpl = Path(report["template"])
+            self.assertEqual(tmpl.read_bytes(), before)
+            paras = [p.text for p in Document(str(tmpl)).paragraphs if p.text.strip()]
+            self.assertEqual(paras, ["Code INV-2001", "Code $10.00"])
+
+    def test_two_column_invoice_table_extracts_tokens(self):
+        """R3-8: INV and $ cells in different columns are distinct roles."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "inv.docx"
+            doc = Document()
+            table = doc.add_table(rows=4, cols=2)
+            rows = [
+                ("Invoice", "Amount"),
+                ("INV-2001", "$10.00"),
+                ("INV-2002", "$20.00"),
+                ("INV-2003", "$30.00"),
+            ]
+            for i, (left, right) in enumerate(rows):
+                table.cell(i, 0).text = left
+                table.cell(i, 1).text = right
+            doc.save(str(src))
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            self.assertIn("InvoiceRef", report["tokens"])
+            self.assertIn("Amount", report["tokens"])
+            self.assertNotEqual(report.get("status"), "no-tokens")
+            tmpl = Path(report["template"])
+            text = ft.read_content(str(tmpl))
+            self.assertIn("{{InvoiceRef}}", text)
+            self.assertIn("{{Amount}}", text)
+            extracted = Document(str(tmpl))
+            from docx.oxml.ns import qn
+            trs = extracted.element.body.findall(".//" + qn("w:tr"))
+            self.assertEqual(len(trs), 2)
+            self.assertEqual(len(extracted.tables[0].rows), 2)
+            cell_blob = " ".join(
+                c.text for row in extracted.tables[0].rows for c in row.cells
+            )
+            self.assertIn("Invoice", cell_blob)
+            self.assertNotIn("INV-2002", cell_blob)
+            self.assertNotIn("INV-2003", cell_blob)
+
+    def test_unaligned_ps_is_uncertain(self):
+        """R3-7: a paragraph unique to one instance is noted as boilerplate."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "letters.docx"
+            _make_docx(src, [
+                "Dear Alice Tan,",
+                "Thank you for your payment of $420.00 on 12 Mar 2026 for invoice INV-1024. Your account ACME-0042 is now settled.",
+                "Dear Bob Lim,",
+                "Thank you for your payment of $180.50 on 03 Apr 2026 for invoice INV-1025. Your account ACME-0043 is now settled.",
+                "PS: Bob, your rebate of $12.00 ships separately.",
+            ])
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            self.assertTrue(
+                any("boilerplate" in u.lower() and "confirm" in u.lower()
+                    for u in report["uncertain"]),
+                report["uncertain"],
+            )
+            tmpl = Path(report["template"])
+            text = ft.read_content(str(tmpl))
+            self.assertIn("PS: Bob, your rebate of $12.00 ships separately.", text)
+
+    def test_identical_repeats_do_not_promote_constants(self):
+        """R3-9: two byte-identical letters stay literal; constants are not tokenised."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "dup.docx"
+            letter = [
+                "Dear Alice Tan,",
+                "Thank you for your payment of $420.00 on 12 Mar 2026 for invoice INV-1024. Your account ACME-0042 is now settled.",
+            ]
+            _make_docx(src, letter + letter)
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            self.assertEqual(report["tokens"], [])
+            self.assertEqual(report.get("status"), "no-tokens")
+            self.assertTrue(
+                any("did not vary" in u or "not aligned" in u
+                    for u in report["uncertain"]),
+                report["uncertain"],
+            )
+            paras = [
+                p.text for p in Document(str(report["template"])).paragraphs
+                if p.text.strip()
+            ]
+            self.assertEqual(paras, letter + letter)
+            self.assertEqual(Path(report["skeleton"]).stat().st_size, 0)
 
     def test_accountref_contained_in_invoiceref_is_silent(self):
         """N14: AccountRef fully inside InvoiceRef is not an overlap note."""

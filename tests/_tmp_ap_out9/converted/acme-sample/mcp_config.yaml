@@ -1,7 +1,0 @@
-# Merge these into ~/.hermes/config.yaml under mcp_servers:
-
-acme-validator:
-  command: node
-  args: [/root/.hermes/projects/agent-skills/tests/fixtures/claude_plugin_sample/bin/validator.js, --strict]
-  env:
-    ACME_MODE: "ACME_MODE_VALUE"  # Set actual value

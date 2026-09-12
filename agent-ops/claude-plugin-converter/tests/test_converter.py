@@ -563,7 +563,7 @@ class TestApMcpValidation:
         assert any("description" in i for i in result["issues"])
 
     def test_ap_copies_license_and_writes_reports_beside(self, tmp_path):
-        """O21/O22/O23: LICENSE is copied; reports sit beside the package; one name."""
+        """O21/O22/O23: LICENSE is copied; reports sit inside the package; one name."""
         mod = _load_convert()
         plugin = tmp_path / "srcplug"
         plugin.mkdir()
@@ -588,18 +588,25 @@ class TestApMcpValidation:
         }
         results = mod.convert_plugin_agent_plugins(plugin, analysis, pkg)
         assert (pkg / "LICENSE").is_file()
-        assert not (pkg / "CONVERSION_REPORT.md").is_file()
-        assert (pkg.parent / "CONVERSION_REPORT.md").is_file()
+        assert (pkg / "CONVERSION_REPORT.md").is_file()
         assert results["plugin_name"] == "acme-sample"
         pjson = json.loads((pkg / "plugin.json").read_text())
         assert pjson["name"] == "acme-sample"
-        assert results["results_dir"] == str(pkg.parent)
+        assert results["results_dir"] == str(pkg)
 
     def test_schemas_shipped_beside_script(self):
         """O17: schemas live in scripts/schemas/ next to convert.py."""
         schemas = SCRIPTS_DIR / "schemas"
         assert (schemas / "plugin.schema.json").is_file()
         assert (schemas / "mcp.schema.json").is_file()
+
+    def test_shipped_schemas_match_contract_copies(self):
+        """R3-15: scripts/schemas and tests/ copies must stay byte-identical."""
+        tests_dir = SCRIPTS_DIR.parent.parent.parent / "tests"
+        for name in ("plugin.schema.json", "mcp.schema.json"):
+            shipped = (SCRIPTS_DIR / "schemas" / name).read_bytes()
+            contract = (tests_dir / name).read_bytes()
+            assert shipped == contract, f"{name} drifted between scripts/schemas and tests/"
 
 
 class TestRound3Regressions:
@@ -663,7 +670,7 @@ class TestRound3Regressions:
         assert (pkg / "LICENSE").is_file()
         assert "plugin.json" in results["ignored_source_files"]
         assert "mcp.json" in results["ignored_source_files"]
-        report = (pkg.parent / "CONVERSION_REPORT.md").read_text()
+        report = (pkg / "CONVERSION_REPORT.md").read_text()
         assert "plugin.json" in report
         assert "Ignored source files" in report
 
@@ -869,7 +876,7 @@ class TestRound4Fixes:
         assert "bad" not in mcp["mcpServers"]
         skipped_names = [s["name"] for s in results["skipped_mcp_servers"]]
         assert skipped_names == ["bad"]
-        report = (pkg.parent / "CONVERSION_REPORT.md").read_text()
+        report = (pkg / "CONVERSION_REPORT.md").read_text()
         assert "### Skipped" in report
         assert "bad" in report
 
@@ -902,13 +909,180 @@ class TestRound4Fixes:
         assert "CONVERSION_REPORT.md" in results["ignored_source_files"]
         assert "conversion_results.json" in results["ignored_source_files"]
         assert (pkg / "plugin.json").is_file()
-        assert not (pkg / "CONVERSION_REPORT.md").is_file()
+        assert (pkg / "CONVERSION_REPORT.md").is_file()
         assert not (pkg / "conversion_results.json").is_file()
-        report = (pkg.parent / "CONVERSION_REPORT.md").read_text()
+        report = (pkg / "CONVERSION_REPORT.md").read_text()
         assert "leaked source report" not in report
         assert "CONVERSION_REPORT.md" in report
         assert "conversion_results.json" in report
         assert "Ignored source files" in report
+
+
+class TestRound5Fixes:
+    """R3-2 confirm, R3-3, R3-5, R3-6, R3-11, R3-12."""
+
+    def test_x_api_key_header_is_redacted(self):
+        """R3-2: credential-shaped headers redact even when the value contains '/'."""
+        mod = _load_convert()
+        secret = "aB3/xY9pQ2/rS4tU6vW8"
+        warns: list[str] = []
+        out = mod.convert_ap_mcp_server(
+            {
+                "type": "streamable-http",
+                "url": "https://example.com/mcp",
+                "headers": {"X-Api-Key": secret},
+            },
+            warnings=warns,
+        )
+        assert out["headers"]["X-Api-Key"] == "${X_API_KEY}"
+        assert secret not in json.dumps(out)
+        assert not hasattr(mod, "_looks_like_path")
+
+    def test_yaml_quote_emits_parseable_frontmatter(self, tmp_path):
+        """R3-3: every emitted SKILL.md frontmatter parses with yaml.safe_load."""
+        import yaml
+
+        plugin = tmp_path / "srcplug"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "quote-plug",
+            "version": "1.0.0",
+            "description": 'Greets the user, says "hi" to them',
+        }))
+        skill = plugin / "skills" / "greet"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            "---\n"
+            "name: greet\n"
+            'description: Greets the user, says "hi" to them\n'
+            "---\n\n"
+            "# Greet\n"
+        )
+        analysis = tmp_path / "analysis.json"
+        proc = subprocess.run(
+            [sys.executable, str(ANALYZE), str(plugin), "-o", str(analysis)],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert proc.returncode == 0, proc.stderr
+        for fmt, dest in (
+            ("hermes", tmp_path / "hermes"),
+            ("agent-plugins", tmp_path / "ap"),
+        ):
+            proc = subprocess.run(
+                [sys.executable, str(CONVERT), str(plugin),
+                 "--analysis", str(analysis), "--output", str(dest),
+                 "--format", fmt],
+                capture_output=True, text=True, timeout=60,
+            )
+            assert proc.returncode == 0, proc.stderr
+            skill_mds = list(dest.rglob("SKILL.md"))
+            assert skill_mds, f"no SKILL.md under {dest}"
+            for md in skill_mds:
+                text = md.read_text(encoding="utf-8")
+                assert text.startswith("---"), md
+                fm_text = text.split("---", 2)[1]
+                parsed = yaml.safe_load(fm_text)
+                assert isinstance(parsed, dict), (md, parsed)
+                assert parsed.get("name")
+                assert parsed.get("description")
+                assert "hi" in parsed["description"]
+
+    def test_absolute_stdio_command_is_accepted(self):
+        """R3-6: /usr/local/bin/uvx is one token and is kept."""
+        mod = _load_convert()
+        out = mod.convert_ap_mcp_server({"command": "/usr/local/bin/uvx", "args": ["foo"]})
+        assert out["command"] == "/usr/local/bin/uvx"
+        assert out["args"] == ["foo"]
+        out2 = mod.convert_ap_mcp_server({"command": "/usr/bin/node"})
+        assert out2["command"] == "/usr/bin/node"
+
+    def test_dots_only_and_dotdot_commands_rejected(self):
+        """R3-12: bare .. / ... are rejected before the no-slash shortcut."""
+        mod = _load_convert()
+        for cmd in ("..", "...", "../bin", "./../x"):
+            with pytest.raises(ValueError, match="command"):
+                mod.convert_ap_mcp_server({"command": cmd})
+
+    def test_all_mcp_servers_dropped_exits_nonzero(self, tmp_path):
+        """R3-5: skipped servers print to stderr; all-dropped exits 1."""
+        plugin = tmp_path / "srcplug"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "r35-plugin",
+            "version": "1.0.0",
+            "description": "d",
+        }))
+        (plugin / ".mcp.json").write_text(json.dumps({
+            "mcpServers": {"bad": {"command": "bin/relative-no-dot"}}
+        }))
+        (plugin / "skills" / "greet").mkdir(parents=True)
+        (plugin / "skills" / "greet" / "SKILL.md").write_text(
+            "---\nname: greet\ndescription: hi\n---\n\nHi.\n"
+        )
+        analysis = tmp_path / "analysis.json"
+        proc = subprocess.run(
+            [sys.executable, str(ANALYZE), str(plugin), "-o", str(analysis)],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert proc.returncode == 0, proc.stderr
+        pkg = tmp_path / "pkg"
+        proc = subprocess.run(
+            [sys.executable, str(CONVERT), str(plugin),
+             "--analysis", str(analysis), "--output", str(pkg),
+             "--format", "agent-plugins"],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert proc.returncode != 0
+        assert "skipped MCP server bad" in proc.stderr
+        assert "bin/relative-no-dot" in proc.stderr or "bare token" in proc.stderr
+        assert (pkg / "skills" / "greet" / "SKILL.md").is_file()
+        assert not (pkg / "mcp.json").is_file()
+        assert (pkg / "conversion_results.json").is_file()
+        assert (pkg / "CONVERSION_REPORT.md").is_file()
+
+    def test_stale_mcp_json_cleared_when_server_skipped(self, tmp_path):
+        """R3-11: converter-owned mcp.json from a prior run is not left behind."""
+        mod = _load_convert()
+        plugin = tmp_path / "srcplug"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "r311-plugin",
+            "version": "1.0.0",
+            "description": "d",
+        }))
+        (plugin / ".mcp.json").write_text(json.dumps({
+            "mcpServers": {"bad": {"command": "bin/relative-no-dot"}}
+        }))
+        (plugin / "skills" / "greet").mkdir(parents=True)
+        (plugin / "skills" / "greet" / "SKILL.md").write_text(
+            "---\nname: greet\ndescription: hi\n---\n\nHi.\n"
+        )
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "mcp.json").write_text('{"stale": true, "marker": "STALE"}\n')
+        (pkg / "skills" / "oldskill").mkdir(parents=True)
+        (pkg / "skills" / "oldskill" / "SKILL.md").write_text("stale\n")
+        analysis = {
+            "manifest": {"name": "r311-plugin", "version": "1.0.0", "description": "d"},
+            "summary": {"convertible": 1, "partial": 0, "skipped": 0, "total": 1},
+            "components": {
+                "skills": [{"name": "greet", "path": str(plugin / "skills" / "greet")}],
+            },
+        }
+        mod.convert_plugin_agent_plugins(plugin, analysis, pkg)
+        assert not (pkg / "mcp.json").is_file()
+        assert (pkg / "skills" / "greet" / "SKILL.md").is_file()
+        assert not (pkg / "skills" / "oldskill").exists()
+
+    def test_validate_or_die_raises_valueerror(self):
+        """R3-19: library validation raises ValueError instead of sys.exit."""
+        mod = _load_convert()
+        with pytest.raises(ValueError, match="validation failed"):
+            mod._validate_or_die({"not": "a plugin"}, "plugin")
+
 
 
 

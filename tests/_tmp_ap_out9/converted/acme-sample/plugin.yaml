@@ -1,8 +1,0 @@
-name: acme-sample
-version: 0.2.1
-description: Sample plugin used by converter contract tests
-author: Acme Labs
-provides_tools:
-  - mcp__acme-validator
-requires_env:
-  - ACME_MODE

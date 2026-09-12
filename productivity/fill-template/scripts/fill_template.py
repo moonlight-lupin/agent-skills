@@ -614,28 +614,60 @@ def _collect_located_texts(doc) -> list[tuple[str, str, object]]:
     return unique
 
 
-def _fingerprint(text: str) -> str:
+_HF_LABELS = (
+    "first-page header",
+    "even-page header",
+    "first-page footer",
+    "even-page footer",
+    "header",
+    "footer",
+)
+_LOC_TABLE_RE = re.compile(r"table (\d+)")
+_LOC_COL_RE = re.compile(r" c(\d+)")
+_LOC_SECTION_RE = re.compile(r"^section (\d+)")
+
+
+def _structural_location(where: str) -> tuple:
+    """Table index, column index, section, header/footer. Rows omitted so
+    they align as instances. Body paragraphs share one location key.
+    """
+    tables = _LOC_TABLE_RE.findall(where)
+    cols = _LOC_COL_RE.findall(where)
+    sec = _LOC_SECTION_RE.match(where)
+    hf = next((lab for lab in _HF_LABELS if lab in where), None)
+    return (
+        int(tables[-1]) if tables else 0,
+        int(cols[-1]) if cols else 0,
+        int(sec.group(1)) if sec else 0,
+        hf or "body",
+    )
+
+
+def _fingerprint(text: str, where: str = "") -> str:
     t = text
     for _kind, rx in _VALUE_PATTERNS:
         t = rx.sub("{}", t)
-    return re.sub(r"\s+", " ", t).strip()
+    value_fp = re.sub(r"\s+", " ", t).strip()
+    return f"{_structural_location(where)}\x1f{value_fp}"
 
 
 def _group_instances(
     records: list[tuple],
-) -> tuple[list[list[tuple]], list[str]]:
+) -> tuple[list[list[tuple]], list[str], bool]:
     """Split records into repeating pattern instances.
 
     Paragraphs that share a fingerprint and appear ≥2 times become roles of
     one pattern; each instance is one occurrence of every role, in document
-    order. No repeats → the whole document is a single instance. Extra tuple
-    fields (paragraph objects) travel with the record.
+    order. No repeats → the whole document is a single instance (third return
+    value True, so constants may be promoted). Repeats with no varying values
+    stay as one blob and constants are not promoted. Extra tuple fields
+    (paragraph objects) travel with the record.
     """
     uncertain: list[str] = []
     if not records:
-        return [[]], uncertain
+        return [[]], uncertain, False
 
-    fps = [_fingerprint(t) for t, *_ in records]
+    fps = [_fingerprint(t, w) for t, w, *_ in records]
     groups: dict[str, list[int]] = {}
     order: list[str] = []
     for i, fp in enumerate(fps):
@@ -646,14 +678,20 @@ def _group_instances(
 
     repeating = [fp for fp in order if len(groups[fp]) >= 2]
     if not repeating:
-        return [records], uncertain
+        return [records], uncertain, True
 
     varying = [
         fp for fp in repeating
         if len({_typed_signature(records[i][0]) for i in groups[fp]}) > 1
     ]
     if not varying:
-        return [records], uncertain
+        repeating_set = set(repeating)
+        if all(fp in repeating_set for fp in fps):
+            uncertain.append(
+                "repeats detected but values did not vary; not aligned"
+            )
+            return [records], uncertain, False
+        return [records], uncertain, True
 
     n = min(len(groups[fp]) for fp in repeating)
     for fp in repeating:
@@ -666,7 +704,19 @@ def _group_instances(
         [records[groups[fp][k]] for fp in repeating]
         for k in range(n)
     ]
-    return instances, uncertain
+    claimed: set[int] = set()
+    for inst in instances:
+        for rec in inst:
+            para = rec[2] if len(rec) > 2 else None
+            if para is not None:
+                claimed.add(_paragraph_xml_id(para))
+    for rec in records:
+        para = rec[2] if len(rec) > 2 else None
+        if para is None:
+            continue
+        if _paragraph_xml_id(para) not in claimed:
+            uncertain.append(f"{rec[1]} kept as boilerplate; confirm")
+    return instances, uncertain, True
 
 
 def _typed_signature(text: str) -> tuple:
@@ -792,6 +842,10 @@ def _delete_paragraph(paragraph) -> None:
         parent.remove(el)
 
 
+def _xml_path(el) -> str:
+    return el.getroottree().getpath(el)
+
+
 def _xml_ancestor(el, tag: str):
     while el is not None:
         if el.tag == tag:
@@ -817,27 +871,39 @@ def _tr_row_number(tr) -> int:
     if parent is None:
         return 0
     n = 0
+    tr_path = _xml_path(tr)
     for child in parent:
         if child.tag == _W_TR:
             n += 1
-            if child == tr:
+            if _xml_path(child) == tr_path:
                 return n
     return 0
 
 
-def _row_has_unclaimed_content(tr, claimed_elements: set) -> bool:
+def _row_has_unclaimed_content(tr, claimed_paths: set) -> bool:
     for tc in tr.findall(_W_TC):
         for p_el in tc.findall(_W_P):
             if not _xml_paragraph_text(p_el).strip():
                 continue
-            if p_el not in claimed_elements:
+            if _xml_path(p_el) not in claimed_paths:
                 return True
+    return False
+
+
+def _instance_covered_by_slots(inst_index: int, kept_slots: list[dict] | None) -> bool:
+    if kept_slots is None:
+        return True
+    for slot in kept_slots:
+        paras = slot.get("paragraphs") or []
+        if inst_index < len(paras) and paras[inst_index] is not None:
+            return True
     return False
 
 
 def _collapse_extra_instances(
     instances: list[list[tuple]],
     uncertain: list[str] | None = None,
+    kept_slots: list[dict] | None = None,
 ) -> int:
     """Drop extra instances. Extra-only table rows are removed whole only
     when every non-empty paragraph in the row is a claimed extra record.
@@ -849,25 +915,29 @@ def _collapse_extra_instances(
     """
     if len(instances) <= 1:
         return 0
-    retained: set[int] = set()
-    retained_trs: list = []
+    retained: set[str] = set()
+    retained_tr_paths: set[str] = set()
     for rec in instances[0]:
         para = rec[2] if len(rec) > 2 else None
         if para is None:
             continue
-        retained.add(_paragraph_xml_id(para))
+        retained.add(_xml_path(para._element))
         tr = _xml_ancestor(para._element, _W_TR)
         if tr is not None:
-            retained_trs.append(tr)
+            retained_tr_paths.add(_xml_path(tr))
 
     extra_paras: list = []
-    seen_extra: set[int] = set()
-    for inst in instances[1:]:
+    seen_extra: set[str] = set()
+    collapsed_n = 0
+    for idx, inst in enumerate(instances[1:], start=1):
+        if not _instance_covered_by_slots(idx, kept_slots):
+            continue
+        collapsed_n += 1
         for rec in inst:
             para = rec[2] if len(rec) > 2 else None
             if para is None:
                 continue
-            pid = _paragraph_xml_id(para)
+            pid = _xml_path(para._element)
             if pid in retained or pid in seen_extra:
                 continue
             seen_extra.add(pid)
@@ -875,41 +945,44 @@ def _collapse_extra_instances(
 
     extras_by_tr: list[tuple] = []
     extras_no_tr: list = []
-    seen_tr: list = []
+    seen_tr_paths: dict[str, int] = {}
     for para in extra_paras:
         tr = _xml_ancestor(para._element, _W_TR)
         if tr is None:
             extras_no_tr.append(para)
             continue
-        bucket = None
-        for i, seen in enumerate(seen_tr):
-            if tr == seen:
-                bucket = i
-                break
+        tpath = _xml_path(tr)
+        bucket = seen_tr_paths.get(tpath)
         if bucket is None:
-            seen_tr.append(tr)
+            seen_tr_paths[tpath] = len(extras_by_tr)
             extras_by_tr.append((tr, [para]))
         else:
             extras_by_tr[bucket][1].append(para)
 
-    deleted_tr: list = []
+    to_clear: list = []
+    to_clear_unclaimed: list[tuple] = []
+    to_delete: list = []
     for tr, paras in extras_by_tr:
-        if any(tr == retained for retained in retained_trs):
-            for para in paras:
-                _clear_paragraph_keep_p(para)
+        if _xml_path(tr) in retained_tr_paths:
+            to_clear.extend(paras)
             continue
-        claimed_elements = {para._element for para in paras}
-        if _row_has_unclaimed_content(tr, claimed_elements):
-            for para in paras:
-                _clear_paragraph_keep_p(para)
-            if uncertain is not None:
-                n = _tr_row_number(tr)
-                uncertain.append(f"row {n} had unclaimed content; kept")
+        claimed_paths = {_xml_path(para._element) for para in paras}
+        if _row_has_unclaimed_content(tr, claimed_paths):
+            to_clear_unclaimed.append((tr, paras))
             continue
+        to_delete.append(tr)
+
+    for para in to_clear:
+        _clear_paragraph_keep_p(para)
+    for tr, paras in to_clear_unclaimed:
+        for para in paras:
+            _clear_paragraph_keep_p(para)
+        if uncertain is not None:
+            uncertain.append(f"row {_tr_row_number(tr)} had unclaimed content; kept")
+    for tr in to_delete:
         parent = tr.getparent()
-        if parent is not None and not any(tr == d for d in deleted_tr):
+        if parent is not None:
             parent.remove(tr)
-            deleted_tr.append(tr)
 
     for para in extras_no_tr:
         parent = para._element.getparent()
@@ -917,7 +990,7 @@ def _collapse_extra_instances(
             _clear_paragraph_keep_p(para)
         else:
             _delete_paragraph(para)
-    return len(instances) - 1
+    return collapsed_n
 
 
 def _require_extract_basename(name: str) -> str:
@@ -952,7 +1025,6 @@ def _write_skeleton(path: Path, token_names: list[str], rows: list[dict]) -> Non
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
         if not token_names:
-            f.write("\n")
             return
         w = csv.DictWriter(f, fieldnames=token_names, extrasaction="ignore")
         w.writeheader()
@@ -1012,12 +1084,11 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
 
     doc = Document(str(src_p))
     records = _collect_located_texts(doc)
-    instances, uncertain = _group_instances(records)
+    instances, uncertain, promote_constants = _group_instances(records)
 
     pre_existing = tokens_in(str(src_p))
     used: set[str] = set(pre_existing)
     slots: list[dict] = []
-    promote_constants = len(instances) == 1
     n_roles = len(instances[0]) if instances else 0
     for j in range(n_roles):
         recs = [inst[j] for inst in instances]
@@ -1053,18 +1124,23 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
             uncertain.append(msg)
             not_found.append(token)
             continue
-        pid = id(para)
+        pid = _paragraph_xml_id(para)
         para_by_id[pid] = para
         spans_by_para[pid].append((start, end, _token(token)))
         hits_counts[token] += 1
-    for pid, spans in spans_by_para.items():
-        _apply_spans(para_by_id[pid], spans)
-    instances_collapsed = _collapse_extra_instances(instances, uncertain)
-    tmpl_path.parent.mkdir(parents=True, exist_ok=True)
-    doc.save(str(tmpl_path))
-
     dropped = set(not_found)
     kept_slots = [s for s in slots if s["token"] not in dropped]
+    tmpl_path.parent.mkdir(parents=True, exist_ok=True)
+    if kept_slots:
+        for pid, spans in spans_by_para.items():
+            _apply_spans(para_by_id[pid], spans)
+        instances_collapsed = _collapse_extra_instances(
+            instances, uncertain, kept_slots=kept_slots
+        )
+        doc.save(str(tmpl_path))
+    else:
+        instances_collapsed = 0
+        tmpl_path.write_bytes(src_p.read_bytes())
     token_names = [s["token"] for s in kept_slots]
     data_rows = [
         {s["token"]: s["values"][i] for s in kept_slots}
