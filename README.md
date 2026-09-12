@@ -132,17 +132,17 @@ Install by copying or symlinking `plugins/skill-retrieval/` into `~/.hermes/plug
 | fill-template | Stable | ✓ | python-docx, openpyxl |
 | travel-itinerary | Stable | ✓ | None (stdlib) |
 | decision-log | Stable | ✓ | None (stdlib) |
-| receipt-compiler | Beta | ✓ | opencv-python-headless, pillow, pillow-heif, pytesseract, reportlab, numpy; tesseract-ocr binary |
+| receipt-compiler | Stable | ✓ | opencv-python-headless, pillow, pillow-heif, pytesseract, reportlab, numpy; tesseract-ocr binary |
 | scheduled-summary | Stable | ✓ | None (stdlib) |
 | file-organizer | Stable | ✓ | None (stdlib); optional external LLM via urllib (deepseek/openrouter/ollama) |
 | task-brief | Beta | — | None (prompt-only) |
 | claude-plugin-converter | Beta | ✓ | None (stdlib) |
 | skill-maintainer | Beta | ✓ | None (stdlib; curl for GitHub API). Unix-first — cron, curl, `which`, shell loops. Windows via WSL/MSYS2 untested. |
 | log-analyzer | Stable | ✓ | None (stdlib) |
-| input-token-overheads | Beta | evals, scripts | PyYAML (optional) |
-| operator-brain | Beta | — | None (prompt-only) |
+| input-token-overheads | Stable | evals, scripts | PyYAML (optional) |
+| operator-brain | Stable | — | None (prompt-only) |
 | hermes-onboarding | Beta | evals | None (prompt-only) |
-| disk-cleanup | Beta | evals | None (prompt-only) |
+| disk-cleanup | Stable | evals | None (prompt-only) |
 
 > *Stable* = production-tested with real workflows. *Tests* column: ✓ = has a pytest suite; *evals* = ships routing/output-contract fixtures under `evals/` (sample request → expected routing, required output fields, forbidden patterns), validated by `tests/test_routing_fixtures.py` — no live-model execution in CI. *Dependencies* lists pip/runtime requirements beyond Python stdlib.
 
