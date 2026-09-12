@@ -13,12 +13,14 @@ description: >
   read — as a thin one-line request. Asks at most 2-3 clarifying questions, and
   only where the answer would change the output; otherwise it states its
   assumptions in the brief and proceeds. Not for quick one-step asks — just answer
-  those directly.
+  those directly. Not for scoping a new skill to build — that belongs to your
+  skill-authoring workflow (route it there).
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
+  tags: [planning, brief, scoping, productivity]
 ---
 
 # Task Brief
@@ -83,16 +85,43 @@ Compile and show this exact shape — short, in plain business language:
    before anything crosses to an external tool; the **action boundary** — prepare,
    never send / post / pay / file / sign without an explicit go-ahead.
 4. **Route the tooling.** Survey what is actually installed (skills, connectors,
-   scripts) and name the most specific one that will do the work. If a better-suited
-   capability exists but isn't installed, say so as advisory — never make the brief
-   depend on something the user doesn't have. If nothing fits, say that too, and
-   proceed with general capability.
-5. **Confirm, then execute.** Show the brief and wait for a go / corrections — a
+   scripts) and name the most specific one that will do the work, using the routing
+   map below. If a better-suited capability exists but isn't installed, say so as
+   advisory — never make the brief depend on something the user doesn't have. If
+   nothing fits, say that too, and proceed with general capability.
+5. **Pre-screen mode compatibility.** As part of the **Tooling** line, check the
+   routed skill against what the current environment actually supports — Python
+   helpers, credentials, network access, platform gates. If the skill needs
+   something the environment lacks, surface that in the brief ("this route needs
+   X, which isn't available here — fallback is Y"), so mode problems are visible
+   before work starts, not mid-task.
+6. **Confirm, then execute.** Show the brief and wait for a go / corrections — a
    one-word "go" is enough; this is a glance, not a form. Then do the work
    **against the brief**.
-6. **Close the loop.** On delivery, check the output against the **Goal** line and
+7. **Close the loop.** On delivery, check the output against the **Goal** line and
    say plainly which parts of "done" are met and which are outstanding — never
    claim a check that didn't run.
+
+## Routing map (for the Tooling line)
+
+Keep a small map from task type to the installed capability that handles it, so
+the Tooling line is deterministic instead of re-surveyed every run. Shape:
+
+| If the task is about… | Route to |
+|---|---|
+| task type A (e.g. documents, spreadsheets, presentations) | name the specific installed skill |
+| task type B (e.g. research, media, finance) | the toolkit/skill that covers it |
+| nothing installed fits | say so — proceed with general capability, and note your skill-authoring workflow if the need looks recurring |
+
+Rules the map must follow:
+
+- **One guaranteed set.** Name which skills/toolkits are guaranteed present; a
+  match outside that set is **advisory** — "also covered by X, if you have it" —
+  never a dependency.
+- **Specific beats generic.** Route to the most specific skill, not the broadest
+  toolkit.
+- **Advisory stays advisory.** An uninstalled capability never appears in the
+  plan as a step; it appears only as a note.
 
 ## Worked example (fictional)
 
@@ -154,6 +183,16 @@ itself needs no network, no scripts and no credentials.
    delivering without checking against it wastes the brief.
 5. **Tool dependence** — naming a tool the user doesn't have as the plan; keep
    uninstalled capabilities advisory.
+6. **Routing-map drift** — a map that names skills no longer installed, or omits
+   new ones, misroutes silently; refresh the map whenever the skill set changes.
+
+## Feedback capture
+
+Have a correction or improvement to this skill? Capture it in a structured note —
+skill name, what you did, expected vs actual, severity, suggestion — save it as a
+plain text file, and hand it to the user to file. Manual, no fixed destination;
+fix in scope if asked. This keeps improvement signals reaching the skill author
+consistently instead of evaporating in chat.
 
 ## Verification checklist
 
@@ -161,6 +200,8 @@ itself needs no network, no scripts and no credentials.
 - [ ] Request, conversation, files and memory mined before any question was asked.
 - [ ] At most 2–3 questions asked, each one output-changing.
 - [ ] Standing rules injected from the host environment (or the defaults), not asked.
+- [ ] Tooling routed via the map; uninstalled capabilities advisory only.
+- [ ] Routed skill pre-screened against what the environment supports.
 - [ ] Brief shown and confirmed by the user before the work started.
 - [ ] Output checked against the Goal line; met vs outstanding reported.
 
