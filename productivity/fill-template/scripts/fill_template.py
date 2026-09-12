@@ -81,6 +81,9 @@ _W_TR = qn("w:tr")
 _W_TC = qn("w:tc")
 _W_P = qn("w:p")
 _W_T = qn("w:t")
+_W_TBL = qn("w:tbl")
+_W_DRAWING = qn("w:drawing")
+_W_PICT = qn("w:pict")
 
 # ----------------------------------------------------------------------------
 # Token plumbing
@@ -842,8 +845,23 @@ def _delete_paragraph(paragraph) -> None:
         parent.remove(el)
 
 
-def _xml_path(el) -> str:
-    return el.getroottree().getpath(el)
+_XML_PATH_CACHE: dict[int, tuple[int, str]] = {}
+
+
+def _xml_path(el) -> tuple[int, str]:
+    """Part-unique identity. getpath() collides across header parts."""
+    key = id(el)
+    hit = _XML_PATH_CACHE.get(key)
+    if hit is not None:
+        return hit
+    tree = el.getroottree()
+    val = (id(tree.getroot()), tree.getpath(el))
+    _XML_PATH_CACHE[key] = val
+    return val
+
+
+def _reset_xml_path_cache() -> None:
+    _XML_PATH_CACHE.clear()
 
 
 def _xml_ancestor(el, tag: str):
@@ -882,10 +900,24 @@ def _tr_row_number(tr) -> int:
 
 def _row_has_unclaimed_content(tr, claimed_paths: set) -> bool:
     for tc in tr.findall(_W_TC):
-        for p_el in tc.findall(_W_P):
-            if not _xml_paragraph_text(p_el).strip():
-                continue
-            if _xml_path(p_el) not in claimed_paths:
+        if _cell_has_unclaimed_content(tc, claimed_paths):
+            return True
+    return False
+
+
+def _cell_has_unclaimed_content(tc, claimed_paths: set) -> bool:
+    for p_el in tc.iter(_W_P):
+        if _xml_paragraph_text(p_el).strip() and _xml_path(p_el) not in claimed_paths:
+            return True
+    for el in tc.iter():
+        if el.tag in (_W_DRAWING, _W_PICT):
+            return True
+    for nested_tbl in tc.findall(_W_TBL):
+        nested_trs = nested_tbl.findall(_W_TR)
+        if not nested_trs:
+            return True
+        for nested_tr in nested_trs:
+            if _row_has_unclaimed_content(nested_tr, claimed_paths):
                 return True
     return False
 
@@ -896,6 +928,22 @@ def _instance_covered_by_slots(inst_index: int, kept_slots: list[dict] | None) -
     for slot in kept_slots:
         paras = slot.get("paragraphs") or []
         if inst_index < len(paras) and paras[inst_index] is not None:
+            return True
+    return False
+
+
+def _paragraph_claimed_by_kept_slot(
+    para, inst_index: int, kept_slots: list[dict] | None
+) -> bool:
+    if not kept_slots or para is None:
+        return False
+    pid = _xml_path(para._element)
+    for slot in kept_slots:
+        paras = slot.get("paragraphs") or []
+        if inst_index >= len(paras):
+            continue
+        other = paras[inst_index]
+        if other is not None and _xml_path(other._element) == pid:
             return True
     return False
 
@@ -911,12 +959,15 @@ def _collapse_extra_instances(
     Otherwise the row is kept, matched extra paragraphs are cleared, and an
     uncertain note is recorded. Mixed retained/extra rows keep one empty
     ``<w:p>`` per extra cell so ``<w:tc>`` stays valid. Body paragraphs not
-    in a row are deleted. Returns how many extra instances were collapsed.
+    in a row are deleted only when a kept slot claims them or their text is
+    byte-identical to the corresponding kept paragraph. Returns how many
+    extra instances were collapsed.
     """
     if len(instances) <= 1:
         return 0
-    retained: set[str] = set()
-    retained_tr_paths: set[str] = set()
+    _reset_xml_path_cache()
+    retained: set = set()
+    retained_tr_paths: set = set()
     for rec in instances[0]:
         para = rec[2] if len(rec) > 2 else None
         if para is None:
@@ -927,25 +978,31 @@ def _collapse_extra_instances(
             retained_tr_paths.add(_xml_path(tr))
 
     extra_paras: list = []
-    seen_extra: set[str] = set()
+    seen_extra: set = set()
     collapsed_n = 0
+    kept0 = instances[0]
     for idx, inst in enumerate(instances[1:], start=1):
         if not _instance_covered_by_slots(idx, kept_slots):
             continue
         collapsed_n += 1
-        for rec in inst:
+        for role_i, rec in enumerate(inst):
             para = rec[2] if len(rec) > 2 else None
             if para is None:
                 continue
             pid = _xml_path(para._element)
             if pid in retained or pid in seen_extra:
                 continue
+            if kept_slots is not None:
+                claimed = _paragraph_claimed_by_kept_slot(para, idx, kept_slots)
+                kept_text = kept0[role_i][0] if role_i < len(kept0) else None
+                if not claimed and rec[0] != kept_text:
+                    continue
             seen_extra.add(pid)
             extra_paras.append(para)
 
     extras_by_tr: list[tuple] = []
     extras_no_tr: list = []
-    seen_tr_paths: dict[str, int] = {}
+    seen_tr_paths: dict = {}
     for para in extra_paras:
         tr = _xml_ancestor(para._element, _W_TR)
         if tr is None:
@@ -1101,6 +1158,25 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
             promote_constants=promote_constants,
         ))
 
+    claimed_ids: set[int] = set()
+    for inst in instances:
+        for rec in inst:
+            para = rec[2] if len(rec) > 2 else None
+            if para is not None:
+                claimed_ids.add(_paragraph_xml_id(para))
+    for rec in records:
+        para = rec[2] if len(rec) > 2 else None
+        if para is None or _paragraph_xml_id(para) in claimed_ids:
+            continue
+        where = rec[1]
+        if not any(lab in where for lab in _HF_LABELS):
+            continue
+        slots.extend(_slots_for_role(
+            [rec[0]], [rec[1]], used, uncertain,
+            paragraphs=[para],
+            promote_constants=True,
+        ))
+
     spans_by_para: dict[int, list[tuple[int, int, str]]] = defaultdict(list)
     para_by_id: dict[int, object] = {}
     hits_counts: dict[str, int] = {s["token"]: 0 for s in slots}
@@ -1142,11 +1218,19 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
         instances_collapsed = 0
         tmpl_path.write_bytes(src_p.read_bytes())
     token_names = [s["token"] for s in kept_slots]
-    data_rows = [
-        {s["token"]: s["values"][i] for s in kept_slots}
-        for i in range(len(instances))
-    ]
-    _write_skeleton(csv_path, token_names, data_rows)
+    skeleton_fields = list(token_names)
+    for t in pre_existing:
+        if t not in skeleton_fields:
+            skeleton_fields.append(t)
+    data_rows = []
+    for i in range(len(instances)):
+        row = {}
+        for s in kept_slots:
+            vals = s.get("values") or []
+            if i < len(vals):
+                row[s["token"]] = vals[i]
+        data_rows.append(row)
+    _write_skeleton(csv_path, skeleton_fields, data_rows)
 
     mapping = []
     for slot in kept_slots:
@@ -1174,6 +1258,7 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
     if pre_existing:
         report["pre_existing_note"] = (
             "reserved pre-existing token(s) "
-            f"{pre_existing}; inferred slots will not reuse these names"
+            f"{pre_existing}; inferred slots will not reuse these names. "
+            "Empty skeleton columns were added so you can fill them"
         )
     return report

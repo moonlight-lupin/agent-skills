@@ -71,12 +71,8 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
 
 
 def yaml_quote(s: str) -> str:
-    """Quote a string for YAML. JSON string literals are valid YAML scalars."""
-    if not s:
-        return '""'
-    if any(c in s for c in [":", "#", "{", "}", "[", "]", ",", "&", "*", "!", "|", ">", "'", '"', "%", "@", "`"]):
-        return json.dumps(s)
-    return s
+    """Quote a string for YAML. JSON string literals are valid YAML 1.2 scalars."""
+    return json.dumps("" if s is None else str(s))
 
 
 # ── Skill conversion ────────────────────────────────────────────────────
@@ -702,6 +698,56 @@ _AP_OWNED_OUTPUT_FILES = frozenset({
 _AP_OWNED_OUTPUT_DIRS = frozenset({"skills", "agents"})
 
 
+def _assert_output_disjoint_from_source(plugin_dir: Path, output_dir: Path) -> None:
+    src = plugin_dir.resolve()
+    dest = output_dir.resolve()
+    if src == dest or src in dest.parents or dest in src.parents:
+        raise ValueError("output directory overlaps source directory")
+
+
+def _ap_dest_looks_converter_owned(dest: Path) -> bool:
+    """True when dest is empty or already an Agent Plugins package we wrote."""
+    if not dest.exists():
+        return True
+    if not dest.is_dir():
+        return False
+    try:
+        entries = list(dest.iterdir())
+    except OSError:
+        return False
+    if not entries:
+        return True
+    plugin_json = dest / "plugin.json"
+    if not plugin_json.is_file():
+        return False
+    try:
+        data = json.loads(plugin_json.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    return isinstance(data, dict) and bool(data.get("$schema"))
+
+
+def _assert_ap_dest_is_writable(dest: Path) -> None:
+    if dest.exists() and not _ap_dest_looks_converter_owned(dest):
+        raise ValueError("pick a fresh output directory")
+
+
+def _is_dest_or_contains_dest(child: Path, dest: Path) -> bool:
+    """True if child is dest, or dest lives inside child (copy would nest dest)."""
+    try:
+        c = child.resolve()
+        d = dest.resolve()
+    except OSError:
+        return False
+    if c == d:
+        return True
+    try:
+        d.relative_to(c)
+        return True
+    except ValueError:
+        return False
+
+
 def _clear_ap_owned_outputs(dest: Path) -> None:
     """Remove converter-owned files/dirs so a rerun cannot ship stale output."""
     for name in _AP_OWNED_OUTPUT_FILES:
@@ -1023,6 +1069,10 @@ def convert_ap_mcp_server(config: dict, warnings: list[str] | None = None) -> di
     if not cmd:
         raise ValueError("stdio MCP server is missing command")
     _validate_stdio_command(cmd)
+    if cmd.startswith("/") and warnings is not None:
+        warnings.append(
+            f"command {cmd!r} is an absolute path; it will not resolve on other machines"
+        )
 
     entry = {"type": "stdio", "command": cmd}
     raw_args = extra_args + list(config.get("args") or [])
@@ -1241,9 +1291,46 @@ def _validate_or_die(doc: dict, kind: str) -> None:
         raise ValueError(f"Agent Plugins {kind} validation failed: {e}") from e
 
 
+def _ap_skipped_component_bits(analysis: dict) -> list[tuple[str, list, str]]:
+    components = analysis.get("components") or {}
+    reason = "No Agent Plugins equivalent — skipped"
+    bits: list[tuple[str, list, str]] = []
+    for key, title, name_key, fallback in (
+        ("agents", "Agents", "name", "unnamed"),
+        ("hooks", "Hooks", "claude_event", "unknown"),
+        ("commands", "Commands", "name", "unnamed"),
+        ("lsp_servers", "LSP Servers", "name", "unnamed"),
+        ("monitors", "Monitors", "name", "unnamed"),
+    ):
+        items = components.get(key) or []
+        if items:
+            names = [a.get(name_key, fallback) for a in items]
+            bits.append((title, names, reason))
+    return bits
+
+
+def _ap_summary_counts(analysis: dict, conversion_results: dict) -> dict:
+    converted = 0
+    partial = 0
+    for sk in conversion_results.get("skills") or []:
+        if sk.get("issues"):
+            partial += 1
+        else:
+            converted += 1
+    converted += len(conversion_results.get("mcp_servers") or [])
+    skipped = sum(len(names) for _, names, _ in _ap_skipped_component_bits(analysis))
+    skipped += len(conversion_results.get("skipped_mcp_servers") or [])
+    return {
+        "convertible": converted,
+        "partial": partial,
+        "skipped": skipped,
+        "total": converted + partial + skipped,
+    }
+
+
 def generate_ap_report(analysis: dict, conversion_results: dict, plugin_name: str) -> str:
     """CONVERSION_REPORT.md for Agent Plugins output. Same table style as Hermes."""
-    s = analysis["summary"]
+    s = _ap_summary_counts(analysis, conversion_results)
     lines = [
         f"# Conversion Report: {plugin_name}",
         "",
@@ -1292,23 +1379,7 @@ def generate_ap_report(analysis: dict, conversion_results: dict, plugin_name: st
             lines.extend(warn_bits)
             lines.append("")
 
-    skipped_bits = []
-    components = analysis.get("components") or {}
-    if components.get("agents"):
-        skipped_bits.append(("Agents", [a.get("name", "unnamed") for a in components["agents"]],
-                             "No Agent Plugins equivalent — skipped"))
-    if components.get("hooks"):
-        skipped_bits.append(("Hooks", [h.get("claude_event", "unknown") for h in components["hooks"]],
-                             "No Agent Plugins equivalent — skipped"))
-    if components.get("commands"):
-        skipped_bits.append(("Commands", [c.get("name", "unnamed") for c in components["commands"]],
-                             "No Agent Plugins equivalent — skipped"))
-    if components.get("lsp_servers"):
-        skipped_bits.append(("LSP Servers", [x.get("name", "unnamed") for x in components["lsp_servers"]],
-                             "No Agent Plugins equivalent — skipped"))
-    if components.get("monitors"):
-        skipped_bits.append(("Monitors", [x.get("name", "unnamed") for x in components["monitors"]],
-                             "No Agent Plugins equivalent — skipped"))
+    skipped_bits = _ap_skipped_component_bits(analysis)
     skipped_mcp = conversion_results.get("skipped_mcp_servers") or []
     if skipped_bits or skipped_mcp:
         lines.append("### Skipped")
@@ -1353,11 +1424,16 @@ def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: P
     `--output` is the package root (plugin.json lives at <output>/plugin.json),
     matching the contract tests. Hermes mode still nests under <output>/<name>/.
     """
-    manifest = load_source_manifest(plugin_dir, analysis)
-    plugin_name = ap_slug(str(manifest.get("name") or plugin_dir.name), "plugin")
+    plugin_dir = Path(plugin_dir).resolve()
+    output_dir = Path(output_dir).resolve()
+    _assert_output_disjoint_from_source(plugin_dir, output_dir)
     dest = output_dir
+    _assert_ap_dest_is_writable(dest)
     dest.mkdir(parents=True, exist_ok=True)
     _clear_ap_owned_outputs(dest)
+
+    manifest = load_source_manifest(plugin_dir, analysis)
+    plugin_name = ap_slug(str(manifest.get("name") or plugin_dir.name), "plugin")
 
     components = analysis.get("components") or {}
     _raise_on_ap_skill_slug_collision(components.get("skills") or [])
@@ -1432,6 +1508,8 @@ def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: P
         if child.name.startswith("."):
             continue
         if child.is_dir() and child.name not in skip_dirs:
+            if _is_dest_or_contains_dest(child, dest):
+                continue
             shutil.copytree(child, dest / child.name, dirs_exist_ok=True)
         elif child.is_file():
             if child.name in _AP_OWNED_OUTPUT_FILES:
@@ -1530,6 +1608,8 @@ def convert_plugin(plugin_dir: Path, analysis: dict, output_dir: Path) -> dict:
                  "__pycache__", ".pytest_cache", "tests", "tools"}
     for child in plugin_dir.iterdir():
         if child.is_dir() and child.name not in skip_dirs and not child.name.startswith("."):
+            if _is_dest_or_contains_dest(child, dest):
+                continue
             shutil.copytree(child, dest / child.name, dirs_exist_ok=True)
     
     # 9. Generate reports
@@ -1572,7 +1652,20 @@ def main():
         print(f"Error: Analysis file not found: {analysis_path}", file=sys.stderr)
         sys.exit(1)
 
-    analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+    try:
+        analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print(
+            f"Error: malformed analysis file {analysis_path}: invalid JSON",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not isinstance(analysis, dict):
+        print(
+            f"Error: malformed analysis file {analysis_path}: must be an object",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     if "error" in analysis:
         print(f"Error: {analysis['error']}", file=sys.stderr)
@@ -1583,12 +1676,14 @@ def main():
             results = convert_plugin_agent_plugins(plugin_dir, analysis, output_dir)
         else:
             results = convert_plugin(plugin_dir, analysis, output_dir)
-    except ValueError as e:
+    except (ValueError, shutil.Error) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Print summary
-    print(f"\n✅ Converted: {results['plugin_name']}", file=sys.stderr)
+    skipped_mcp = results.get("skipped_mcp_servers") or []
+    failed = bool(skipped_mcp) and not results.get("mcp_servers")
+    banner = "❌ Conversion failed" if failed else "✅ Converted"
+    print(f"\n{banner}: {results['plugin_name']}", file=sys.stderr)
     print(f"   Output: {results['output_dir']}", file=sys.stderr)
     
     for component_type in ("skills", "agents", "hooks", "mcp_servers", "commands"):
@@ -1596,7 +1691,6 @@ def main():
         if count:
             print(f"   {component_type}: {count}", file=sys.stderr)
 
-    skipped_mcp = results.get("skipped_mcp_servers") or []
     for item in skipped_mcp:
         name = item.get("name", "unnamed")
         reason = item.get("reason") or "non-conforming"

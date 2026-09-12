@@ -703,6 +703,12 @@ class TestExtractTemplate(unittest.TestCase):
             self.assertIn("{{Amount}}", text)
             self.assertIn("{{Amount2}}", text)
             self.assertIn("{{Recipient}}", text)
+            csv_path = next(p for p in (tdp / "out").iterdir() if p.suffix == ".csv")
+            headers, rows = ft.load_rows(str(csv_path))
+            self.assertIn("Amount", headers)
+            for row in rows:
+                self.assertEqual((row.get("Amount") or ""), "")
+            self.assertIn("fill", report["pre_existing_note"].lower())
 
     def test_single_instance_typed_hits_round_trip(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1207,6 +1213,109 @@ class TestExtractTemplate(unittest.TestCase):
                 names = zf.namelist()
             hdrs = [n for n in names if "/header" in n]
             self.assertEqual(hdrs, [], names)
+
+    def test_partial_token_collapse_keeps_mismatched_code(self):
+        """D2: Recipient token must not delete the unmatched Code $10.00 paragraph."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "partial.docx"
+            _make_docx(src, [
+                "Dear Alice,",
+                "Code INV-2001",
+                "Dear Bob,",
+                "Code $10.00",
+            ])
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            text = ft.read_content(report["template"])
+            csv_text = Path(report["skeleton"]).read_text()
+            self.assertIn("Recipient", report["tokens"])
+            self.assertIn("Code INV-2001", text)
+            self.assertIn("Code $10.00", text)
+            self.assertIn("$10.00", csv_text + text)
+            self.assertTrue(
+                any("mismatch" in u.lower() for u in report["uncertain"]),
+                report["uncertain"],
+            )
+
+    def test_nested_table_in_extra_row_survives_collapse(self):
+        """D3: unique nested table in extra row 2 is kept, not deleted with the row."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "nested.docx"
+            doc = Document()
+            table = doc.add_table(rows=2, cols=1)
+            table.cell(0, 0).text = "Pay $10.00"
+            table.cell(1, 0).text = "Pay $20.00"
+            table.cell(1, 0).add_table(rows=1, cols=1).cell(0, 0).text = (
+                "Unique nested note"
+            )
+            doc.save(str(src))
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            extracted = Document(str(report["template"]))
+            self.assertEqual(len(extracted.tables), 1)
+            self.assertGreaterEqual(len(extracted.tables[0].rows), 2)
+            row2 = extracted.tables[0].rows[1]
+            nested = row2.cells[0].tables
+            self.assertTrue(nested, "row 2 nested table was deleted")
+            self.assertIn("Unique nested note", nested[0].cell(0, 0).text)
+            text = ft.read_content(report["template"])
+            self.assertIn("Unique nested note", text)
+            self.assertTrue(
+                any("boilerplate" in u.lower() or "unclaimed" in u.lower()
+                    for u in report["uncertain"]),
+                report["uncertain"],
+            )
+
+    def test_first_page_and_main_header_invoice_refs_are_kept(self):
+        """N2: distinct first-page and main header refs are both tokenised."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "hdr.docx"
+            doc = Document()
+            doc.add_paragraph("Dear Alice,")
+            doc.add_paragraph("Invoice INV-2024 body")
+            doc.add_paragraph("Dear Bob,")
+            doc.add_paragraph("Invoice INV-2025 body")
+            sec = doc.sections[0]
+            sec.different_first_page_header_footer = True
+            fp = sec.first_page_header
+            if fp.paragraphs:
+                fp.paragraphs[0].text = "Invoice INV-1024"
+            else:
+                fp.add_paragraph("Invoice INV-1024")
+            hd = sec.header
+            if hd.paragraphs:
+                hd.paragraphs[0].text = "Invoice INV-1025"
+            else:
+                hd.add_paragraph("Invoice INV-1025")
+            doc.save(str(src))
+
+            loaded = Document(str(src))
+            s0 = loaded.sections[0]
+            fp_el = next(
+                p._element for p in s0.first_page_header.paragraphs if p.text.strip()
+            )
+            hd_el = next(p._element for p in s0.header.paragraphs if p.text.strip())
+            self.assertEqual(
+                fp_el.getroottree().getpath(fp_el),
+                hd_el.getroottree().getpath(hd_el),
+            )
+            self.assertNotEqual(ft._xml_path(fp_el), ft._xml_path(hd_el))
+            cached = ft._xml_path(fp_el)
+            self.assertIs(cached, ft._xml_path(fp_el))
+
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            csv_text = Path(report["skeleton"]).read_text()
+            self.assertIn("INV-1024", csv_text)
+            self.assertIn("INV-1025", csv_text)
+            extracted = Document(str(report["template"]))
+            sec = extracted.sections[0]
+            fp_text = " ".join(p.text for p in sec.first_page_header.paragraphs)
+            hd_text = " ".join(p.text for p in sec.header.paragraphs)
+            self.assertIn("{{", fp_text)
+            self.assertIn("{{", hd_text)
+            self.assertNotIn("INV-1024", fp_text)
+            self.assertNotIn("INV-1025", hd_text)
 
 
 def _add_hyperlink(paragraph, text, url="https://example.com"):

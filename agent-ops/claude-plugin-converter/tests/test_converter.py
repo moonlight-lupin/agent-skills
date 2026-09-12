@@ -879,6 +879,7 @@ class TestRound4Fixes:
         report = (pkg / "CONVERSION_REPORT.md").read_text()
         assert "### Skipped" in report
         assert "bad" in report
+        assert "| ⏭️ Skipped | 1 |" in report
 
     def test_owned_report_files_at_source_root_are_ignored(self, tmp_path):
         """N3 residual: CONVERSION_REPORT.md and conversion_results.json are not copied."""
@@ -1037,6 +1038,8 @@ class TestRound5Fixes:
         assert proc.returncode != 0
         assert "skipped MCP server bad" in proc.stderr
         assert "bin/relative-no-dot" in proc.stderr or "bare token" in proc.stderr
+        assert "✅ Converted" not in proc.stderr
+        assert "❌" in proc.stderr
         assert (pkg / "skills" / "greet" / "SKILL.md").is_file()
         assert not (pkg / "mcp.json").is_file()
         assert (pkg / "conversion_results.json").is_file()
@@ -1062,6 +1065,11 @@ class TestRound5Fixes:
         )
         pkg = tmp_path / "pkg"
         pkg.mkdir()
+        (pkg / "plugin.json").write_text(json.dumps({
+            "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+            "name": "r311-plugin",
+            "version": "1.0.0",
+        }))
         (pkg / "mcp.json").write_text('{"stale": true, "marker": "STALE"}\n')
         (pkg / "skills" / "oldskill").mkdir(parents=True)
         (pkg / "skills" / "oldskill" / "SKILL.md").write_text("stale\n")
@@ -1082,6 +1090,253 @@ class TestRound5Fixes:
         mod = _load_convert()
         with pytest.raises(ValueError, match="validation failed"):
             mod._validate_or_die({"not": "a plugin"}, "plugin")
+
+
+class TestFix8SourceOutputOverlap:
+    """D1: --output must not overlap the source plugin directory."""
+
+    def _plugin_with_skill(self, root: Path):
+        plugin = root / "src"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "hello",
+            "version": "1.0.0",
+            "description": "d",
+        }))
+        sk = plugin / "skills" / "hello"
+        sk.mkdir(parents=True)
+        skill_md = sk / "SKILL.md"
+        original = "---\nname: hello\ndescription: hi\n---\nBody\n"
+        skill_md.write_text(original)
+        analysis = {
+            "manifest": {"name": "hello", "version": "1.0.0", "description": "d"},
+            "summary": {"convertible": 1, "partial": 0, "skipped": 0, "total": 1},
+            "components": {
+                "skills": [{"name": "hello", "path": str(sk)}],
+            },
+        }
+        return plugin, skill_md, original, analysis
+
+    def test_output_equal_to_source_raises_and_leaves_source_intact(self, tmp_path):
+        """D1: source==output must raise before cleanup deletes SKILL.md."""
+        mod = _load_convert()
+        plugin, skill_md, original, analysis = self._plugin_with_skill(tmp_path)
+        with pytest.raises(ValueError, match="output directory overlaps source directory"):
+            mod.convert_plugin_agent_plugins(plugin, analysis, plugin)
+        assert skill_md.is_file()
+        assert skill_md.read_text() == original
+
+    def test_output_inside_source_and_source_inside_output_rejected(self, tmp_path):
+        """D1: nested source/output paths overlap too."""
+        mod = _load_convert()
+        plugin, skill_md, original, analysis = self._plugin_with_skill(tmp_path)
+        with pytest.raises(ValueError, match="output directory overlaps source directory"):
+            mod.convert_plugin_agent_plugins(plugin, analysis, plugin / "out")
+        assert skill_md.is_file()
+        assert skill_md.read_text() == original
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        nested_src = pkg / "src"
+        nested_src.mkdir()
+        (nested_src / ".claude-plugin").mkdir()
+        (nested_src / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "hello", "version": "1.0.0", "description": "d",
+        }))
+        sk = nested_src / "skills" / "hello"
+        sk.mkdir(parents=True)
+        nested_md = sk / "SKILL.md"
+        nested_md.write_text(original)
+        nested_analysis = {
+            "manifest": {"name": "hello", "version": "1.0.0", "description": "d"},
+            "summary": {"convertible": 1, "partial": 0, "skipped": 0, "total": 1},
+            "components": {"skills": [{"name": "hello", "path": str(sk)}]},
+        }
+        with pytest.raises(ValueError, match="output directory overlaps source directory"):
+            mod.convert_plugin_agent_plugins(nested_src, nested_analysis, pkg)
+        assert nested_md.is_file()
+        assert nested_md.read_text() == original
+
+    def test_cli_output_equal_to_source_exits_nonzero(self, tmp_path):
+        """D1: main() maps the overlap error to exit 1 and leaves the tree intact."""
+        plugin, skill_md, original, _analysis = self._plugin_with_skill(tmp_path)
+        analysis_path = tmp_path / "analysis.json"
+        proc = subprocess.run(
+            [sys.executable, str(ANALYZE), str(plugin), "-o", str(analysis_path)],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert proc.returncode == 0, proc.stderr
+        proc = subprocess.run(
+            [sys.executable, str(CONVERT), str(plugin),
+             "--analysis", str(analysis_path), "--output", str(plugin),
+             "--format", "agent-plugins"],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert proc.returncode != 0
+        assert "output directory overlaps source directory" in proc.stderr
+        assert skill_md.is_file()
+        assert skill_md.read_text() == original
+
+
+class TestFix9OwnedDestAndReport:
+    """N1 owned-check, N4 dest-copy skip, N6-N9 converter report/CLI."""
+
+    def _plugin_with_skill(self, root: Path):
+        plugin = root / "src"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "hello",
+            "version": "1.0.0",
+            "description": "d",
+        }))
+        sk = plugin / "skills" / "hello"
+        sk.mkdir(parents=True)
+        skill_md = sk / "SKILL.md"
+        original = "---\nname: hello\ndescription: hi\n---\nBody\n"
+        skill_md.write_text(original)
+        analysis = {
+            "manifest": {"name": "hello", "version": "1.0.0", "description": "d"},
+            "summary": {"convertible": 1, "partial": 0, "skipped": 0, "total": 1},
+            "components": {
+                "skills": [{"name": "hello", "path": str(sk)}],
+            },
+        }
+        return plugin, skill_md, original, analysis
+
+    def test_non_owned_dest_with_skills_is_refused(self, tmp_path):
+        """N1: only clear skills/agents when dest looks converter-owned."""
+        mod = _load_convert()
+        plugin, _skill_md, _original, analysis = self._plugin_with_skill(tmp_path)
+        dest = tmp_path / "otherproj"
+        dest.mkdir()
+        victim = dest / "skills" / "mine"
+        victim.mkdir(parents=True)
+        (victim / "SKILL.md").write_text("do not delete\n")
+        (dest / "notes.txt").write_text("keep\n")
+        with pytest.raises(ValueError, match="pick a fresh output directory"):
+            mod.convert_plugin_agent_plugins(plugin, analysis, dest)
+        assert (victim / "SKILL.md").read_text() == "do not delete\n"
+        assert (dest / "notes.txt").read_text() == "keep\n"
+
+    def test_converter_owned_dest_can_be_cleared(self, tmp_path):
+        """N1: $schema-bearing plugin.json marks dest as converter-owned."""
+        mod = _load_convert()
+        plugin, _skill_md, _original, analysis = self._plugin_with_skill(tmp_path)
+        dest = tmp_path / "pkg"
+        dest.mkdir()
+        (dest / "plugin.json").write_text(json.dumps({
+            "$schema": mod.PLUGIN_SCHEMA_URL,
+            "name": "old",
+            "version": "0.0.1",
+        }))
+        (dest / "skills" / "oldskill").mkdir(parents=True)
+        (dest / "skills" / "oldskill" / "SKILL.md").write_text("stale\n")
+        mod.convert_plugin_agent_plugins(plugin, analysis, dest)
+        assert (dest / "skills" / "hello" / "SKILL.md").is_file()
+        assert not (dest / "skills" / "oldskill").exists()
+
+    def test_copy_skips_child_that_is_or_contains_dest(self, tmp_path):
+        """N4: copying remaining dirs must not nest dest inside itself."""
+        mod = _load_convert()
+        child = tmp_path / "out"
+        child.mkdir()
+        dest = child / "pkg"
+        dest.mkdir()
+        assert mod._is_dest_or_contains_dest(child, dest)
+        assert mod._is_dest_or_contains_dest(dest, dest)
+        other = tmp_path / "notes"
+        other.mkdir()
+        assert not mod._is_dest_or_contains_dest(other, dest)
+
+        plugin = tmp_path / "srcplug"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "n4-plugin",
+            "version": "1.0.0",
+            "description": "d",
+        }))
+        sk = plugin / "skills" / "greet"
+        sk.mkdir(parents=True)
+        (sk / "SKILL.md").write_text("---\nname: greet\ndescription: hi\n---\n\nHi.\n")
+        (plugin / "notes").mkdir()
+        (plugin / "notes" / "readme.txt").write_text("keep me\n")
+        analysis = {
+            "manifest": {"name": "n4-plugin", "version": "1.0.0", "description": "d"},
+            "components": {
+                "skills": [{"name": "greet", "path": str(sk)}],
+                "agents": [], "hooks": [], "mcp_servers": [], "commands": [],
+            },
+            "summary": {"convertible": 1, "partial": 0, "skipped": 0, "total": 1},
+        }
+        dest_root = plugin / "out"
+        mod.convert_plugin(plugin, analysis, dest_root)
+        package = dest_root / "n4-plugin"
+        assert (package / "plugin.yaml").is_file()
+        assert not (package / "out").exists()
+        assert (package / "notes" / "readme.txt").is_file()
+
+    def test_summary_skipped_count_matches_skipped_section(self):
+        """N6: agent-plugins summary is recomputed from conversion_results."""
+        mod = _load_convert()
+        report = mod.generate_ap_report(
+            {
+                "summary": {"convertible": 1, "partial": 0, "skipped": 0, "total": 1},
+                "components": {"agents": [{"name": "helper"}]},
+            },
+            {
+                "skills": [{"name": "greet", "issues": []}],
+                "mcp_servers": [],
+                "skipped_mcp_servers": [{"name": "bad", "reason": "nope"}],
+            },
+            "demo",
+        )
+        assert "| ⏭️ Skipped | 2 |" in report
+        skipped_section = report.split("### Skipped", 1)[1]
+        assert skipped_section.count("⏭️") == 2
+        assert "helper" in skipped_section
+        assert "bad" in skipped_section
+
+    def test_malformed_analysis_json_exits_1(self, tmp_path):
+        """N8: malformed analysis.json is a clean Error, not a traceback."""
+        plugin, _skill_md, _original, _analysis = self._plugin_with_skill(tmp_path)
+        bad = tmp_path / "analysis.json"
+        bad.write_text("{not json")
+        proc = subprocess.run(
+            [sys.executable, str(CONVERT), str(plugin),
+             "--analysis", str(bad), "--output", str(tmp_path / "pkg"),
+             "--format", "agent-plugins"],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert proc.returncode == 1
+        assert "Traceback" not in proc.stderr
+        assert "malformed analysis" in proc.stderr
+        assert "invalid JSON" in proc.stderr
+
+    def test_absolute_stdio_command_warns_portability(self):
+        """N9: absolute stdio command is kept but warned."""
+        mod = _load_convert()
+        warns: list[str] = []
+        out = mod.convert_ap_mcp_server(
+            {"command": "/usr/local/bin/uvx", "args": ["foo"]},
+            warnings=warns,
+        )
+        assert out["command"] == "/usr/local/bin/uvx"
+        assert any("absolute path" in w and "other machines" in w for w in warns)
+        report = mod.generate_ap_report(
+            {"summary": {"convertible": 0, "partial": 0, "skipped": 0, "total": 0},
+             "components": {}},
+            {"mcp_servers": [{
+                "name": "local",
+                "status": "converted",
+                "warnings": warns,
+            }]},
+            "demo",
+        )
+        assert "### Warnings" in report
+        assert "/usr/local/bin/uvx" in report
+
 
 
 
