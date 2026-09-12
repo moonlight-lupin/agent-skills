@@ -92,7 +92,7 @@ def convert_skill(skill_info: dict, source_plugin_dir: Path, dest_skills_dir: Pa
     source_skill_dir = Path(skill_info["path"])
     raw_name = skill_info.get("name", source_skill_dir.name)
     if flavour == "agent-plugins":
-        skill_name = ap_slug(str(raw_name), ap_slug(source_skill_dir.name, "skill"))
+        skill_name = ap_skill_slug(skill_info)
     else:
         skill_name = safe_name(raw_name, source_skill_dir.name)
 
@@ -696,6 +696,12 @@ _AP_PLUGIN_FIELDS = {
 }
 _CLAUDE_PLUGIN_ROOT = "${CLAUDE_PLUGIN_ROOT}"
 _AP_PLUGIN_ROOT = "${PLUGIN_ROOT}"
+_AP_OWNED_OUTPUT_FILES = frozenset({
+    "plugin.json",
+    "mcp.json",
+    "conversion_results.json",
+    "CONVERSION_REPORT.md",
+})
 
 
 def ap_slug(name: str, fallback: str = "plugin") -> str:
@@ -718,6 +724,28 @@ def ap_slug(name: str, fallback: str = "plugin") -> str:
     return s
 
 
+def ap_skill_slug(skill_info: dict) -> str:
+    """Agent Plugins skill directory / frontmatter name from analysis info."""
+    source_skill_dir = Path(skill_info.get("path") or ".")
+    raw_name = skill_info.get("name", source_skill_dir.name)
+    return ap_slug(str(raw_name), ap_slug(source_skill_dir.name, "skill"))
+
+
+def _raise_on_ap_skill_slug_collision(skills: list[dict]) -> None:
+    """Reject two source skills that slug to the same Agent Plugins name."""
+    by_slug: dict[str, list[str]] = {}
+    for sk in skills:
+        slug = ap_skill_slug(sk)
+        source = str(sk.get("name") or Path(sk.get("path") or "unnamed").name)
+        by_slug.setdefault(slug, []).append(source)
+    for slug, sources in by_slug.items():
+        if len(sources) > 1:
+            raise ValueError(
+                "duplicate skill name after slugification: "
+                f"{slug} (sources: {', '.join(sources)})"
+            )
+
+
 def map_ap_author(author):
     """Map a Claude author (string or object) to the AP {name,email,url} object."""
     if isinstance(author, str) and author.strip():
@@ -736,7 +764,17 @@ def load_source_manifest(plugin_dir: Path, analysis: dict) -> dict:
     """Read the Claude plugin.json. Analysis drops license and extra fields."""
     path = plugin_dir / ".claude-plugin" / "plugin.json"
     if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            raise ValueError(
+                f"malformed plugin manifest {path}: invalid JSON"
+            ) from None
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"malformed plugin manifest {path}: must be an object"
+            )
+        return data
     return dict(analysis.get("manifest") or {})
 
 
@@ -809,22 +847,45 @@ def _path_has_dotdot(value: str) -> bool:
     return ".." in PurePosixPath(value.replace("\\", "/")).parts
 
 
-_CREDENTIAL_KEY_BITS = ("token", "secret", "key")
+_CREDENTIAL_KEY_BITS = frozenset({"token", "secret", "key", "password"})
 _PLACEHOLDER_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$")
+_PLUGIN_PATH_PLACEHOLDER_RE = re.compile(r"\$\{(?:PLUGIN_ROOT|PLUGIN_DATA)\}")
+_PATH_LIKE_EXTS = (
+    ".json", ".txt", ".pem", ".key", ".crt", ".cer", ".env",
+    ".yml", ".yaml", ".ini", ".conf", ".cfg", ".toml", ".file",
+)
+
+
+def _env_placeholder_name(key: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_]", "_", key).upper()
 
 
 def _is_credential_shaped_key(key: str) -> bool:
     kl = key.lower().replace("_", "-")
     if kl in _CREDENTIAL_HEADER_NAMES:
         return True
-    compact = key.lower()
-    return any(bit in compact for bit in _CREDENTIAL_KEY_BITS)
+    segments = [s for s in re.split(r"[-_]", key.lower()) if s]
+    return any(s in _CREDENTIAL_KEY_BITS for s in segments)
+
+
+def _looks_like_path(val: str) -> bool:
+    v = val.strip()
+    if "/" in v or "\\" in v:
+        return True
+    lower = v.lower()
+    return any(lower.endswith(ext) for ext in _PATH_LIKE_EXTS)
 
 
 def _redact_credential_value(key: str, val: str, warnings: list[str] | None, where: str) -> str:
-    if _PLACEHOLDER_RE.match(val.strip()):
+    stripped = val.strip()
+    if _PLACEHOLDER_RE.match(stripped):
         return val
-    placeholder = "${" + key + "}"
+    already = re.fullmatch(r"\$\{([^}]+)\}", stripped)
+    if already:
+        return "${" + _env_placeholder_name(already.group(1)) + "}"
+    if _looks_like_path(val):
+        return val
+    placeholder = "${" + _env_placeholder_name(key) + "}"
     msg = (
         f"{where}[{key}] looks credential-shaped; value replaced with {placeholder} "
         "— rotate the source credential"
@@ -903,10 +964,12 @@ def _validate_stdio_cwd(cwd: str) -> None:
 
 
 def _validate_stdio_arg(arg: str) -> None:
-    if not arg.startswith(("./", "${PLUGIN_ROOT}", "${PLUGIN_DATA}")):
-        return
-    if _path_has_dotdot(arg):
+    if arg.startswith("./") and _path_has_dotdot(arg):
         raise ValueError(f"args path escapes plugin root: {arg!r}")
+    for m in _PLUGIN_PATH_PLACEHOLDER_RE.finditer(arg):
+        tail = arg[m.end():]
+        if _path_has_dotdot(tail) or _path_has_dotdot(arg[m.start():]):
+            raise ValueError(f"args path escapes plugin root: {arg!r}")
 
 
 def convert_ap_mcp_server(config: dict, warnings: list[str] | None = None) -> dict:
@@ -918,7 +981,12 @@ def convert_ap_mcp_server(config: dict, warnings: list[str] | None = None) -> di
     command = config.get("command")
     raw_type = config.get("type")
 
-    if raw_type in ("streamable-http", "sse") or (url and not command):
+    if url and command:
+        msg = "url is discarded because command is present"
+        if warnings is not None:
+            warnings.append(msg)
+
+    if (raw_type in ("streamable-http", "sse") or url) and not command:
         if not url:
             raise ValueError("HTTP MCP server is missing url")
         url_s = str(url)
@@ -1233,7 +1301,8 @@ def generate_ap_report(analysis: dict, conversion_results: dict, plugin_name: st
     if components.get("monitors"):
         skipped_bits.append(("Monitors", [x.get("name", "unnamed") for x in components["monitors"]],
                              "No Agent Plugins equivalent — skipped"))
-    if skipped_bits:
+    skipped_mcp = conversion_results.get("skipped_mcp_servers") or []
+    if skipped_bits or skipped_mcp:
         lines.append("### Skipped")
         lines.append("")
         for title, names, reason in skipped_bits:
@@ -1241,6 +1310,22 @@ def generate_ap_report(analysis: dict, conversion_results: dict, plugin_name: st
             for n in names:
                 lines.append(f"- {n}: ⏭️ {reason}")
             lines.append("")
+        if skipped_mcp:
+            lines.append("**MCP Servers**")
+            for item in skipped_mcp:
+                reason = item.get("reason") or "non-conforming"
+                lines.append(f"- {item.get('name', 'unnamed')}: ⏭️ {reason}")
+            lines.append("")
+
+    ignored = conversion_results.get("ignored_source_files") or []
+    if ignored:
+        lines.append("### Ignored source files")
+        lines.append("")
+        for name in ignored:
+            lines.append(
+                f"- `{name}` at the source root is converter-owned output and was not copied"
+            )
+        lines.append("")
 
     lines.append("## Next Steps")
     lines.append("")
@@ -1265,6 +1350,9 @@ def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: P
     dest = output_dir
     dest.mkdir(parents=True, exist_ok=True)
 
+    components = analysis.get("components") or {}
+    _raise_on_ap_skill_slug_collision(components.get("skills") or [])
+
     plugin_doc = build_ap_plugin_json(manifest, name=plugin_name)
     _validate_or_die(plugin_doc, "plugin")
 
@@ -1276,6 +1364,7 @@ def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: P
         sys.exit(1)
     mcp_doc = None
     mcp_infos = []
+    skipped_mcp: list[dict] = []
     if source_servers:
         mcp_servers = {}
         for sname, sconfig in source_servers.items():
@@ -1283,17 +1372,24 @@ def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: P
                 warns: list[str] = []
                 mcp_servers[sname] = convert_ap_mcp_server(sconfig, warnings=warns)
             except Exception as e:
-                print(f"Error: MCP server {sname!r} could not be converted: {e}", file=sys.stderr)
-                sys.exit(1)
+                skipped_mcp.append({"name": sname, "reason": str(e)})
+                continue
             info = {"name": sname, "status": "converted"}
             if warns:
                 info["warnings"] = warns
             mcp_infos.append(info)
-        mcp_doc = {"$schema": MCP_SCHEMA_URL, "mcpServers": mcp_servers}
-        _validate_or_die(mcp_doc, "mcp")
+        if mcp_servers:
+            mcp_doc = {"$schema": MCP_SCHEMA_URL, "mcpServers": mcp_servers}
+            _validate_or_die(mcp_doc, "mcp")
 
-    results = {"skills": [], "mcp_servers": mcp_infos, "agents": [], "hooks": [], "commands": []}
-    components = analysis.get("components") or {}
+    results = {
+        "skills": [],
+        "mcp_servers": mcp_infos,
+        "agents": [],
+        "hooks": [],
+        "commands": [],
+        "skipped_mcp_servers": skipped_mcp,
+    }
 
     if components.get("skills"):
         skills_dir = dest / "skills"
@@ -1322,14 +1418,19 @@ def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: P
         ".claude-plugin", "skills", "commands", "agents", "hooks", ".git",
         "__pycache__", ".pytest_cache", "tests", "tools", "bin",
     }
+    ignored_source_files: list[str] = []
     for child in plugin_dir.iterdir():
         if child.name.startswith("."):
             continue
         if child.is_dir() and child.name not in skip_dirs:
             shutil.copytree(child, dest / child.name, dirs_exist_ok=True)
         elif child.is_file():
+            if child.name in _AP_OWNED_OUTPUT_FILES:
+                ignored_source_files.append(child.name)
+                continue
             shutil.copy2(child, dest / child.name)
 
+    results["ignored_source_files"] = ignored_source_files
     report = generate_ap_report(analysis, results, plugin_name)
     report_dir = dest.parent
     (report_dir / "CONVERSION_REPORT.md").write_text(report, encoding="utf-8")
@@ -1469,10 +1570,14 @@ def main():
         print(f"Error: {analysis['error']}", file=sys.stderr)
         sys.exit(1)
 
-    if args.format == "agent-plugins":
-        results = convert_plugin_agent_plugins(plugin_dir, analysis, output_dir)
-    else:
-        results = convert_plugin(plugin_dir, analysis, output_dir)
+    try:
+        if args.format == "agent-plugins":
+            results = convert_plugin_agent_plugins(plugin_dir, analysis, output_dir)
+        else:
+            results = convert_plugin(plugin_dir, analysis, output_dir)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Print summary
     print(f"\n✅ Converted: {results['plugin_name']}", file=sys.stderr)

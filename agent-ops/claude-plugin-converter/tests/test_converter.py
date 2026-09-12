@@ -601,3 +601,285 @@ class TestApMcpValidation:
         assert (schemas / "plugin.schema.json").is_file()
         assert (schemas / "mcp.schema.json").is_file()
 
+
+class TestRound3Regressions:
+    """R1/R5: source-root overwrite and slug-collision rejection."""
+
+    def test_root_plugin_and_mcp_json_do_not_overwrite_generated(self, tmp_path):
+        """R1: source-root plugin.json/mcp.json must not replace validated output."""
+        mod = _load_convert()
+        plugin = tmp_path / "srcplug"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "r1-plugin",
+            "version": "1.0.0",
+            "description": "valid source",
+        }))
+        (plugin / "plugin.json").write_text(json.dumps({
+            "name": "INVALID",
+            "unknown": True,
+        }))
+        secret = "super-secret-live-token"
+        (plugin / ".mcp.json").write_text(json.dumps({
+            "mcpServers": {
+                "demo": {
+                    "command": "python3",
+                    "args": ["-m", "demo"],
+                    "env": {"API_TOKEN": secret},
+                }
+            }
+        }))
+        (plugin / "mcp.json").write_text(json.dumps({
+            "mcpServers": {
+                "leaked": {
+                    "command": "python3",
+                    "env": {"API_TOKEN": secret},
+                }
+            }
+        }))
+        (plugin / "LICENSE").write_text("MIT license text\n")
+        (plugin / "skills" / "greet").mkdir(parents=True)
+        (plugin / "skills" / "greet" / "SKILL.md").write_text(
+            "---\nname: greet\ndescription: hi\n---\n\nHi.\n"
+        )
+        pkg = tmp_path / "pkg"
+        analysis = {
+            "manifest": {"name": "r1-plugin", "version": "1.0.0", "description": "valid source"},
+            "summary": {"convertible": 1, "partial": 0, "skipped": 0, "total": 1},
+            "components": {
+                "skills": [{"name": "greet", "path": str(plugin / "skills" / "greet")}],
+            },
+        }
+        results = mod.convert_plugin_agent_plugins(plugin, analysis, pkg)
+        pjson = json.loads((pkg / "plugin.json").read_text())
+        assert pjson["name"] == "r1-plugin"
+        assert "unknown" not in pjson
+        mcp_raw = (pkg / "mcp.json").read_text()
+        mcp = json.loads(mcp_raw)
+        assert secret not in mcp_raw
+        assert mcp["mcpServers"]["demo"]["env"]["API_TOKEN"] == "${API_TOKEN}"
+        assert "leaked" not in mcp["mcpServers"]
+        assert (pkg / "LICENSE").is_file()
+        assert "plugin.json" in results["ignored_source_files"]
+        assert "mcp.json" in results["ignored_source_files"]
+        report = (pkg.parent / "CONVERSION_REPORT.md").read_text()
+        assert "plugin.json" in report
+        assert "Ignored source files" in report
+
+    def test_slug_collision_exits_nonzero_with_named_error(self, tmp_path):
+        """R5: a_b and a-b must not silently overwrite; CLI exits non-zero."""
+        plugin = tmp_path / "srcplug"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "r5-plugin",
+            "version": "1.0.0",
+            "description": "collision",
+        }))
+        for name, body in (("a_b", "skill underscore"), ("a-b", "skill hyphen")):
+            d = plugin / "skills" / name
+            d.mkdir(parents=True)
+            (d / "SKILL.md").write_text(
+                f"---\nname: {name}\ndescription: {body}\n---\n\n{body}\n"
+            )
+        analysis = tmp_path / "analysis.json"
+        proc = subprocess.run(
+            [sys.executable, str(ANALYZE), str(plugin), "-o", str(analysis)],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert proc.returncode == 0, proc.stderr
+        out = tmp_path / "pkg"
+        proc = subprocess.run(
+            [sys.executable, str(CONVERT), str(plugin),
+             "--analysis", str(analysis), "--output", str(out),
+             "--format", "agent-plugins"],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert proc.returncode != 0
+        err = proc.stderr
+        assert "Error:" in err
+        assert "duplicate skill name after slugification: a-b" in err
+        assert "a_b" in err
+        results_path = tmp_path / "conversion_results.json"
+        assert not results_path.is_file()
+        skills_dir = out / "skills"
+        assert not skills_dir.exists()
+
+
+class TestRound4Fixes:
+    """N3 residual, N7, N9, N10, N13, N15, N16."""
+
+    def test_placeholder_mid_arg_dotdot_is_rejected(self):
+        """N7: ${PLUGIN_ROOT} in the middle of an arg still validates the tail."""
+        mod = _load_convert()
+        with pytest.raises(ValueError, match="args"):
+            mod.convert_ap_mcp_server({
+                "command": "node",
+                "args": ["--config=${CLAUDE_PLUGIN_ROOT}/../../etc/passwd"],
+            })
+        with pytest.raises(ValueError, match="args"):
+            mod.convert_ap_mcp_server({
+                "command": "node",
+                "args": ["--config=${PLUGIN_DATA}/../../secret"],
+            })
+        ok = mod.convert_ap_mcp_server({
+            "command": "node",
+            "args": ["--config=${CLAUDE_PLUGIN_ROOT}/config.json"],
+        })
+        assert ok["args"] == ["--config=${PLUGIN_ROOT}/config.json"]
+
+    def test_env_placeholder_normalizes_non_alnum(self):
+        """N10: X-Api-Key becomes ${X_API_KEY}."""
+        mod = _load_convert()
+        warns: list[str] = []
+        out = mod.convert_ap_mcp_server(
+            {"command": "node", "env": {"X-Api-Key": "sk-live-secret"}},
+            warnings=warns,
+        )
+        assert out["env"]["X-Api-Key"] == "${X_API_KEY}"
+        assert "sk-live-secret" not in json.dumps(out)
+        assert "X-Api-Key" not in out["env"]["X-Api-Key"]
+
+    def test_credential_heuristic_skips_monkey_mode_and_key_file(self):
+        """N13: whole-segment match; path-looking values are left alone."""
+        mod = _load_convert()
+        warns: list[str] = []
+        out = mod.convert_ap_mcp_server(
+            {
+                "command": "node",
+                "env": {
+                    "MONKEY_MODE": "on",
+                    "API_KEY_FILE": "/etc/keys/api.pem",
+                    "API_TOKEN": "sk-live-secret",
+                    "DB_PASSWORD": "hunter2",
+                },
+            },
+            warnings=warns,
+        )
+        assert out["env"]["MONKEY_MODE"] == "on"
+        assert out["env"]["API_KEY_FILE"] == "/etc/keys/api.pem"
+        assert out["env"]["API_TOKEN"] == "${API_TOKEN}"
+        assert out["env"]["DB_PASSWORD"] == "${DB_PASSWORD}"
+        dumped = json.dumps(out)
+        assert "sk-live-secret" not in dumped
+        assert "hunter2" not in dumped
+
+    def test_url_and_command_discards_url_with_warning(self):
+        """N16: both url and command → stdio, warn that url is discarded."""
+        mod = _load_convert()
+        warns: list[str] = []
+        out = mod.convert_ap_mcp_server(
+            {
+                "url": "https://example.com/mcp",
+                "command": "node",
+                "args": ["server.js"],
+            },
+            warnings=warns,
+        )
+        assert out["type"] == "stdio"
+        assert out["command"] == "node"
+        assert "url" not in out
+        assert warns and "url" in warns[0].lower() and "discard" in warns[0].lower()
+
+    def test_malformed_plugin_json_is_named_error_exit_1(self, tmp_path):
+        """N15: malformed .claude-plugin/plugin.json names the file and exits 1."""
+        plugin = tmp_path / "badplug"
+        plugin.mkdir()
+        manifest_dir = plugin / ".claude-plugin"
+        manifest_dir.mkdir()
+        path = manifest_dir / "plugin.json"
+        path.write_text("{not json")
+        analysis = tmp_path / "analysis.json"
+        proc = subprocess.run(
+            [sys.executable, str(ANALYZE), str(plugin), "-o", str(analysis)],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert proc.returncode == 1
+        err = proc.stderr
+        assert "malformed plugin manifest" in err
+        assert str(path) in err
+        mod = _load_convert()
+        with pytest.raises(ValueError, match="malformed plugin manifest") as ei:
+            mod.load_source_manifest(plugin, {})
+        assert str(path) in str(ei.value)
+
+    def test_nonconforming_mcp_server_is_skipped(self, tmp_path):
+        """N9: one bad MCP server is skipped; skills and a good server still convert."""
+        mod = _load_convert()
+        plugin = tmp_path / "srcplug"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "n9-plugin",
+            "version": "1.0.0",
+            "description": "skip one mcp",
+        }))
+        (plugin / ".mcp.json").write_text(json.dumps({
+            "mcpServers": {
+                "good": {"command": "python3", "args": ["-m", "demo"]},
+                "bad": {"command": "node", "args": ["./../escape"]},
+            }
+        }))
+        (plugin / "skills" / "greet").mkdir(parents=True)
+        (plugin / "skills" / "greet" / "SKILL.md").write_text(
+            "---\nname: greet\ndescription: hi\n---\n\nHi.\n"
+        )
+        pkg = tmp_path / "pkg"
+        analysis = {
+            "manifest": {"name": "n9-plugin", "version": "1.0.0", "description": "d"},
+            "summary": {"convertible": 1, "partial": 0, "skipped": 0, "total": 1},
+            "components": {
+                "skills": [{"name": "greet", "path": str(plugin / "skills" / "greet")}],
+            },
+        }
+        results = mod.convert_plugin_agent_plugins(plugin, analysis, pkg)
+        assert (pkg / "skills" / "greet" / "SKILL.md").is_file()
+        mcp = json.loads((pkg / "mcp.json").read_text())
+        assert "good" in mcp["mcpServers"]
+        assert "bad" not in mcp["mcpServers"]
+        skipped_names = [s["name"] for s in results["skipped_mcp_servers"]]
+        assert skipped_names == ["bad"]
+        report = (pkg.parent / "CONVERSION_REPORT.md").read_text()
+        assert "### Skipped" in report
+        assert "bad" in report
+
+    def test_owned_report_files_at_source_root_are_ignored(self, tmp_path):
+        """N3 residual: CONVERSION_REPORT.md and conversion_results.json are not copied."""
+        mod = _load_convert()
+        plugin = tmp_path / "srcplug"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "n3-plugin",
+            "version": "1.0.0",
+            "description": "reserved names",
+        }))
+        (plugin / "CONVERSION_REPORT.md").write_text("# leaked source report\n")
+        (plugin / "conversion_results.json").write_text("{\"leaked\": true}\n")
+        (plugin / "skills" / "greet").mkdir(parents=True)
+        (plugin / "skills" / "greet" / "SKILL.md").write_text(
+            "---\nname: greet\ndescription: hi\n---\n\nHi.\n"
+        )
+        pkg = tmp_path / "pkg"
+        analysis = {
+            "manifest": {"name": "n3-plugin", "version": "1.0.0", "description": "d"},
+            "summary": {"convertible": 1, "partial": 0, "skipped": 0, "total": 1},
+            "components": {
+                "skills": [{"name": "greet", "path": str(plugin / "skills" / "greet")}],
+            },
+        }
+        results = mod.convert_plugin_agent_plugins(plugin, analysis, pkg)
+        assert "CONVERSION_REPORT.md" in results["ignored_source_files"]
+        assert "conversion_results.json" in results["ignored_source_files"]
+        assert (pkg / "plugin.json").is_file()
+        assert not (pkg / "CONVERSION_REPORT.md").is_file()
+        assert not (pkg / "conversion_results.json").is_file()
+        report = (pkg.parent / "CONVERSION_REPORT.md").read_text()
+        assert "leaked source report" not in report
+        assert "CONVERSION_REPORT.md" in report
+        assert "conversion_results.json" in report
+        assert "Ignored source files" in report
+
+
+

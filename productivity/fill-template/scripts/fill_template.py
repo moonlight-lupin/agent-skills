@@ -75,6 +75,10 @@ from pathlib import Path
 
 import openpyxl
 from docx import Document
+from docx.oxml.ns import qn
+
+_W_TR = qn("w:tr")
+_W_TC = qn("w:tc")
 
 # ----------------------------------------------------------------------------
 # Token plumbing
@@ -542,6 +546,13 @@ _VALUE_PATTERNS: list[tuple[str, re.Pattern]] = [
 _TOKEN_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
+def _paragraph_xml_id(paragraph) -> int:
+    xml = getattr(paragraph, "_p", None)
+    if xml is None:
+        xml = paragraph._element
+    return id(xml)
+
+
 def _collect_table_texts(table, prefix: str) -> list[tuple[str, str, object]]:
     records: list[tuple[str, str, object]] = []
     for ri, row in enumerate(table.rows, start=1):
@@ -579,6 +590,10 @@ def _collect_located_texts(doc) -> list[tuple[str, str, object]]:
             ("first-page footer", section.first_page_footer),
             ("even-page footer", section.even_page_footer),
         ):
+            # Accessing paragraphs on a linked first/even header creates a
+            # spurious part (header2.xml). Skip linked definitions.
+            if hf.is_linked_to_previous:
+                continue
             for i, p in enumerate(hf.paragraphs, start=1):
                 if p.text.strip():
                     records.append((p.text, f"section {si} {label} paragraph {i}", p))
@@ -586,7 +601,15 @@ def _collect_located_texts(doc) -> list[tuple[str, str, object]]:
                 records.extend(
                     _collect_table_texts(table, f"section {si} {label} table {ti}")
                 )
-    return records
+    seen: set[int] = set()
+    unique: list[tuple[str, str, object]] = []
+    for rec in records:
+        xml_id = _paragraph_xml_id(rec[2])
+        if xml_id in seen:
+            continue
+        seen.add(xml_id)
+        unique.append(rec)
+    return unique
 
 
 def _fingerprint(text: str) -> str:
@@ -623,6 +646,13 @@ def _group_instances(
     if not repeating:
         return [records], uncertain
 
+    varying = [
+        fp for fp in repeating
+        if len({_typed_signature(records[i][0]) for i in groups[fp]}) > 1
+    ]
+    if not varying:
+        return [records], uncertain
+
     n = min(len(groups[fp]) for fp in repeating)
     for fp in repeating:
         extra = len(groups[fp]) - n
@@ -635,6 +665,11 @@ def _group_instances(
         for k in range(n)
     ]
     return instances, uncertain
+
+
+def _typed_signature(text: str) -> tuple:
+    hits, _notes = _typed_hits(text)
+    return tuple((kind, value) for kind, value, _start, _end in hits)
 
 
 def _typed_hits(text: str) -> tuple[list[tuple[str, str, int, int]], list[str]]:
@@ -655,6 +690,11 @@ def _typed_hits(text: str) -> tuple[list[tuple[str, str, int, int]], list[str]]:
                 continue
             claimed = taken[start:end]
             if all(claimed):
+                if kind == "AccountRef" and any(
+                    hk == "InvoiceRef" and hs <= start and end <= he
+                    for hs, he, hk, _hv in hits
+                ):
+                    continue
                 notes.append(f"overlapping {kind} skipped at {start}:{end}")
                 continue
             if any(claimed):
@@ -750,28 +790,127 @@ def _delete_paragraph(paragraph) -> None:
         parent.remove(el)
 
 
+def _xml_ancestor(el, tag: str):
+    while el is not None:
+        if el.tag == tag:
+            return el
+        el = el.getparent()
+    return None
+
+
+def _clear_paragraph_keep_p(paragraph) -> None:
+    paragraph.text = ""
+
+
 def _paragraph_run_text(paragraph) -> str:
     return "".join(r.text or "" for r in paragraph.runs)
 
 
 def _collapse_extra_instances(instances: list[list[tuple]]) -> int:
-    """Delete paragraphs of instances 1..n-1. Returns how many extras were removed."""
+    """Drop extra instances. Extra-only table rows are removed whole.
+
+    Mixed rows keep one empty ``<w:p>`` per extra cell so ``<w:tc>`` stays
+    valid. Body paragraphs not in a row are deleted. Returns how many extra
+    instances were collapsed.
+    """
     if len(instances) <= 1:
         return 0
-    removed = 0
+    retained: set[int] = set()
+    retained_trs: list = []
+    for rec in instances[0]:
+        para = rec[2] if len(rec) > 2 else None
+        if para is None:
+            continue
+        retained.add(_paragraph_xml_id(para))
+        tr = _xml_ancestor(para._element, _W_TR)
+        if tr is not None:
+            retained_trs.append(tr)
+
+    extra_paras: list = []
+    seen_extra: set[int] = set()
     for inst in instances[1:]:
         for rec in inst:
             para = rec[2] if len(rec) > 2 else None
-            if para is not None:
-                _delete_paragraph(para)
-        removed += 1
-    return removed
+            if para is None:
+                continue
+            pid = _paragraph_xml_id(para)
+            if pid in retained or pid in seen_extra:
+                continue
+            seen_extra.add(pid)
+            extra_paras.append(para)
+
+    extras_by_tr: list[tuple] = []
+    extras_no_tr: list = []
+    seen_tr: list = []
+    for para in extra_paras:
+        tr = _xml_ancestor(para._element, _W_TR)
+        if tr is None:
+            extras_no_tr.append(para)
+            continue
+        bucket = None
+        for i, seen in enumerate(seen_tr):
+            if tr == seen:
+                bucket = i
+                break
+        if bucket is None:
+            seen_tr.append(tr)
+            extras_by_tr.append((tr, [para]))
+        else:
+            extras_by_tr[bucket][1].append(para)
+
+    deleted_tr: list = []
+    for tr, paras in extras_by_tr:
+        if any(tr == retained for retained in retained_trs):
+            for para in paras:
+                _clear_paragraph_keep_p(para)
+            continue
+        parent = tr.getparent()
+        if parent is not None and not any(tr == d for d in deleted_tr):
+            parent.remove(tr)
+            deleted_tr.append(tr)
+
+    for para in extras_no_tr:
+        parent = para._element.getparent()
+        if parent is not None and parent.tag == _W_TC:
+            _clear_paragraph_keep_p(para)
+        else:
+            _delete_paragraph(para)
+    return len(instances) - 1
+
+
+def _require_extract_basename(name: str) -> str:
+    if os.path.isabs(name) or Path(name).is_absolute():
+        raise ValueError(
+            f"extract_template name must not be an absolute path: {name!r}"
+        )
+    if "/" in name or "\\" in name:
+        raise ValueError(
+            f"extract_template name must not contain path separators: {name!r}"
+        )
+    if name in (".", "..") or ".." in Path(name).parts:
+        raise ValueError(
+            f"extract_template name must not contain '..' segments: {name!r}"
+        )
+    if not name or name.strip() != name:
+        raise ValueError(f"extract_template name must be a basename, got {name!r}")
+    return name
+
+
+def _assert_under_outdir(out_p: Path, dest: Path) -> None:
+    parent = Path(os.path.realpath(out_p))
+    child = Path(os.path.realpath(dest))
+    prefix = str(parent) if str(parent).endswith(os.sep) else str(parent) + os.sep
+    if not str(child).startswith(prefix):
+        raise ValueError(
+            f"extract_template would write {dest} outside out_dir {out_p}"
+        )
 
 
 def _write_skeleton(path: Path, token_names: list[str], rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
         if not token_names:
+            f.write("\n")
             return
         w = csv.DictWriter(f, fieldnames=token_names, extrasaction="ignore")
         w.writeheader()
@@ -804,12 +943,26 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
         )
     out_p = Path(out_dir)
     out_p.mkdir(parents=True, exist_ok=True)
-    stem = name or src_p.stem
+    stem = src_p.stem if name is None else _require_extract_basename(name)
     tmpl_path = out_p / f"{stem}_tokenised.docx"
     csv_path = out_p / f"{stem}_data.csv"
+    _assert_under_outdir(out_p, tmpl_path)
+    _assert_under_outdir(out_p, csv_path)
 
     src_real = os.path.realpath(src_p)
-    if os.path.realpath(tmpl_path) == src_real or os.path.realpath(csv_path) == src_real:
+
+    def _aliases_source(dest: Path) -> bool:
+        try:
+            return dest.exists() and os.path.samefile(src_p, dest)
+        except OSError:
+            return False
+
+    if (
+        os.path.realpath(tmpl_path) == src_real
+        or os.path.realpath(csv_path) == src_real
+        or _aliases_source(tmpl_path)
+        or _aliases_source(csv_path)
+    ):
         raise ValueError(
             "extract_template would overwrite the source file; "
             "pass a different name or out_dir"
@@ -868,15 +1021,17 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
     tmpl_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(tmpl_path))
 
-    token_names = [s["token"] for s in slots]
+    dropped = set(not_found)
+    kept_slots = [s for s in slots if s["token"] not in dropped]
+    token_names = [s["token"] for s in kept_slots]
     data_rows = [
-        {s["token"]: s["values"][i] for s in slots}
+        {s["token"]: s["values"][i] for s in kept_slots}
         for i in range(len(instances))
     ]
     _write_skeleton(csv_path, token_names, data_rows)
 
     mapping = []
-    for slot in slots:
+    for slot in kept_slots:
         for val, where in zip(slot["values"], slot["wheres"]):
             mapping.append({
                 "literal": val,
@@ -892,10 +1047,12 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
         "tokens": token_names,
         "instances": len(instances),
         "instances_collapsed": instances_collapsed,
-        "hits": hits_counts,
+        "hits": {t: hits_counts[t] for t in token_names},
         "not_found": not_found,
         "pre_existing_tokens": pre_existing,
     }
+    if not token_names:
+        report["status"] = "no-tokens"
     if pre_existing:
         report["pre_existing_note"] = (
             "reserved pre-existing token(s) "

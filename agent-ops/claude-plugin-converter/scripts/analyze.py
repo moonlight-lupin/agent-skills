@@ -304,7 +304,12 @@ def analyze_plugin(plugin_dir: Path) -> dict:
     if not manifest_path.exists():
         return {"error": f"No .claude-plugin/plugin.json found in {plugin_dir}"}
 
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"error": f"malformed plugin manifest {manifest_path}: invalid JSON"}
+    if not isinstance(manifest, dict):
+        return {"error": f"malformed plugin manifest {manifest_path}: must be an object"}
 
     # Also check for inline hooks/MCP in plugin.json
     inline_mcp = manifest.get("mcpServers", {})

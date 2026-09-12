@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "acme-validator": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${PLUGIN_ROOT}/bin/validator.js",
+        "--strict"
+      ],
+      "env": {
+        "ACME_MODE": "strict"
+      }
+    }
+  }
+}
