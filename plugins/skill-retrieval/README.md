@@ -24,11 +24,13 @@ Restart the Hermes session so the plugin's `register()` runs.
 | Setting | Default | Override |
 |---------|---------|----------|
 | Top-K results | `6` | `SKILL_RETRIEVAL_TOP_K` env var |
+| System prompt compaction | enabled | `SKILL_RETRIEVAL_COMPACT=0` disables compaction but keeps retrieval injection |
 | BM25 k1 | `1.5` | edit `scripts/bm25_retriever.py` |
 | BM25 b | `0.75` | edit `scripts/bm25_retriever.py` |
 
 ```bash
 export SKILL_RETRIEVAL_TOP_K=8
+export SKILL_RETRIEVAL_COMPACT=0  # retrieval-only mode; no prompt-builder monkey patch
 ```
 
 ## Uninstall

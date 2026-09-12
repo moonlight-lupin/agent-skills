@@ -392,23 +392,25 @@ def test_get_index_cache_is_scoped_by_hermes_home(monkeypatch, tmp_path):
         str((tmp_path / "profile-b").resolve(strict=False)),
     }
 
-# ─── plugin TOP_K parsing ────────────────────────────────────────────────────
-
-def test_parse_top_k_defaults_and_rejects_invalid():
-    import importlib
+def _load_plugin_module(module_name="skill_retrieval_plugin"):
+    import importlib.util
     import sys
     from pathlib import Path
 
     plugin_dir = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(plugin_dir))
-    # Import the package __init__ as a module under a unique name so we can
-    # call the helper without requiring a Hermes runtime.
-    import importlib.util
     spec = importlib.util.spec_from_file_location(
-        "skill_retrieval_plugin", plugin_dir / "__init__.py"
+        module_name, plugin_dir / "__init__.py"
     )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    return mod
+
+
+# ─── plugin env parsing ───────────────────────────────────────────────────────
+
+def test_parse_top_k_defaults_and_rejects_invalid():
+    mod = _load_plugin_module("skill_retrieval_top_k_test")
 
     assert mod._parse_top_k(None) == 6
     assert mod._parse_top_k("") == 6
@@ -416,3 +418,40 @@ def test_parse_top_k_defaults_and_rejects_invalid():
     assert mod._parse_top_k("nope") == 6
     assert mod._parse_top_k("0") == 6
     assert mod._parse_top_k("-3") == 6
+
+
+def test_parse_bool_env_accepts_compaction_switch_values():
+    mod = _load_plugin_module("skill_retrieval_bool_env_test")
+
+    assert mod._parse_bool_env(None) is True
+    assert mod._parse_bool_env("") is True
+    assert mod._parse_bool_env("1") is True
+    assert mod._parse_bool_env("true") is True
+    assert mod._parse_bool_env("yes") is True
+    assert mod._parse_bool_env("on") is True
+    assert mod._parse_bool_env("0") is False
+    assert mod._parse_bool_env("false") is False
+    assert mod._parse_bool_env("no") is False
+    assert mod._parse_bool_env("off") is False
+    assert mod._parse_bool_env("nonsense") is True
+
+
+def test_register_can_disable_prompt_compaction(monkeypatch):
+    mod = _load_plugin_module("skill_retrieval_register_compact_test")
+    called = []
+
+    class Ctx:
+        def __init__(self):
+            self.hooks = []
+
+        def register_hook(self, name, func):
+            self.hooks.append((name, func))
+
+    monkeypatch.setattr(mod, "COMPACT_SYSTEM_PROMPT", False)
+    monkeypatch.setattr(mod, "_compact_skills_prompt", lambda: called.append(True))
+
+    ctx = Ctx()
+    mod.register(ctx)
+
+    assert called == []
+    assert ctx.hooks == [("pre_llm_call", mod._on_pre_llm_call)]

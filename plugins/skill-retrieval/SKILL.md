@@ -102,11 +102,13 @@ pip install pyyaml
 | Setting | Default | How to set |
 |---------|---------|------------|
 | `TOP_K` | `6` | Env var `SKILL_RETRIEVAL_TOP_K` |
+| System prompt compaction | enabled | Set `SKILL_RETRIEVAL_COMPACT=0` to disable compaction while keeping BM25 retrieval injection |
 | BM25 `k1` | `1.5` | Constant in `scripts/bm25_retriever.py` |
 | BM25 `b` | `0.75` | Constant in `scripts/bm25_retriever.py` |
 
 ```bash
 export SKILL_RETRIEVAL_TOP_K=8
+export SKILL_RETRIEVAL_COMPACT=0
 ```
 
 ## Verify it's working
