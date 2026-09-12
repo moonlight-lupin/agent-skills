@@ -1089,14 +1089,23 @@ def _mask_stdio_args(args: list[str], warnings: list[str] | None = None) -> list
     return out
 
 
-def _validate_stdio_arg(arg: str) -> None:
+def _require_stdio_args(raw) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, list) and all(isinstance(a, str) for a in raw):
+        return raw
+    raise ValueError("args must be a JSON array of strings")
+
+
+def _validate_stdio_arg(arg: str, index: int) -> None:
     # Args are opaque strings: containment applies only to ./ and ${PLUGIN_*} paths.
+    # Never interpolate `arg` into the diagnostic; secrets land in CONVERSION_REPORT.md.
     if arg.startswith("./") and _path_has_dotdot(arg):
-        raise ValueError(f"args path escapes plugin root: {arg!r}")
+        raise ValueError(f"args[{index}]: path escapes plugin root")
     for m in _PLUGIN_PATH_PLACEHOLDER_RE.finditer(arg):
         tail = arg[m.end():]
         if _path_has_dotdot(tail) or _path_has_dotdot(arg[m.start():]):
-            raise ValueError(f"args path escapes plugin root: {arg!r}")
+            raise ValueError(f"args[{index}]: path escapes plugin root")
 
 
 def convert_ap_mcp_server(config: dict, warnings: list[str] | None = None) -> dict:
@@ -1145,16 +1154,12 @@ def convert_ap_mcp_server(config: dict, warnings: list[str] | None = None) -> di
         )
 
     entry = {"type": "stdio", "command": cmd}
-    raw_args = extra_args + list(config.get("args") or [])
+    raw_args = extra_args + _require_stdio_args(config.get("args"))
     if raw_args:
         rewritten = []
-        for a in raw_args:
-            if not isinstance(a, str):
-                raise ValueError(
-                    f"args entries must be strings, got {type(a).__name__}"
-                )
+        for i, a in enumerate(raw_args):
             ra = rewrite_ap_placeholders(a)
-            _validate_stdio_arg(ra)
+            _validate_stdio_arg(ra, i)
             rewritten.append(ra)
         rewritten = _mask_stdio_args(rewritten, warnings)
         entry["args"] = rewritten
@@ -1305,8 +1310,8 @@ def _validate_mcp_semantics(doc: dict) -> None:
                 cwd = entry.get("cwd")
                 if cwd:
                     _validate_stdio_cwd(str(cwd))
-                for a in entry.get("args") or []:
-                    _validate_stdio_arg(str(a))
+                for i, a in enumerate(_require_stdio_args(entry.get("args"))):
+                    _validate_stdio_arg(a, i)
             elif stype in ("streamable-http", "sse"):
                 url = entry.get("url")
                 if isinstance(url, str) and url:

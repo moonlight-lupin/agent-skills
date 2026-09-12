@@ -1372,6 +1372,95 @@ class TestFix9OwnedDestAndReport:
         assert out["command"] == "./bin/x"
 
 
+class TestRound6Fixes:
+    """G1: validation errors must not echo arg values. G2: args must be a JSON array."""
 
+    def test_escaping_arg_error_does_not_echo_value(self):
+        """G1: args=['--token', './../SYNTHETIC_SECRET'] names index, not the value."""
+        mod = _load_convert()
+        secret = "./../SYNTHETIC_SECRET"
+        with pytest.raises(ValueError) as ei:
+            mod.convert_ap_mcp_server({
+                "command": "node",
+                "args": ["--token", secret],
+            })
+        msg = str(ei.value)
+        assert msg == "args[1]: path escapes plugin root"
+        assert secret not in msg
+        assert "SYNTHETIC_SECRET" not in msg
+
+    def test_escaping_arg_does_not_land_in_conversion_report(self, tmp_path):
+        """G1: skipped MCP reason in CONVERSION_REPORT.md must not contain the value."""
+        mod = _load_convert()
+        secret = "./../SYNTHETIC_SECRET"
+        plugin = tmp_path / "srcplug"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "g1-plugin",
+            "version": "1.0.0",
+            "description": "g1",
+        }))
+        (plugin / ".mcp.json").write_text(json.dumps({
+            "mcpServers": {
+                "leaky": {"command": "node", "args": ["--token", secret]},
+            }
+        }))
+        (plugin / "skills" / "greet").mkdir(parents=True)
+        (plugin / "skills" / "greet" / "SKILL.md").write_text(
+            "---\nname: greet\ndescription: hi\n---\n\nHi.\n"
+        )
+        pkg = tmp_path / "pkg"
+        analysis = {
+            "manifest": {"name": "g1-plugin", "version": "1.0.0", "description": "d"},
+            "summary": {"convertible": 1, "partial": 0, "skipped": 0, "total": 1},
+            "components": {
+                "skills": [{"name": "greet", "path": str(plugin / "skills" / "greet")}],
+            },
+        }
+        results = mod.convert_plugin_agent_plugins(plugin, analysis, pkg)
+        skipped = results["skipped_mcp_servers"]
+        assert skipped == [{"name": "leaky", "reason": "args[1]: path escapes plugin root"}]
+        report = (pkg / "CONVERSION_REPORT.md").read_text()
+        assert secret not in report
+        assert "SYNTHETIC_SECRET" not in report
+        assert "args[1]: path escapes plugin root" in report
+
+    def test_string_args_container_is_rejected(self):
+        """G2: a string args value is not iterated as characters."""
+        mod = _load_convert()
+        blob = "--port=3000"
+        with pytest.raises(ValueError) as ei:
+            mod.convert_ap_mcp_server({"command": "node", "args": blob})
+        msg = str(ei.value)
+        assert msg == "args must be a JSON array of strings"
+        assert blob not in msg
+
+    def test_object_args_container_is_rejected(self):
+        """G2: an object args value is not converted to a list of keys."""
+        mod = _load_convert()
+        blob = {"--port": "3000"}
+        with pytest.raises(ValueError) as ei:
+            mod.convert_ap_mcp_server({"command": "node", "args": blob})
+        msg = str(ei.value)
+        assert msg == "args must be a JSON array of strings"
+        assert "--port" not in msg
+        assert "3000" not in msg
+
+    def test_null_args_omits_args_key(self):
+        """G2: JSON null args means no args, same as omitted."""
+        mod = _load_convert()
+        out = mod.convert_ap_mcp_server({"command": "node", "args": None})
+        assert out == {"type": "stdio", "command": "node"}
+        assert "args" not in out
+
+    def test_valid_string_args_array_still_converts(self):
+        """G2: a JSON array of strings is still accepted."""
+        mod = _load_convert()
+        out = mod.convert_ap_mcp_server({
+            "command": "node",
+            "args": ["--port=3000", "./ok.json"],
+        })
+        assert out["args"] == ["--port=3000", "./ok.json"]
 
 
