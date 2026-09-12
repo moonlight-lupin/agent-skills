@@ -4,10 +4,17 @@ Turn ONE master template (a .docx letter/form or a .xlsx form) plus a data table
 (one row per output) into MANY filled copies — preserving the master's layout and
 branding exactly, swapping only tokens.
 
+The reverse path (this round: .docx only) takes a filled/example document and
+derives a tokenised template + data-table skeleton so fill can round-trip the
+values.
+
 Token syntax: ``{{TokenName}}`` (whitespace inside the braces is ignored).
 
 The flow the SKILL drives, and the functions that serve each step:
 
+    0. EXTRACT   extract_template(src, out_dir) -> tokenised copy + skeleton CSV
+                                                  + a mapping report (confirm
+                                                  before reuse).
     1. ANALYSE   read_content(path)            -> the master's text, so you can
                                                   spot the parts that vary.
     2. TOKENISE  tokenise(src, dst, mapping)   -> write a tokenised copy: each
@@ -16,17 +23,26 @@ The flow the SKILL drives, and the functions that serve each step:
     3. DATA      load_rows(path)               -> (headers, [row-dict, ...]) from
                                                   .xlsx / .csv.
     4. GENERATE  generate(tmpl, rows, ...)     -> one filled file per row + a report.
+                 rows may be a list of dicts *or* the (headers, rows) tuple
+                 returned by load_rows().
 
 Design rules (from SKILL.md ## Principles):
   * Deterministic — same inputs, same outputs. No network, no model calls here.
   * Never invent — a token with no data for a row is written as a VISIBLE flag
     («MISSING: Token»), never a silent blank, and is listed in the report.
+    Extract keeps ambiguous spans literal and lists them under ``uncertain``.
   * Preserve the master — replacement edits only the runs/cells a token occupies;
-    formatting elsewhere is untouched.
+    formatting elsewhere is untouched. Extract never writes back to *src*.
 
 Usage as a library:
 
-    from fill_template import read_content, tokenise, tokens_in, load_rows, generate
+    from fill_template import (
+        read_content, tokenise, tokens_in, load_rows, generate, extract_template,
+    )
+
+    # 0. extract a reusable template from a filled example
+    ext = extract_template("filled_letters.docx", "extracted")
+    # ext["mapping"] is the confirm-before-reuse digest
 
     # 1. analyse
     print(read_content("ConfirmationLetter_master.docx"))
@@ -408,12 +424,27 @@ def _fill_one(template_path: str, values: dict, out_path: str) -> list[str]:
     return missing
 
 
-def generate(template_path: str, rows: list[dict], token_to_column: dict | None = None,
+def _row_dicts(rows):
+    """Accept list[dict] or the ``(headers, rows)`` tuple from load_rows()."""
+    if (
+        isinstance(rows, tuple)
+        and len(rows) == 2
+        and isinstance(rows[0], list)
+        and isinstance(rows[1], list)
+    ):
+        data = rows[1]
+        if not data or isinstance(data[0], dict):
+            return data
+    return rows
+
+
+def generate(template_path: str, rows: list[dict] | tuple, token_to_column: dict | None = None,
              outdir: str = "out", name_pattern: str | None = None) -> dict:
     """Generate one filled file per row.
 
     template_path  the TOKENISED master (.docx or .xlsx).
-    rows           list of row-dicts from load_rows().
+    rows           list of row-dicts from load_rows(), or the (headers, rows)
+                   tuple load_rows() itself returns.
     token_to_column  optional {token: column}. Tokens not given here default to
                    the column whose header matches the token name (case-insensitive).
     outdir         output folder (created if absent).
@@ -427,6 +458,7 @@ def generate(template_path: str, rows: list[dict], token_to_column: dict | None 
     Never invents data: an unmapped token, or a mapped column that is blank for a
     row, is written as «MISSING: Token» and recorded.
     """
+    rows = _row_dicts(rows)
     ext = Path(template_path).suffix.lower()
     tmpl_tokens = tokens_in(template_path)
     headers = list(rows[0].keys()) if rows else []
@@ -467,4 +499,263 @@ def generate(template_path: str, rows: list[dict], token_to_column: dict | None 
         "unmapped_tokens": unmapped,
         "rows": len(rows),
         "outdir": str(outdir_p),
+    }
+
+
+# ----------------------------------------------------------------------------
+# 0. EXTRACT (filled document → tokenised template + skeleton)
+# ----------------------------------------------------------------------------
+#
+# Domain shape: a PatternSlot is one varying field aligned across instances
+#   {token, values[i], wheres[i]}
+# Instances are ordered occurrences of a repeating paragraph-fingerprint group.
+# Token names come from the matcher that found the span (Recipient, Amount, …).
+
+_MONTHS = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*"
+
+# First matcher to claim a span wins. InvoiceRef before AccountRef so INV-1024
+# is not classified as an account code.
+_VALUE_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("InvoiceRef", re.compile(r"INV-\d+")),
+    ("Amount", re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?")),
+    ("Date", re.compile(rf"\b\d{{1,2}} {_MONTHS} \d{{4}}\b")),
+    ("AccountRef", re.compile(r"\b[A-Z]{2,}-\d+\b")),
+    ("Recipient", re.compile(r"(?<=Dear )[^,.\n]+", re.IGNORECASE)),
+]
+
+_TOKEN_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+
+def _collect_table_texts(table, prefix: str) -> list[tuple[str, str]]:
+    records: list[tuple[str, str]] = []
+    for ri, row in enumerate(table.rows, start=1):
+        for ci, cell in enumerate(row.cells, start=1):
+            cell_prefix = f"{prefix} r{ri} c{ci}"
+            for i, p in enumerate(cell.paragraphs, start=1):
+                if p.text.strip():
+                    records.append((p.text, f"{cell_prefix} paragraph {i}"))
+            for ti, nested in enumerate(cell.tables, start=1):
+                records.extend(_collect_table_texts(nested, f"{cell_prefix} table {ti}"))
+    return records
+
+
+def _collect_located_texts(doc) -> list[tuple[str, str]]:
+    """Body, nested tables, headers/footers — same coverage as _iter_paragraphs."""
+    records: list[tuple[str, str]] = []
+    for i, p in enumerate(doc.paragraphs, start=1):
+        if p.text.strip():
+            records.append((p.text, f"paragraph {i}"))
+    for ti, table in enumerate(doc.tables, start=1):
+        records.extend(_collect_table_texts(table, f"table {ti}"))
+    for si, section in enumerate(getattr(doc, "sections", []), start=1):
+        for label, hf in (
+            ("header", section.header),
+            ("first-page header", section.first_page_header),
+            ("even-page header", section.even_page_header),
+            ("footer", section.footer),
+            ("first-page footer", section.first_page_footer),
+            ("even-page footer", section.even_page_footer),
+        ):
+            for i, p in enumerate(hf.paragraphs, start=1):
+                if p.text.strip():
+                    records.append((p.text, f"section {si} {label} paragraph {i}"))
+            for ti, table in enumerate(hf.tables, start=1):
+                records.extend(
+                    _collect_table_texts(table, f"section {si} {label} table {ti}")
+                )
+    return records
+
+
+def _fingerprint(text: str) -> str:
+    t = text
+    for _kind, rx in _VALUE_PATTERNS:
+        t = rx.sub("{}", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _group_instances(
+    records: list[tuple[str, str]],
+) -> tuple[list[list[tuple[str, str]]], list[str]]:
+    """Split records into repeating pattern instances.
+
+    Paragraphs that share a fingerprint and appear ≥2 times become roles of
+    one pattern; each instance is one occurrence of every role, in document
+    order. No repeats → the whole document is a single instance.
+    """
+    uncertain: list[str] = []
+    if not records:
+        return [[]], uncertain
+
+    fps = [_fingerprint(t) for t, _ in records]
+    groups: dict[str, list[int]] = {}
+    order: list[str] = []
+    for i, fp in enumerate(fps):
+        if fp not in groups:
+            groups[fp] = []
+            order.append(fp)
+        groups[fp].append(i)
+
+    repeating = [fp for fp in order if len(groups[fp]) >= 2]
+    if not repeating:
+        return [records], uncertain
+
+    n = min(len(groups[fp]) for fp in repeating)
+    for fp in repeating:
+        extra = len(groups[fp]) - n
+        if extra:
+            uncertain.append(
+                f"{extra} extra occurrence(s) of pattern {fp!r} not aligned"
+            )
+    instances = [
+        [records[groups[fp][k]] for fp in repeating]
+        for k in range(n)
+    ]
+    return instances, uncertain
+
+
+def _typed_hits(text: str) -> list[tuple[str, str]]:
+    """Non-overlapping (kind, value) pairs, left-to-right, first matcher wins."""
+    taken = [False] * len(text)
+    hits: list[tuple[int, str, str]] = []
+    for kind, rx in _VALUE_PATTERNS:
+        for m in rx.finditer(text):
+            if any(taken[i] for i in range(m.start(), m.end())):
+                continue
+            for i in range(m.start(), m.end()):
+                taken[i] = True
+            hits.append((m.start(), kind, m.group(0).strip()))
+    hits.sort()
+    return [(kind, value) for _start, kind, value in hits]
+
+
+def _unique_token(kind: str, used: set[str]) -> str:
+    base = kind if _TOKEN_NAME_RE.match(kind) else "Value"
+    if base not in used:
+        used.add(base)
+        return base
+    n = 2
+    while f"{base}{n}" in used:
+        n += 1
+    name = f"{base}{n}"
+    used.add(name)
+    return name
+
+
+def _slots_for_role(
+    texts: list[str],
+    wheres: list[str],
+    used: set[str],
+    uncertain: list[str],
+) -> list[dict]:
+    """Align typed values across instances of one paragraph-role into slots."""
+    parsed = [_typed_hits(t) for t in texts]
+    kinds = [[k for k, _ in p] for p in parsed]
+    if not kinds or not kinds[0]:
+        if any(texts[0] != t for t in texts[1:]):
+            uncertain.append(
+                f"untyped variation at {wheres[0]}; left literal"
+            )
+        return []
+    if any(k != kinds[0] for k in kinds[1:]):
+        uncertain.append(
+            f"typed-value pattern mismatch across instances at {wheres[0]}"
+        )
+        return []
+
+    slots: list[dict] = []
+    for idx, kind in enumerate(kinds[0]):
+        values = [p[idx][1] for p in parsed]
+        if len(set(values)) <= 1:
+            continue
+        token = _unique_token(kind, used)
+        slots.append({"token": token, "values": values, "wheres": wheres})
+    return slots
+
+
+def _write_skeleton(path: Path, token_names: list[str], rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        if not token_names:
+            return
+        w = csv.DictWriter(f, fieldnames=token_names, extrasaction="ignore")
+        w.writeheader()
+        for row in rows:
+            w.writerow(row)
+
+
+def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict:
+    """Derive a tokenised .docx template + CSV skeleton from a filled example.
+
+    Writes into *out_dir*:
+      <name>_tokenised.docx  — copy of *src* with varying values as {{Token}}
+      <name>_data.csv        — header = token names, one row per instance
+
+    *name* defaults to the source stem. Returns a report with ``mapping``
+    (literal / token / where, for the confirm-before-reuse gate) and
+    ``uncertain`` (spans left literal rather than guessed). Does not modify
+    *src*. .docx only.
+    """
+    src_p = Path(src)
+    if src_p.suffix.lower() != ".docx":
+        raise ValueError(
+            f"extract_template supports .docx only, got {src_p.suffix or 'no extension'}"
+        )
+    out_p = Path(out_dir)
+    out_p.mkdir(parents=True, exist_ok=True)
+    stem = name or src_p.stem
+    tmpl_path = out_p / f"{stem}_tokenised.docx"
+    csv_path = out_p / f"{stem}_data.csv"
+
+    doc = Document(str(src_p))
+    records = _collect_located_texts(doc)
+    instances, uncertain = _group_instances(records)
+
+    used: set[str] = set()
+    slots: list[dict] = []
+    if len(instances) == 1:
+        for text, where in instances[0]:
+            for kind, value in _typed_hits(text):
+                uncertain.append(
+                    f"{kind} {value!r} at {where} (only one instance; left literal)"
+                )
+    else:
+        n_roles = len(instances[0]) if instances else 0
+        for j in range(n_roles):
+            texts = [inst[j][0] for inst in instances]
+            wheres = [inst[j][1] for inst in instances]
+            slots.extend(_slots_for_role(texts, wheres, used, uncertain))
+
+    tokenise_map: list[dict] = []
+    seen_finds: set[str] = set()
+    for slot in slots:
+        for val in slot["values"]:
+            if val and val not in seen_finds:
+                seen_finds.add(val)
+                tokenise_map.append({"find": val, "token": slot["token"]})
+
+    tokenise(str(src_p), str(tmpl_path), tokenise_map)
+
+    token_names = [s["token"] for s in slots]
+    data_rows = [
+        {s["token"]: s["values"][i] for s in slots}
+        for i in range(len(instances))
+    ]
+    _write_skeleton(csv_path, token_names, data_rows)
+
+    mapping = []
+    for slot in slots:
+        for val, where in zip(slot["values"], slot["wheres"]):
+            mapping.append({
+                "literal": val,
+                "token": slot["token"],
+                "where": where,
+            })
+
+    return {
+        "mapping": mapping,
+        "uncertain": uncertain,
+        "template": str(tmpl_path),
+        "skeleton": str(csv_path),
+        "tokens": token_names,
+        "instances": len(instances),
     }

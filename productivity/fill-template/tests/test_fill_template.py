@@ -546,6 +546,21 @@ class TestGenerate(unittest.TestCase):
         fname = Path(report["written"][0]["file"]).name
         self.assertTrue(fname.startswith("letter_") or fname.startswith("Letter_"))
 
+    def test_generate_accepts_load_rows_tuple(self):
+        """generate accepts load_rows() output directly (headers, rows)."""
+        data = Path(self.tmp) / "data.csv"
+        _make_data_csv(data, ["Name", "Amount", "EffectiveDate", "Reference"],
+                       [["Alice", "100", "01 Jul 2026", "REF-0001"]])
+        loaded = ft.load_rows(str(data))
+        report = ft.generate(str(self.tmpl), loaded,
+                             outdir=str(Path(self.tmp) / "out_tuple"))
+        self.assertEqual(len(report["written"]), 1)
+        self.assertEqual(report["written"][0]["missing"], [])
+        doc = Document(report["written"][0]["file"])
+        text = " ".join(p.text for p in doc.paragraphs)
+        self.assertIn("Alice", text)
+        self.assertIn("01 Jul 2026", text)
+
 
 # ---------------------------------------------------------------------------
 # generate — .xlsx template path
