@@ -632,5 +632,242 @@ class TestResolveMap(unittest.TestCase):
         self.assertNotIn("Ghost", mapping)
 
 
+class TestExtractTemplate(unittest.TestCase):
+    """Extract direction: located spans, no clobber, reserved names, single-instance."""
+
+    def test_same_literal_in_one_paragraph_is_position_aware(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "pay.docx"
+            _make_docx(src, [
+                "Pay $10.00; fee $10.00.",
+                "Pay $20.00; fee $30.00.",
+            ])
+            out = tdp / "extracted"
+            report = ft.extract_template(str(src), str(out))
+            self.assertEqual(report["tokens"], ["Amount", "Amount2"])
+            tmpl = next(p for p in out.iterdir() if p.suffix == ".docx")
+            text = ft.read_content(str(tmpl))
+            self.assertIn("Pay {{Amount}}; fee {{Amount2}}.", text)
+            self.assertNotIn("Pay {{Amount}}; fee {{Amount}}.", text)
+            csv_path = next(p for p in out.iterdir() if p.suffix == ".csv")
+            headers, rows = ft.load_rows(str(csv_path))
+            self.assertEqual(headers, ["Amount", "Amount2"])
+            self.assertEqual(rows[0]["Amount"], "$10.00")
+            self.assertEqual(rows[0]["Amount2"], "$10.00")
+            self.assertEqual(rows[1]["Amount"], "$20.00")
+            self.assertEqual(rows[1]["Amount2"], "$30.00")
+            filled = tdp / "refilled"
+            gen = ft.generate(str(tmpl), (headers, rows), outdir=str(filled))
+            self.assertEqual(len(gen["written"]), 2)
+            file2 = ft.read_content(str(Path(gen["written"][1]["file"])))
+            self.assertIn("$30.00", file2)
+            self.assertNotIn("Pay $20.00; fee $20.00.", file2.replace("  (×2)", ""))
+
+    def test_refuses_to_clobber_source(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "letter_tokenised.docx"
+            _make_docx(src, ["Hello $10.00"])
+            before = src.read_bytes()
+            with self.assertRaises(ValueError) as cm:
+                ft.extract_template(str(src), str(tdp), name="letter")
+            self.assertIn("overwrite", str(cm.exception).lower())
+            self.assertEqual(src.read_bytes(), before)
+
+    def test_name_none_on_already_tokenised_stem_does_not_clobber(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "letter_tokenised.docx"
+            _make_docx(src, ["Pay $10.00 and $20.00.", "Pay $30.00 and $40.00."])
+            before = src.read_bytes()
+            report = ft.extract_template(str(src), str(tdp), name=None)
+            self.assertEqual(src.read_bytes(), before)
+            self.assertTrue(report["template"].endswith("letter_tokenised_tokenised.docx"))
+
+    def test_pre_existing_token_names_are_reserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "pre.docx"
+            _make_docx(src, [
+                "Dear Alice, amount {{Amount}} vs $20.00",
+                "Dear Bob, amount {{Amount}} vs $30.00",
+            ])
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            self.assertIn("Amount", report["pre_existing_tokens"])
+            self.assertIn("Amount2", report["tokens"])
+            self.assertNotIn("Amount", report["tokens"])
+            self.assertIn("pre_existing_note", report)
+            tmpl = next(p for p in (tdp / "out").iterdir() if p.suffix == ".docx")
+            text = ft.read_content(str(tmpl))
+            self.assertIn("{{Amount}}", text)
+            self.assertIn("{{Amount2}}", text)
+            self.assertIn("{{Recipient}}", text)
+
+    def test_single_instance_typed_hits_round_trip(self):
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "single.docx"
+            _make_docx(src, ["Invoice total: $99.00 for ACME-0001."])
+            out = tdp / "extracted"
+            report = ft.extract_template(str(src), str(out))
+            self.assertEqual(report["instances"], 1)
+            self.assertIn("Amount", report["tokens"])
+            self.assertIn("AccountRef", report["tokens"])
+            tmpl = next(p for p in out.iterdir() if p.suffix == ".docx")
+            self.assertIn("{{Amount}}", ft.read_content(str(tmpl)))
+            csv_path = next(p for p in out.iterdir() if p.suffix == ".csv")
+            rows = ft.load_rows(str(csv_path))
+            filled = tdp / "refilled"
+            gen = ft.generate(str(tmpl), rows, outdir=str(filled))
+            self.assertEqual(len(gen["written"]), 1)
+            text = ft.read_content(str(Path(gen["written"][0]["file"])))
+            self.assertIn("$99.00", text)
+            self.assertIn("ACME-0001", text)
+
+    def test_collapse_keeps_one_instance(self):
+        """O1: extracted template is one letter; filling one row does not duplicate."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "filled.docx"
+            _make_docx(src, [
+                "Dear Alice Tan,",
+                "Thank you for your payment of $420.00 on 12 Mar 2026 for invoice INV-1024. Your account ACME-0042 is now settled.",
+                "Dear Bob Lim,",
+                "Thank you for your payment of $180.50 on 03 Apr 2026 for invoice INV-1025. Your account ACME-0043 is now settled.",
+            ])
+            out = tdp / "extracted"
+            report = ft.extract_template(str(src), str(out))
+            self.assertEqual(report["instances"], 2)
+            self.assertEqual(report["instances_collapsed"], 1)
+            tmpl = next(p for p in out.iterdir() if p.suffix == ".docx")
+            paras = [p.text for p in Document(str(tmpl)).paragraphs if p.text.strip()]
+            self.assertEqual(sum(1 for p in paras if p.startswith("Dear ")), 1)
+            csv_path = next(p for p in out.iterdir() if p.suffix == ".csv")
+            _headers, rows = ft.load_rows(str(csv_path))
+            gen = ft.generate(str(tmpl), [rows[0]], outdir=str(tdp / "refilled"))
+            filled_paras = [
+                p.text for p in Document(gen["written"][0]["file"]).paragraphs if p.text.strip()
+            ]
+            self.assertEqual(sum(1 for p in filled_paras if "Alice Tan" in p), 1)
+            self.assertFalse(any("Bob Lim" in p for p in filled_paras))
+
+    def test_boilerplate_amount_stays_literal(self):
+        """O6: a fee that is not a slot stays literal even when $ amounts exist."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "pay.docx"
+            _make_docx(src, [
+                "Pay $10.00; fee $10.00.",
+                "Pay $20.00; fee $30.00.",
+                "Standard fee is $50.00. Do not change this line.",
+            ])
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            tmpl = next(p for p in (tdp / "out").iterdir() if p.suffix == ".docx")
+            text = "\n".join(
+                p.text for p in Document(str(tmpl)).paragraphs if p.text.strip()
+            )
+            self.assertIn("Pay {{Amount}}; fee {{Amount2}}.", text)
+            self.assertIn("Standard fee is $50.00. Do not change this line.", text)
+            self.assertNotIn("Standard fee is {{Amount}}", text)
+            self.assertEqual(report["instances_collapsed"], 1)
+
+    def test_accountref_does_not_split_hyphenated_id(self):
+        """O24: AB-2026-01-02 is not tokenised as AccountRef AB-2026."""
+        hits, _notes = ft._typed_hits("Your ref AB-2026-01-02 is due.")
+        self.assertFalse(any(k == "AccountRef" and v == "AB-2026" for k, v, *_ in hits))
+
+    def test_overlapping_recipient_is_trimmed_or_reported(self):
+        """O25: overlapping Amount does not silently drop Recipient."""
+        hits, notes = ft._typed_hits("Dear Bob owes $5")
+        kinds = [k for k, *_ in hits]
+        self.assertTrue(
+            "Recipient" in kinds or any("Recipient" in n or "overlap" in n.lower() for n in notes),
+            f"hits={hits} notes={notes}",
+        )
+
+    def test_missing_source_raises_file_not_found(self):
+        """O26: missing file and directory args fail with a clear path error."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            with self.assertRaises(FileNotFoundError) as cm:
+                ft.extract_template(str(tdp / "nope.docx"), str(tdp / "out"))
+            self.assertIn("nope.docx", str(cm.exception))
+            with self.assertRaises(IsADirectoryError) as cm:
+                ft.extract_template(str(tdp), str(tdp / "out"))
+            self.assertIn(str(tdp), str(cm.exception))
+
+    def test_merged_table_cells_are_deduped(self):
+        """O27: horizontally merged cells are one record, not two."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "merged.docx"
+            doc = Document()
+            table = doc.add_table(rows=2, cols=2)
+            a = table.cell(0, 0)
+            a.merge(table.cell(0, 1))
+            a.text = "Dear Alice, $10.00"
+            b = table.cell(1, 0)
+            b.merge(table.cell(1, 1))
+            b.text = "Dear Bob, $20.00"
+            doc.save(str(src))
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            self.assertEqual(report["instances"], 2)
+            self.assertIn("Recipient", report["tokens"])
+            self.assertIn("Amount", report["tokens"])
+
+    def test_row_dicts_rejects_tuple_of_lists(self):
+        """O28: (headers, list-of-lists) is a TypeError, not AttributeError."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            tmpl = tdp / "t.docx"
+            _make_docx(tmpl, ["Hello {{Name}}"])
+            with self.assertRaises(TypeError) as cm:
+                ft.generate(str(tmpl), (["Name"], [["Alice"]]), outdir=str(tdp / "out"))
+            self.assertIn("list[dict]", str(cm.exception))
+
+    def test_hyperlink_mismatch_is_reported(self):
+        """O29: a value only in a hyperlink is listed, not silently dropped."""
+        with tempfile.TemporaryDirectory() as td:
+            tdp = Path(td)
+            src = tdp / "link.docx"
+            doc = Document()
+            p1 = doc.add_paragraph("Dear ")
+            _add_hyperlink(p1, "Alice Tan")
+            p1.add_run(",")
+            doc.add_paragraph("Pay $10.00.")
+            p2 = doc.add_paragraph("Dear ")
+            _add_hyperlink(p2, "Bob Lim")
+            p2.add_run(",")
+            doc.add_paragraph("Pay $20.00.")
+            doc.save(str(src))
+            report = ft.extract_template(str(src), str(tdp / "out"))
+            joined = " ".join(report.get("uncertain") or []) + " ".join(report.get("not_found") or [])
+            self.assertTrue(
+                "Recipient" in joined or "hyperlink" in joined.lower() or "runs" in joined.lower(),
+                report,
+            )
+
+
+def _add_hyperlink(paragraph, text, url="https://example.com"):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    part = paragraph.part
+    r_id = part.relate_to(
+        url,
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+        is_external=True,
+    )
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), r_id)
+    new_run = OxmlElement("w:r")
+    text_elem = OxmlElement("w:t")
+    text_elem.text = text
+    new_run.append(text_elem)
+    hyperlink.append(new_run)
+    paragraph._p.append(hyperlink)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

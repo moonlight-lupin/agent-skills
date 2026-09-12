@@ -12,13 +12,16 @@ Usage:
 """
 
 import argparse
+import ipaddress
 import json
 import os
 import re
+import shlex
 import shutil
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from textwrap import dedent
+from urllib.parse import urlparse
 
 
 # ── Path safety ─────────────────────────────────────────────────────────
@@ -78,34 +81,40 @@ def yaml_quote(s: str) -> str:
 
 # ── Skill conversion ────────────────────────────────────────────────────
 
-def convert_skill(skill_info: dict, source_plugin_dir: Path, dest_skills_dir: Path) -> dict:
-    """Convert a Claude skill to Hermes format. Returns {name, path, issues}."""
-    source_skill_dir = Path(skill_info["path"])
-    skill_name = safe_name(skill_info.get("name", source_skill_dir.name), source_skill_dir.name)
+def convert_skill(skill_info: dict, source_plugin_dir: Path, dest_skills_dir: Path,
+                  flavour: str = "hermes") -> dict:
+    """Convert a Claude skill. Returns {name, path, issues}.
 
-    # Create destination
+    flavour='hermes' keeps directory names via safe_name and rewrites
+    ${CLAUDE_PLUGIN_ROOT} to '..'. flavour='agent-plugins' slugifies the
+    skill dir + frontmatter name and rewrites the placeholder to ${PLUGIN_ROOT}.
+    """
+    source_skill_dir = Path(skill_info["path"])
+    raw_name = skill_info.get("name", source_skill_dir.name)
+    if flavour == "agent-plugins":
+        skill_name = ap_slug(str(raw_name), ap_slug(source_skill_dir.name, "skill"))
+    else:
+        skill_name = safe_name(raw_name, source_skill_dir.name)
+
     dest_skill_dir = dest_skills_dir / skill_name
     dest_skill_dir.mkdir(parents=True, exist_ok=True)
 
-    # Read original SKILL.md
     source_skill_md = source_skill_dir / "SKILL.md"
     if not source_skill_md.exists():
         return {"name": skill_name, "path": str(dest_skill_dir), "issues": ["Source SKILL.md not found"]}
-    
+
     content = source_skill_md.read_text(encoding="utf-8", errors="replace")
     orig_fm, body = parse_frontmatter(content)
+    desc = orig_fm.get("description", "")
 
-    # Build new frontmatter
     new_fm_lines = [
         f"name: {skill_name}",
-        f"description: {yaml_quote(orig_fm.get('description', ''))}",
+        f"description: {yaml_quote(desc)}",
     ]
 
-    # Remove disable-model-invocation (no Hermes equivalent)
     if orig_fm.get("disable-model-invocation", "").lower() == "true":
-        pass  # Intentionally dropped
-    
-    # Rewrite $ARGUMENTS
+        pass
+
     new_body = body
     if "$ARGUMENTS" in new_body:
         new_body = new_body.replace(
@@ -113,24 +122,19 @@ def convert_skill(skill_info: dict, source_plugin_dir: Path, dest_skills_dir: Pa
             "<the user's request — read their message for the argument>",
         )
 
-    # Rewrite ${CLAUDE_PLUGIN_ROOT} → relative path from skills/ dir
-    # In Hermes plugins, skills are at <plugin>/skills/<name>/SKILL.md
-    # The plugin root is 2 levels up from the skill dir
-    new_body = new_body.replace("${CLAUDE_PLUGIN_ROOT}", "..")
-    # Also rewrite relative links that used CLAUDE_PLUGIN_ROOT as base
-    # e.g. [`${CLAUDE_PLUGIN_ROOT}/foundations/doctrine.md`](../../foundations/doctrine.md)
-    # becomes [foundations/doctrine.md](../../foundations/doctrine.md)
-    new_body = re.sub(
-        r"`\.\./([^`]+)`\]\((\.\./[^)]+)\)",
-        r"`\1`](\2)",
-        new_body,
-    )
+    if flavour == "agent-plugins":
+        new_body = new_body.replace("${CLAUDE_PLUGIN_ROOT}", "${PLUGIN_ROOT}")
+    else:
+        new_body = new_body.replace("${CLAUDE_PLUGIN_ROOT}", "..")
+        new_body = re.sub(
+            r"`\.\./([^`]+)`\]\((\.\./[^)]+)\)",
+            r"`\1`](\2)",
+            new_body,
+        )
 
-    # Write converted SKILL.md
     new_content = "---\n" + "\n".join(new_fm_lines) + "\n---\n" + new_body
     (dest_skill_dir / "SKILL.md").write_text(new_content, encoding="utf-8")
 
-    # Copy supporting files (scripts/, references/, assets/, templates/)
     for subdir in ("scripts", "references", "assets", "templates"):
         src = source_skill_dir / subdir
         if src.exists() and src.is_dir():
@@ -141,6 +145,8 @@ def convert_skill(skill_info: dict, source_plugin_dir: Path, dest_skills_dir: Pa
         issues.append("$ARGUMENTS rewritten to placeholder text — review")
     if skill_info.get("has_disable_invocation"):
         issues.append("disable-model-invocation dropped — Hermes skills are always model-invoked")
+    if flavour == "agent-plugins" and not str(desc).strip():
+        issues.append("empty description — Agent Plugins discovery requires a non-empty description")
 
     return {"name": skill_name, "path": str(dest_skill_dir), "issues": issues}
 
@@ -735,25 +741,56 @@ def load_source_manifest(plugin_dir: Path, analysis: dict) -> dict:
 
 
 def load_claude_mcp_servers(plugin_dir: Path, manifest: dict) -> dict:
-    """Read MCP servers from .mcp.json or inline manifest mcpServers."""
+    """Read MCP servers from .mcp.json or inline manifest mcpServers.
+
+    Absent .mcp.json is fine (fall back to inline). A present file that is not
+    valid JSON, or whose mcpServers is not an object, is an error.
+    """
     mcp_file = plugin_dir / ".mcp.json"
     if mcp_file.is_file():
-        data = json.loads(mcp_file.read_text(encoding="utf-8"))
-        servers = data.get("mcpServers")
-        if isinstance(servers, dict):
-            return servers
+        try:
+            data = json.loads(mcp_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            raise ValueError(f"malformed MCP config {mcp_file}: invalid JSON") from None
+        if not isinstance(data, dict) or not isinstance(data.get("mcpServers"), dict):
+            raise ValueError(
+                f"malformed MCP config {mcp_file}: mcpServers must be an object"
+            )
+        return data["mcpServers"]
     inline = manifest.get("mcpServers")
     return inline if isinstance(inline, dict) else {}
 
 
+def _rewrite_command_token(token: str) -> str:
+    """Rewrite one argv token for use as a stdio command."""
+    if token == _CLAUDE_PLUGIN_ROOT or token.rstrip("/") == _CLAUDE_PLUGIN_ROOT:
+        return "."
+    prefix = _CLAUDE_PLUGIN_ROOT + "/"
+    if token.startswith(prefix):
+        rest = token[len(prefix):]
+        return f"./{rest}" if rest else "."
+    return token
+
+
+def split_stdio_command(command: str) -> tuple[str, list[str]]:
+    """shlex-split a raw command; rewrite plugin-root in the executable token."""
+    raw = (command or "").strip()
+    if not raw:
+        return "", []
+    try:
+        parts = shlex.split(raw)
+    except ValueError as e:
+        raise ValueError(f"malformed command string: {e}") from None
+    if not parts:
+        return "", []
+    cmd = _rewrite_command_token(parts[0])
+    extra = [rewrite_ap_placeholders(p) for p in parts[1:]]
+    return cmd, extra
+
+
 def rewrite_stdio_command(command: str) -> str:
     """Rewrite a stdio command to one token or a ./ plugin-relative path."""
-    cmd = (command or "").strip()
-    if _CLAUDE_PLUGIN_ROOT in cmd:
-        rest = cmd.replace(_CLAUDE_PLUGIN_ROOT, "").lstrip("/")
-        cmd = f"./{rest}" if rest else "."
-    if " " in cmd and not cmd.startswith("./"):
-        cmd = cmd.split()[0]
+    cmd, _extra = split_stdio_command(command)
     return cmd
 
 
@@ -761,7 +798,118 @@ def rewrite_ap_placeholders(value: str) -> str:
     return value.replace(_CLAUDE_PLUGIN_ROOT, _AP_PLUGIN_ROOT)
 
 
-def convert_ap_mcp_server(config: dict) -> dict:
+_CREDENTIAL_HEADER_NAMES = frozenset({"authorization", "cookie", "proxy-authorization"})
+_TOKEN_VALUE_PREFIXES = ("bearer ", "basic ", "token ")
+_CWD_PATTERN = re.compile(
+    r"^(?:\./|\$\{PLUGIN_ROOT\}(?:/|$)|\$\{PLUGIN_DATA\}(?:/|$))"
+)
+
+
+def _path_has_dotdot(value: str) -> bool:
+    return ".." in PurePosixPath(value.replace("\\", "/")).parts
+
+
+_CREDENTIAL_KEY_BITS = ("token", "secret", "key")
+_PLACEHOLDER_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$")
+
+
+def _is_credential_shaped_key(key: str) -> bool:
+    kl = key.lower().replace("_", "-")
+    if kl in _CREDENTIAL_HEADER_NAMES:
+        return True
+    compact = key.lower()
+    return any(bit in compact for bit in _CREDENTIAL_KEY_BITS)
+
+
+def _redact_credential_value(key: str, val: str, warnings: list[str] | None, where: str) -> str:
+    if _PLACEHOLDER_RE.match(val.strip()):
+        return val
+    placeholder = "${" + key + "}"
+    msg = (
+        f"{where}[{key}] looks credential-shaped; value replaced with {placeholder} "
+        "— rotate the source credential"
+    )
+    if warnings is not None:
+        warnings.append(msg)
+    return placeholder
+
+
+def _is_loopback_host(host: str) -> bool:
+    if not host:
+        return False
+    h = host.strip("[]").lower()
+    if h in {"localhost", "localhost."}:
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
+
+def _reject_credential_headers(headers: dict) -> dict:
+    """Copy headers, rejecting credential-bearing keys/values. Never echo secrets."""
+    cleaned = {}
+    for key, val in headers.items():
+        key_s = str(key)
+        val_s = str(val)
+        if key_s.lower() in _CREDENTIAL_HEADER_NAMES:
+            raise ValueError(f"headers[{key_s}] embeds credentials")
+        lowered = val_s.lstrip().lower()
+        if any(lowered.startswith(p) for p in _TOKEN_VALUE_PREFIXES):
+            raise ValueError(f"headers[{key_s}] embeds credentials")
+        cleaned[key_s] = val_s
+    return cleaned
+
+
+def _validate_mcp_url(url: str, warnings: list[str] | None = None) -> None:
+    """HTTP MCP URL semantics (spec §7.2.1). Errors name the key, not secrets."""
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise ValueError("url scheme must be http or https")
+    if parsed.username is not None or parsed.password is not None or "@" in (parsed.netloc or ""):
+        raise ValueError("url must not contain userinfo")
+    if parsed.fragment:
+        raise ValueError("url must not contain a fragment")
+    if parsed.query:
+        raise ValueError("url must not contain a query string")
+    if parsed.scheme.lower() == "http" and not _is_loopback_host(parsed.hostname or ""):
+        host = parsed.hostname or ""
+        msg = f"plain HTTP url host {host!r} is not loopback; allowed with warning"
+        if warnings is not None:
+            warnings.append(msg)
+
+
+def _validate_stdio_command(cmd: str) -> None:
+    if cmd in {".", "./"}:
+        raise ValueError(
+            "command is a directory, not an executable "
+            "(bare ${CLAUDE_PLUGIN_ROOT} is not a command)"
+        )
+    if any(c.isspace() for c in cmd):
+        raise ValueError(f"command contains whitespace: {cmd!r}")
+    if "/" not in cmd:
+        return
+    if not cmd.startswith("./"):
+        raise ValueError(f"command must be a bare token or ./relative: {cmd!r}")
+    if _path_has_dotdot(cmd):
+        raise ValueError(f"command escapes plugin root: {cmd!r}")
+
+
+def _validate_stdio_cwd(cwd: str) -> None:
+    if not _CWD_PATTERN.match(cwd):
+        raise ValueError(f"cwd must match ./ or ${{PLUGIN_ROOT}}/${{PLUGIN_DATA}}: {cwd!r}")
+    if _path_has_dotdot(cwd):
+        raise ValueError(f"cwd escapes plugin root: {cwd!r}")
+
+
+def _validate_stdio_arg(arg: str) -> None:
+    if not arg.startswith(("./", "${PLUGIN_ROOT}", "${PLUGIN_DATA}")):
+        return
+    if _path_has_dotdot(arg):
+        raise ValueError(f"args path escapes plugin root: {arg!r}")
+
+
+def convert_ap_mcp_server(config: dict, warnings: list[str] | None = None) -> dict:
     """Map one Claude MCP server entry to an AP mcp.json server object."""
     if not isinstance(config, dict):
         raise ValueError("MCP server entry must be an object")
@@ -773,35 +921,43 @@ def convert_ap_mcp_server(config: dict) -> dict:
     if raw_type in ("streamable-http", "sse") or (url and not command):
         if not url:
             raise ValueError("HTTP MCP server is missing url")
+        url_s = str(url)
+        _validate_mcp_url(url_s, warnings)
         entry = {
             "type": raw_type if raw_type in ("streamable-http", "sse") else "streamable-http",
-            "url": str(url),
+            "url": url_s,
         }
         headers = config.get("headers")
         if isinstance(headers, dict) and headers:
-            entry["headers"] = {str(k): str(v) for k, v in headers.items()}
+            cleaned_headers = _reject_credential_headers(headers)
+            redacted = {}
+            for hk, hv in cleaned_headers.items():
+                if _is_credential_shaped_key(hk):
+                    redacted[hk] = _redact_credential_value(hk, hv, warnings, "headers")
+                else:
+                    redacted[hk] = hv
+            entry["headers"] = redacted
         return entry
 
-    cmd = rewrite_stdio_command("" if command is None else str(command))
-    extra_args = []
-    raw_cmd = ("" if command is None else str(command)).strip()
-    if (
-        _CLAUDE_PLUGIN_ROOT not in raw_cmd
-        and " " in raw_cmd
-        and not raw_cmd.startswith("./")
-    ):
-        extra_args = raw_cmd.split()[1:]
+    raw_cmd = "" if command is None else str(command)
+    cmd, extra_args = split_stdio_command(raw_cmd)
     if not cmd:
         raise ValueError("stdio MCP server is missing command")
-    if " " in cmd.strip() and not cmd.startswith("./"):
-        raise ValueError(f"stdio command must be one token or ./relative: {cmd!r}")
-    if cmd.startswith(".."):
-        raise ValueError(f"command escapes plugin root: {cmd!r}")
+    _validate_stdio_command(cmd)
 
     entry = {"type": "stdio", "command": cmd}
-    args = extra_args + list(config.get("args") or [])
-    if args:
-        entry["args"] = [rewrite_ap_placeholders(str(a)) for a in args]
+    raw_args = extra_args + list(config.get("args") or [])
+    if raw_args:
+        rewritten = []
+        for a in raw_args:
+            if not isinstance(a, str):
+                raise ValueError(
+                    f"args entries must be strings, got {type(a).__name__}"
+                )
+            ra = rewrite_ap_placeholders(a)
+            _validate_stdio_arg(ra)
+            rewritten.append(ra)
+        entry["args"] = rewritten
     env = config.get("env")
     if isinstance(env, dict) and env:
         cleaned = {}
@@ -809,26 +965,28 @@ def convert_ap_mcp_server(config: dict) -> dict:
             key_s = str(key)
             if key_s in ("PLUGIN_ROOT", "PLUGIN_DATA"):
                 raise ValueError(f"MCP env key {key_s} is reserved")
-            cleaned[key_s] = rewrite_ap_placeholders(str(val))
+            if not isinstance(val, str):
+                raise ValueError(f"env[{key_s}] must be a string")
+            rewritten_val = rewrite_ap_placeholders(val)
+            if _is_credential_shaped_key(key_s):
+                rewritten_val = _redact_credential_value(
+                    key_s, rewritten_val, warnings, "env"
+                )
+            cleaned[key_s] = rewritten_val
         entry["env"] = cleaned
     cwd = config.get("cwd")
     if cwd:
         cwd_s = rewrite_ap_placeholders(str(cwd))
-        if not (
-            cwd_s.startswith("./")
-            or cwd_s.startswith("${PLUGIN_ROOT}")
-            or cwd_s.startswith("${PLUGIN_DATA}")
-        ):
-            cwd_s = "./" + cwd_s.lstrip("/")
+        _validate_stdio_cwd(cwd_s)
         entry["cwd"] = cwd_s
     return entry
 
 
-def build_ap_plugin_json(manifest: dict) -> dict:
+def build_ap_plugin_json(manifest: dict, name: str | None = None) -> dict:
     """Build a closed-schema Agent Plugins plugin.json from a Claude manifest."""
     doc = {
         "$schema": PLUGIN_SCHEMA_URL,
-        "name": ap_slug(str(manifest.get("name") or "")),
+        "name": name if name is not None else ap_slug(str(manifest.get("name") or "")),
     }
     for key in ("version", "description", "license", "homepage"):
         val = manifest.get(key)
@@ -858,7 +1016,16 @@ def build_ap_plugin_json(manifest: dict) -> dict:
     return doc
 
 
+_STDLIB_SKIP_NOTE = (
+    "stdlib fallback skips JSON Schema additionalProperties, the cwd pattern, "
+    "reserved env names, and per-variant field sets that jsonschema would enforce"
+)
+
+
 def _schema_file(filename: str) -> Path | None:
+    shipped = Path(__file__).resolve().parent / "schemas" / filename
+    if shipped.is_file():
+        return shipped
     here = Path(__file__).resolve()
     for parent in here.parents:
         candidate = parent / "tests" / filename
@@ -923,6 +1090,34 @@ def _stdlib_validate_mcp_json(doc: dict) -> None:
             raise ValueError(f"MCP server {name!r} has invalid type: {stype!r}")
 
 
+def _validate_mcp_semantics(doc: dict) -> None:
+    """Spec §7.2.1 checks the JSON schema does not encode (containment, credentials)."""
+    servers = doc.get("mcpServers") or {}
+    for name, entry in servers.items():
+        if not isinstance(entry, dict):
+            continue
+        stype = entry.get("type")
+        try:
+            if stype == "stdio":
+                cmd = entry.get("command")
+                if isinstance(cmd, str):
+                    _validate_stdio_command(cmd)
+                cwd = entry.get("cwd")
+                if cwd:
+                    _validate_stdio_cwd(str(cwd))
+                for a in entry.get("args") or []:
+                    _validate_stdio_arg(str(a))
+            elif stype in ("streamable-http", "sse"):
+                url = entry.get("url")
+                if isinstance(url, str) and url:
+                    _validate_mcp_url(url)
+                headers = entry.get("headers")
+                if isinstance(headers, dict) and headers:
+                    _reject_credential_headers(headers)
+        except ValueError as e:
+            raise ValueError(f"MCP server {name!r}: {e}") from None
+
+
 def _validate_with_schema(doc: dict, filename: str, stdlib_fn) -> None:
     schema_path = _schema_file(filename)
     try:
@@ -934,7 +1129,15 @@ def _validate_with_schema(doc: dict, filename: str, stdlib_fn) -> None:
         return
     if jsonschema is None:
         print(
-            "Warning: jsonschema is not installed; using built-in Agent Plugins checks",
+            "Warning: jsonschema is not installed; using built-in Agent Plugins checks. "
+            + _STDLIB_SKIP_NOTE,
+            file=sys.stderr,
+        )
+    if schema_path is None:
+        print(
+            "Warning: Agent Plugins schema file "
+            f"{filename} not found beside the converter; using built-in checks. "
+            + _STDLIB_SKIP_NOTE,
             file=sys.stderr,
         )
     stdlib_fn(doc)
@@ -946,6 +1149,7 @@ def validate_ap_plugin_json(doc: dict) -> None:
 
 def validate_ap_mcp_json(doc: dict) -> None:
     _validate_with_schema(doc, "mcp.schema.json", _stdlib_validate_mcp_json)
+    _validate_mcp_semantics(doc)
 
 
 def _validate_or_die(doc: dict, kind: str) -> None:
@@ -1002,6 +1206,15 @@ def generate_ap_report(analysis: dict, conversion_results: dict, plugin_name: st
         for srv in conversion_results["mcp_servers"]:
             lines.append(f"| {srv['name']} | ✅ mcp.json entry |")
         lines.append("")
+        warn_bits = []
+        for srv in conversion_results["mcp_servers"]:
+            for w in srv.get("warnings") or []:
+                warn_bits.append(f"- {srv['name']}: {w}")
+        if warn_bits:
+            lines.append("### Warnings")
+            lines.append("")
+            lines.extend(warn_bits)
+            lines.append("")
 
     skipped_bits = []
     components = analysis.get("components") or {}
@@ -1052,21 +1265,30 @@ def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: P
     dest = output_dir
     dest.mkdir(parents=True, exist_ok=True)
 
-    plugin_doc = build_ap_plugin_json(manifest)
+    plugin_doc = build_ap_plugin_json(manifest, name=plugin_name)
     _validate_or_die(plugin_doc, "plugin")
 
-    source_servers = load_claude_mcp_servers(plugin_dir, manifest)
+    source_servers = None
+    try:
+        source_servers = load_claude_mcp_servers(plugin_dir, manifest)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     mcp_doc = None
     mcp_infos = []
     if source_servers:
         mcp_servers = {}
         for sname, sconfig in source_servers.items():
             try:
-                mcp_servers[sname] = convert_ap_mcp_server(sconfig)
+                warns: list[str] = []
+                mcp_servers[sname] = convert_ap_mcp_server(sconfig, warnings=warns)
             except Exception as e:
                 print(f"Error: MCP server {sname!r} could not be converted: {e}", file=sys.stderr)
                 sys.exit(1)
-            mcp_infos.append({"name": sname, "status": "converted"})
+            info = {"name": sname, "status": "converted"}
+            if warns:
+                info["warnings"] = warns
+            mcp_infos.append(info)
         mcp_doc = {"$schema": MCP_SCHEMA_URL, "mcpServers": mcp_servers}
         _validate_or_die(mcp_doc, "mcp")
 
@@ -1077,7 +1299,9 @@ def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: P
         skills_dir = dest / "skills"
         skills_dir.mkdir(exist_ok=True)
         for skill_info in components["skills"]:
-            result = convert_skill(skill_info, plugin_dir, skills_dir)
+            result = convert_skill(
+                skill_info, plugin_dir, skills_dir, flavour="agent-plugins"
+            )
             results["skills"].append(result)
 
     (dest / "plugin.json").write_text(
@@ -1099,14 +1323,20 @@ def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: P
         "__pycache__", ".pytest_cache", "tests", "tools", "bin",
     }
     for child in plugin_dir.iterdir():
-        if child.is_dir() and child.name not in skip_dirs and not child.name.startswith("."):
+        if child.name.startswith("."):
+            continue
+        if child.is_dir() and child.name not in skip_dirs:
             shutil.copytree(child, dest / child.name, dirs_exist_ok=True)
+        elif child.is_file():
+            shutil.copy2(child, dest / child.name)
 
     report = generate_ap_report(analysis, results, plugin_name)
-    (dest / "CONVERSION_REPORT.md").write_text(report, encoding="utf-8")
+    report_dir = dest.parent
+    (report_dir / "CONVERSION_REPORT.md").write_text(report, encoding="utf-8")
 
     results["plugin_name"] = plugin_name
     results["output_dir"] = str(dest)
+    results["results_dir"] = str(report_dir)
     return results
 
 
@@ -1200,13 +1430,6 @@ def convert_plugin(plugin_dir: Path, analysis: dict, output_dir: Path) -> dict:
     manual_steps = generate_manual_steps(analysis, plugin_name)
     (dest / "MANUAL_STEPS.md").write_text(manual_steps, encoding="utf-8")
 
-    # Hermes packages live at <output>/<plugin-name>/ (existing converter tests).
-    # The issue #12 default-format contract looks for plugin.yaml at <output>/ itself.
-    marker = dest / "plugin.yaml"
-    parent_marker = output_dir / "plugin.yaml"
-    if marker.is_file() and dest.resolve() != output_dir.resolve():
-        shutil.copy2(marker, parent_marker)
-    
     results["plugin_name"] = plugin_name
     results["output_dir"] = str(dest)
     
@@ -1260,8 +1483,9 @@ def main():
         if count:
             print(f"   {component_type}: {count}", file=sys.stderr)
     
-    # Write results JSON inside the package directory (Hermes nests under <name>/).
-    results_path = Path(results["output_dir"]) / "conversion_results.json"
+    # Write results JSON beside the AP package root, inside the Hermes package.
+    results_dir = Path(results.get("results_dir") or results["output_dir"])
+    results_path = results_dir / "conversion_results.json"
     results_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\nResults: {results_path}", file=sys.stderr)
 

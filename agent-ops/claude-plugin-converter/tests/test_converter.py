@@ -342,3 +342,262 @@ class TestHookCommandPreserved:
         assert str(plugin_dir) in infos[0]["command"]
         assert "${CLAUDE_PLUGIN_ROOT}" not in yaml_snip
         assert f"{plugin_dir}/cfg.json" in yaml_snip
+
+
+def _load_convert():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("convert_cpc", CONVERT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestApMcpValidation:
+    """F1/F2/F4: MCP conversion rejects credentials, escapes, and malformed configs."""
+
+    def test_rejects_authorization_header_without_echoing_secret(self):
+        mod = _load_convert()
+        secret = "super-secret-token-xyz"
+        with pytest.raises(ValueError) as ei:
+            mod.convert_ap_mcp_server({
+                "type": "streamable-http",
+                "url": "https://example.com/mcp",
+                "headers": {"Authorization": f"Bearer {secret}"},
+            })
+        msg = str(ei.value)
+        assert "Authorization" in msg
+        assert secret not in msg
+        assert "Bearer" not in msg
+
+    def test_rejects_cookie_and_token_prefix_headers(self):
+        mod = _load_convert()
+        with pytest.raises(ValueError) as ei:
+            mod.convert_ap_mcp_server({
+                "type": "streamable-http",
+                "url": "https://example.com/mcp",
+                "headers": {"Cookie": "session=abc"},
+            })
+        assert "Cookie" in str(ei.value)
+        assert "session=abc" not in str(ei.value)
+        with pytest.raises(ValueError) as ei:
+            mod.convert_ap_mcp_server({
+                "type": "streamable-http",
+                "url": "https://example.com/mcp",
+                "headers": {"X-Token": "Bearer abc"},
+            })
+        assert "X-Token" in str(ei.value)
+        assert "Bearer abc" not in str(ei.value)
+
+    def test_keeps_non_credential_headers(self):
+        mod = _load_convert()
+        out = mod.convert_ap_mcp_server({
+            "type": "streamable-http",
+            "url": "https://example.com/mcp",
+            "headers": {"Accept": "application/json"},
+        })
+        assert out["headers"] == {"Accept": "application/json"}
+
+    def test_rejects_userinfo_query_fragment_and_non_http_scheme(self):
+        mod = _load_convert()
+        with pytest.raises(ValueError, match="userinfo"):
+            mod.convert_ap_mcp_server({
+                "type": "streamable-http",
+                "url": "https://user:pass@example.com/mcp",
+            })
+        with pytest.raises(ValueError, match="query"):
+            mod.convert_ap_mcp_server({
+                "type": "streamable-http",
+                "url": "https://example.com/mcp?api_key=secret",
+            })
+        with pytest.raises(ValueError, match="fragment"):
+            mod.convert_ap_mcp_server({
+                "type": "streamable-http",
+                "url": "https://example.com/mcp#frag",
+            })
+        with pytest.raises(ValueError, match="scheme"):
+            mod.convert_ap_mcp_server({
+                "type": "streamable-http",
+                "url": "ftp://example.com/mcp",
+            })
+
+    def test_plain_http_non_loopback_warns_but_allows(self):
+        mod = _load_convert()
+        warns: list[str] = []
+        out = mod.convert_ap_mcp_server({
+            "type": "streamable-http",
+            "url": "http://example.com/mcp",
+        }, warnings=warns)
+        assert out["url"] == "http://example.com/mcp"
+        assert warns and "example.com" in warns[0]
+        assert "loopback" in warns[0]
+        loop_warns: list[str] = []
+        mod.convert_ap_mcp_server({
+            "type": "streamable-http",
+            "url": "http://127.0.0.1:8080/mcp",
+        }, warnings=loop_warns)
+        assert loop_warns == []
+
+    def test_rejects_stdio_command_and_cwd_escapes(self):
+        mod = _load_convert()
+        with pytest.raises(ValueError, match="command"):
+            mod.convert_ap_mcp_server({"command": "bin/server"})
+        with pytest.raises(ValueError, match="command"):
+            mod.convert_ap_mcp_server({"command": "./../outside"})
+        out_tab = mod.convert_ap_mcp_server({"command": "node\t-S"})
+        assert out_tab["command"] == "node"
+        assert out_tab["args"] == ["-S"]
+        with pytest.raises(ValueError, match="cwd"):
+            mod.convert_ap_mcp_server({"command": "node", "cwd": "../outside"})
+        out = mod.convert_ap_mcp_server({"command": "node", "cwd": "./outside"})
+        assert out["cwd"] == "./outside"
+        with pytest.raises(ValueError, match="args"):
+            mod.convert_ap_mcp_server({"command": "node", "args": ["./../escape"]})
+
+    def test_malformed_mcp_json_is_named_error_not_fallback(self, tmp_path):
+        mod = _load_convert()
+        mcp = tmp_path / ".mcp.json"
+        mcp.write_text('{"mcpServers": []}')
+        with pytest.raises(ValueError, match="mcpServers must be an object") as ei:
+            mod.load_claude_mcp_servers(tmp_path, {})
+        assert str(mcp) in str(ei.value)
+        mcp.write_text("{not json")
+        with pytest.raises(ValueError, match="invalid JSON") as ei:
+            mod.load_claude_mcp_servers(tmp_path, {})
+        assert str(mcp) in str(ei.value)
+        assert "JSONDecodeError" not in type(ei.value).__name__
+
+    def test_absent_mcp_json_is_fine(self, tmp_path):
+        mod = _load_convert()
+        assert mod.load_claude_mcp_servers(tmp_path, {}) == {}
+
+    def test_validate_ap_mcp_json_rejects_escaped_cwd(self):
+        mod = _load_convert()
+        doc = {
+            "$schema": mod.MCP_SCHEMA_URL,
+            "mcpServers": {
+                "bad": {
+                    "type": "stdio",
+                    "command": "node",
+                    "cwd": "./../outside",
+                }
+            },
+        }
+        with pytest.raises(ValueError, match="cwd"):
+            mod.validate_ap_mcp_json(doc)
+
+    def test_http_warning_lands_in_conversion_report(self):
+        mod = _load_convert()
+        report = mod.generate_ap_report(
+            {"summary": {"convertible": 0, "partial": 0, "skipped": 0, "total": 0},
+             "components": {}},
+            {"mcp_servers": [{
+                "name": "remote",
+                "status": "converted",
+                "warnings": ["plain HTTP url host 'example.com' is not loopback; allowed with warning"],
+            }]},
+            "demo",
+        )
+        assert "### Warnings" in report
+        assert "example.com" in report
+        assert "remote" in report
+
+    def test_splits_node_plugin_root_command(self):
+        """O3: node ${CLAUDE_PLUGIN_ROOT}/bin/x.js becomes command + args."""
+        mod = _load_convert()
+        out = mod.convert_ap_mcp_server({"command": "node ${CLAUDE_PLUGIN_ROOT}/bin/x.js"})
+        assert out["command"] == "node"
+        assert out["args"] == ["${PLUGIN_ROOT}/bin/x.js"]
+
+    def test_rejects_bare_plugin_root_command(self):
+        """O19: ${CLAUDE_PLUGIN_ROOT} alone is a directory, not an executable."""
+        mod = _load_convert()
+        with pytest.raises(ValueError, match="directory"):
+            mod.convert_ap_mcp_server({"command": "${CLAUDE_PLUGIN_ROOT}"})
+
+    def test_rejects_non_string_args(self):
+        """O20: numeric/None args are rejected rather than stringified."""
+        mod = _load_convert()
+        with pytest.raises(ValueError, match="strings"):
+            mod.convert_ap_mcp_server({"command": "node", "args": [3]})
+        with pytest.raises(ValueError, match="strings"):
+            mod.convert_ap_mcp_server({"command": "node", "args": [None]})
+
+    def test_env_credential_keys_are_redacted(self):
+        """O15: API_TOKEN is replaced with ${API_TOKEN}; the secret is not echoed."""
+        mod = _load_convert()
+        secret = "sk-secret-value-xyz"
+        warns: list[str] = []
+        out = mod.convert_ap_mcp_server(
+            {"command": "node", "env": {"API_TOKEN": secret, "ACME_MODE": "strict"}},
+            warnings=warns,
+        )
+        assert out["env"]["API_TOKEN"] == "${API_TOKEN}"
+        assert out["env"]["ACME_MODE"] == "strict"
+        assert secret not in json.dumps(out)
+        assert secret not in "".join(warns)
+        assert warns and "API_TOKEN" in warns[0]
+
+    def test_ap_skill_slug_and_plugin_root_rewrite(self, tmp_path):
+        """O12/O13: AP mode slugifies My_Skill and rewrites to ${PLUGIN_ROOT}."""
+        mod = _load_convert()
+        skill_src = tmp_path / "src" / "My_Skill"
+        skill_src.mkdir(parents=True)
+        (skill_src / "SKILL.md").write_text(
+            "---\nname: My_Skill\ndescription: \"\"\n---\n\n"
+            "Body ${CLAUDE_PLUGIN_ROOT}/bin/validator.js\n"
+        )
+        dest = tmp_path / "skills"
+        dest.mkdir()
+        result = mod.convert_skill(
+            {"name": "My_Skill", "path": str(skill_src)},
+            tmp_path / "src",
+            dest,
+            flavour="agent-plugins",
+        )
+        assert result["name"] == "my-skill"
+        assert (dest / "my-skill" / "SKILL.md").is_file()
+        md = (dest / "my-skill" / "SKILL.md").read_text()
+        assert "name: my-skill" in md
+        assert "${PLUGIN_ROOT}/bin/validator.js" in md
+        assert "../bin" not in md
+        assert any("description" in i for i in result["issues"])
+
+    def test_ap_copies_license_and_writes_reports_beside(self, tmp_path):
+        """O21/O22/O23: LICENSE is copied; reports sit beside the package; one name."""
+        mod = _load_convert()
+        plugin = tmp_path / "srcplug"
+        plugin.mkdir()
+        (plugin / ".claude-plugin").mkdir()
+        (plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": "Acme_Sample",
+            "version": "1.0.0",
+            "description": "d",
+        }))
+        (plugin / "LICENSE").write_text("MIT license text\n")
+        (plugin / "skills" / "greet").mkdir(parents=True)
+        (plugin / "skills" / "greet" / "SKILL.md").write_text(
+            "---\nname: greet\ndescription: hi\n---\n\nHi.\n"
+        )
+        pkg = tmp_path / "pkg"
+        analysis = {
+            "manifest": {"name": "Acme_Sample", "version": "1.0.0", "description": "d"},
+            "summary": {"convertible": 1, "partial": 0, "skipped": 0, "total": 1},
+            "components": {
+                "skills": [{"name": "greet", "path": str(plugin / "skills" / "greet")}],
+            },
+        }
+        results = mod.convert_plugin_agent_plugins(plugin, analysis, pkg)
+        assert (pkg / "LICENSE").is_file()
+        assert not (pkg / "CONVERSION_REPORT.md").is_file()
+        assert (pkg.parent / "CONVERSION_REPORT.md").is_file()
+        assert results["plugin_name"] == "acme-sample"
+        pjson = json.loads((pkg / "plugin.json").read_text())
+        assert pjson["name"] == "acme-sample"
+        assert results["results_dir"] == str(pkg.parent)
+
+    def test_schemas_shipped_beside_script(self):
+        """O17: schemas live in scripts/schemas/ next to convert.py."""
+        schemas = SCRIPTS_DIR / "schemas"
+        assert (schemas / "plugin.schema.json").is_file()
+        assert (schemas / "mcp.schema.json").is_file()
+

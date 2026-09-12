@@ -58,8 +58,13 @@ If the user hands you a **filled example** rather than a master, run **extract f
    (name defaults to the source stem) and returns a report. Varying values become `{{Token}}` using
    the same run-aware replacement as `tokenise`. The CSV has one row per repeating instance. Show
    `report["mapping"]` (literal → token → where) and any `report["uncertain"]` entries — those spans
-   were left literal rather than guessed. Then continue from step 3 with the extracted template and
-   skeleton, or let the user edit the mapping and re-tokenise.
+   were left literal rather than guessed. Token names come only from five typed shapes:
+   after `Dear ` → `Recipient`; `$…` → `Amount`; `INV-123` → `InvoiceRef`; dates like
+   `12 Mar 2026` → `Date`; `ACME-0042` → `AccountRef`. Collisions become `Amount2`, ….
+   Untyped variation is left literal — a generic `Value1`/`Value2` fallback is **not**
+   implemented; fall back to manual `tokenise` for those fields. Then continue from
+   step 3 with the extracted template and skeleton, or let the user edit the mapping
+   and re-tokenise.
    ```python
    from fill_template import (
        read_content, tokenise, tokens_in, load_rows, generate, extract_template,

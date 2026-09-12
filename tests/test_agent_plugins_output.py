@@ -190,7 +190,7 @@ def test_default_format_still_hermes():
         capture_output=True, text=True, timeout=120,
     )
     assert proc.returncode == 0, proc.stderr
-    assert (out_dir / "converted" / "plugin.yaml").is_file(), \
-        "default output must remain the Hermes plugin format"
+    assert (out_dir / "converted" / "acme-sample" / "plugin.yaml").is_file(), \
+        "default output must remain the Hermes plugin format (at <output>/<name>/plugin.yaml)"
     assert not (out_dir / "converted" / "plugin.json").is_file(), \
         "default output must not emit an agent-plugins plugin.json"

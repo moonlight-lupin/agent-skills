@@ -68,8 +68,9 @@ from __future__ import annotations
 
 import csv
 import datetime
+import os
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import openpyxl
@@ -164,33 +165,25 @@ def _find_matches(text: str, finds: list[str]) -> list[tuple[int, int, str]]:
     return matches
 
 
-def _replace_in_paragraph(paragraph, repl_for: dict) -> int:
-    """Replace literals in one paragraph, preserving run formatting.
+def _apply_spans(paragraph, spans: list[tuple[int, int, str]]) -> int:
+    """Replace [start:end] slices in *paragraph* with the given strings.
 
-    *repl_for* maps a literal -> its replacement string. Matches are located in
-    the paragraph's concatenated run text, then applied right-to-left so earlier
-    offsets stay valid. The replacement text lands in the run where the match
-    begins (inheriting that run's formatting); any other runs the match spans are
-    trimmed. Runs outside every match are left completely untouched.
+    Spans are applied right-to-left so earlier offsets stay valid. The
+    replacement lands in the run where the span begins (inheriting that run's
+    formatting); any other runs the span covers are trimmed. Runs outside every
+    span are left untouched.
     """
     runs = paragraph.runs
-    if not runs:
+    if not runs or not spans:
         return 0
-    text = "".join(r.text for r in runs)
-    matches = _find_matches(text, list(repl_for.keys()))
-    if not matches:
-        return 0
-    for start, end, found in reversed(matches):
-        repl = repl_for[found]
-        # Current run spans (recomputed each time; only runs at/after `start`
-        # can have changed, so earlier offsets remain valid).
+    for start, end, repl in sorted(spans, key=lambda s: s[0], reverse=True):
         pos = 0
         first = True
         for r in runs:
             r_start, r_end = pos, pos + len(r.text)
             pos = r_end
             if r_end <= start or r_start >= end:
-                continue  # this run does not overlap the match
+                continue
             local_start = max(r_start, start) - r_start
             local_end = min(r_end, end) - r_start
             before, after = r.text[:local_start], r.text[local_end:]
@@ -199,7 +192,24 @@ def _replace_in_paragraph(paragraph, repl_for: dict) -> int:
                 first = False
             else:
                 r.text = before + after
-    return len(matches)
+    return len(spans)
+
+
+def _replace_in_paragraph(paragraph, repl_for: dict) -> int:
+    """Replace literals in one paragraph, preserving run formatting.
+
+    *repl_for* maps a literal -> its replacement string. Matches are located in
+    the paragraph's concatenated run text, then applied via ``_apply_spans``.
+    """
+    runs = paragraph.runs
+    if not runs:
+        return 0
+    text = "".join(r.text for r in runs)
+    matches = _find_matches(text, list(repl_for.keys()))
+    if not matches:
+        return 0
+    spans = [(start, end, repl_for[found]) for start, end, found in matches]
+    return _apply_spans(paragraph, spans)
 
 
 def _iter_paragraphs(doc_or_container):
@@ -426,16 +436,20 @@ def _fill_one(template_path: str, values: dict, out_path: str) -> list[str]:
 
 def _row_dicts(rows):
     """Accept list[dict] or the ``(headers, rows)`` tuple from load_rows()."""
-    if (
-        isinstance(rows, tuple)
-        and len(rows) == 2
-        and isinstance(rows[0], list)
-        and isinstance(rows[1], list)
-    ):
-        data = rows[1]
-        if not data or isinstance(data[0], dict):
+    if isinstance(rows, tuple) and len(rows) == 2:
+        _headers, data = rows
+        if isinstance(data, list) and (not data or isinstance(data[0], dict)):
             return data
-    return rows
+        raise TypeError(
+            "generate() rows must be list[dict] or the (headers, list[dict]) "
+            f"tuple from load_rows(); got tuple with {type(data).__name__} rows"
+        )
+    if isinstance(rows, list) and (not rows or isinstance(rows[0], dict)):
+        return rows
+    raise TypeError(
+        "generate() rows must be list[dict] or the (headers, list[dict]) "
+        f"tuple from load_rows(); got {type(rows).__name__}"
+    )
 
 
 def generate(template_path: str, rows: list[dict] | tuple, token_to_column: dict | None = None,
@@ -506,8 +520,10 @@ def generate(template_path: str, rows: list[dict] | tuple, token_to_column: dict
 # 0. EXTRACT (filled document → tokenised template + skeleton)
 # ----------------------------------------------------------------------------
 #
-# Domain shape: a PatternSlot is one varying field aligned across instances
-#   {token, values[i], wheres[i]}
+# Domain shape: a PatternSlot is one field aligned across instances
+#   {token, values[i], wheres[i], starts[i], ends[i], paragraphs[i]}
+# starts/ends are character offsets in that instance's paragraph. Tokenisation
+# replaces those located spans, never a global find of the literal.
 # Instances are ordered occurrences of a repeating paragraph-fingerprint group.
 # Token names come from the matcher that found the span (Recipient, Amount, …).
 
@@ -519,32 +535,39 @@ _VALUE_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("InvoiceRef", re.compile(r"INV-\d+")),
     ("Amount", re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?")),
     ("Date", re.compile(rf"\b\d{{1,2}} {_MONTHS} \d{{4}}\b")),
-    ("AccountRef", re.compile(r"\b[A-Z]{2,}-\d+\b")),
+    ("AccountRef", re.compile(r"\b[A-Z]{2,}-\d+(?![-\d])")),
     ("Recipient", re.compile(r"(?<=Dear )[^,.\n]+", re.IGNORECASE)),
 ]
 
 _TOKEN_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
-def _collect_table_texts(table, prefix: str) -> list[tuple[str, str]]:
-    records: list[tuple[str, str]] = []
+def _collect_table_texts(table, prefix: str) -> list[tuple[str, str, object]]:
+    records: list[tuple[str, str, object]] = []
     for ri, row in enumerate(table.rows, start=1):
-        for ci, cell in enumerate(row.cells, start=1):
+        seen_tc: set[int] = set()
+        ci = 0
+        for cell in row.cells:
+            tc_id = id(cell._tc)
+            if tc_id in seen_tc:
+                continue
+            seen_tc.add(tc_id)
+            ci += 1
             cell_prefix = f"{prefix} r{ri} c{ci}"
             for i, p in enumerate(cell.paragraphs, start=1):
                 if p.text.strip():
-                    records.append((p.text, f"{cell_prefix} paragraph {i}"))
+                    records.append((p.text, f"{cell_prefix} paragraph {i}", p))
             for ti, nested in enumerate(cell.tables, start=1):
                 records.extend(_collect_table_texts(nested, f"{cell_prefix} table {ti}"))
     return records
 
 
-def _collect_located_texts(doc) -> list[tuple[str, str]]:
+def _collect_located_texts(doc) -> list[tuple[str, str, object]]:
     """Body, nested tables, headers/footers — same coverage as _iter_paragraphs."""
-    records: list[tuple[str, str]] = []
+    records: list[tuple[str, str, object]] = []
     for i, p in enumerate(doc.paragraphs, start=1):
         if p.text.strip():
-            records.append((p.text, f"paragraph {i}"))
+            records.append((p.text, f"paragraph {i}", p))
     for ti, table in enumerate(doc.tables, start=1):
         records.extend(_collect_table_texts(table, f"table {ti}"))
     for si, section in enumerate(getattr(doc, "sections", []), start=1):
@@ -558,7 +581,7 @@ def _collect_located_texts(doc) -> list[tuple[str, str]]:
         ):
             for i, p in enumerate(hf.paragraphs, start=1):
                 if p.text.strip():
-                    records.append((p.text, f"section {si} {label} paragraph {i}"))
+                    records.append((p.text, f"section {si} {label} paragraph {i}", p))
             for ti, table in enumerate(hf.tables, start=1):
                 records.extend(
                     _collect_table_texts(table, f"section {si} {label} table {ti}")
@@ -574,19 +597,20 @@ def _fingerprint(text: str) -> str:
 
 
 def _group_instances(
-    records: list[tuple[str, str]],
-) -> tuple[list[list[tuple[str, str]]], list[str]]:
+    records: list[tuple],
+) -> tuple[list[list[tuple]], list[str]]:
     """Split records into repeating pattern instances.
 
     Paragraphs that share a fingerprint and appear ≥2 times become roles of
     one pattern; each instance is one occurrence of every role, in document
-    order. No repeats → the whole document is a single instance.
+    order. No repeats → the whole document is a single instance. Extra tuple
+    fields (paragraph objects) travel with the record.
     """
     uncertain: list[str] = []
     if not records:
         return [[]], uncertain
 
-    fps = [_fingerprint(t) for t, _ in records]
+    fps = [_fingerprint(t) for t, *_ in records]
     groups: dict[str, list[int]] = {}
     order: list[str] = []
     for i, fp in enumerate(fps):
@@ -613,19 +637,49 @@ def _group_instances(
     return instances, uncertain
 
 
-def _typed_hits(text: str) -> list[tuple[str, str]]:
-    """Non-overlapping (kind, value) pairs, left-to-right, first matcher wins."""
+def _typed_hits(text: str) -> tuple[list[tuple[str, str, int, int]], list[str]]:
+    """Non-overlapping (kind, value, start, end), left-to-right, first matcher wins.
+
+    A later match that overlaps an earlier claim is trimmed to its unclaimed
+    prefix when that prefix is non-empty; otherwise it is skipped. Either way
+    a note is returned so the caller can surface the overlap instead of
+    dropping a field silently.
+    """
     taken = [False] * len(text)
-    hits: list[tuple[int, str, str]] = []
+    hits: list[tuple[int, int, str, str]] = []
+    notes: list[str] = []
     for kind, rx in _VALUE_PATTERNS:
         for m in rx.finditer(text):
-            if any(taken[i] for i in range(m.start(), m.end())):
+            start, end = m.start(), m.end()
+            if start >= end:
                 continue
-            for i in range(m.start(), m.end()):
+            claimed = taken[start:end]
+            if all(claimed):
+                notes.append(f"overlapping {kind} skipped at {start}:{end}")
+                continue
+            if any(claimed):
+                new_end = start
+                while new_end < end and not taken[new_end]:
+                    new_end += 1
+                notes.append(
+                    f"overlapping {kind} trimmed from {start}:{end} to {start}:{new_end}"
+                )
+                if new_end <= start:
+                    continue
+                end = new_end
+            for i in range(start, end):
                 taken[i] = True
-            hits.append((m.start(), kind, m.group(0).strip()))
+            raw = text[start:end]
+            value = raw.strip()
+            if value != raw:
+                lead = len(raw) - len(raw.lstrip())
+                trail = len(raw) - len(raw.rstrip())
+                start += lead
+                end -= trail
+            if start < end and value:
+                hits.append((start, end, kind, value))
     hits.sort()
-    return [(kind, value) for _start, kind, value in hits]
+    return [(kind, value, start, end) for start, end, kind, value in hits], notes
 
 
 def _unique_token(kind: str, used: set[str]) -> str:
@@ -646,10 +700,19 @@ def _slots_for_role(
     wheres: list[str],
     used: set[str],
     uncertain: list[str],
+    *,
+    paragraphs: list | None = None,
+    promote_constants: bool = False,
 ) -> list[dict]:
     """Align typed values across instances of one paragraph-role into slots."""
-    parsed = [_typed_hits(t) for t in texts]
-    kinds = [[k for k, _ in p] for p in parsed]
+    parsed: list[list[tuple[str, str, int, int]]] = []
+    for i, t in enumerate(texts):
+        hits, notes = _typed_hits(t)
+        parsed.append(hits)
+        where = wheres[i] if i < len(wheres) else f"instance {i}"
+        for n in notes:
+            uncertain.append(f"{n} at {where}")
+    kinds = [[k for k, *_ in p] for p in parsed]
     if not kinds or not kinds[0]:
         if any(texts[0] != t for t in texts[1:]):
             uncertain.append(
@@ -662,14 +725,47 @@ def _slots_for_role(
         )
         return []
 
+    paras = paragraphs or [None] * len(texts)
     slots: list[dict] = []
     for idx, kind in enumerate(kinds[0]):
         values = [p[idx][1] for p in parsed]
-        if len(set(values)) <= 1:
+        if len(set(values)) <= 1 and not promote_constants:
             continue
         token = _unique_token(kind, used)
-        slots.append({"token": token, "values": values, "wheres": wheres})
+        slots.append({
+            "token": token,
+            "values": values,
+            "wheres": wheres,
+            "starts": [p[idx][2] for p in parsed],
+            "ends": [p[idx][3] for p in parsed],
+            "paragraphs": paras,
+        })
     return slots
+
+
+def _delete_paragraph(paragraph) -> None:
+    el = paragraph._element
+    parent = el.getparent()
+    if parent is not None:
+        parent.remove(el)
+
+
+def _paragraph_run_text(paragraph) -> str:
+    return "".join(r.text or "" for r in paragraph.runs)
+
+
+def _collapse_extra_instances(instances: list[list[tuple]]) -> int:
+    """Delete paragraphs of instances 1..n-1. Returns how many extras were removed."""
+    if len(instances) <= 1:
+        return 0
+    removed = 0
+    for inst in instances[1:]:
+        for rec in inst:
+            para = rec[2] if len(rec) > 2 else None
+            if para is not None:
+                _delete_paragraph(para)
+        removed += 1
+    return removed
 
 
 def _write_skeleton(path: Path, token_names: list[str], rows: list[dict]) -> None:
@@ -696,6 +792,12 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
     *src*. .docx only.
     """
     src_p = Path(src)
+    if src_p.is_dir():
+        raise IsADirectoryError(
+            f"extract_template expected a .docx file, got a directory: {src_p}"
+        )
+    if not src_p.is_file():
+        raise FileNotFoundError(f"extract_template source not found: {src_p}")
     if src_p.suffix.lower() != ".docx":
         raise ValueError(
             f"extract_template supports .docx only, got {src_p.suffix or 'no extension'}"
@@ -706,34 +808,65 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
     tmpl_path = out_p / f"{stem}_tokenised.docx"
     csv_path = out_p / f"{stem}_data.csv"
 
+    src_real = os.path.realpath(src_p)
+    if os.path.realpath(tmpl_path) == src_real or os.path.realpath(csv_path) == src_real:
+        raise ValueError(
+            "extract_template would overwrite the source file; "
+            "pass a different name or out_dir"
+        )
+
     doc = Document(str(src_p))
     records = _collect_located_texts(doc)
     instances, uncertain = _group_instances(records)
 
-    used: set[str] = set()
+    pre_existing = tokens_in(str(src_p))
+    used: set[str] = set(pre_existing)
     slots: list[dict] = []
-    if len(instances) == 1:
-        for text, where in instances[0]:
-            for kind, value in _typed_hits(text):
-                uncertain.append(
-                    f"{kind} {value!r} at {where} (only one instance; left literal)"
-                )
-    else:
-        n_roles = len(instances[0]) if instances else 0
-        for j in range(n_roles):
-            texts = [inst[j][0] for inst in instances]
-            wheres = [inst[j][1] for inst in instances]
-            slots.extend(_slots_for_role(texts, wheres, used, uncertain))
+    promote_constants = len(instances) == 1
+    n_roles = len(instances[0]) if instances else 0
+    for j in range(n_roles):
+        recs = [inst[j] for inst in instances]
+        texts = [r[0] for r in recs]
+        wheres = [r[1] for r in recs]
+        paragraphs = [r[2] for r in recs]
+        slots.extend(_slots_for_role(
+            texts, wheres, used, uncertain,
+            paragraphs=paragraphs,
+            promote_constants=promote_constants,
+        ))
 
-    tokenise_map: list[dict] = []
-    seen_finds: set[str] = set()
+    spans_by_para: dict[int, list[tuple[int, int, str]]] = defaultdict(list)
+    para_by_id: dict[int, object] = {}
+    hits_counts: dict[str, int] = {s["token"]: 0 for s in slots}
+    not_found: list[str] = []
     for slot in slots:
-        for val in slot["values"]:
-            if val and val not in seen_finds:
-                seen_finds.add(val)
-                tokenise_map.append({"find": val, "token": slot["token"]})
-
-    tokenise(str(src_p), str(tmpl_path), tokenise_map)
+        if not slot["paragraphs"] or not slot["values"]:
+            continue
+        para = slot["paragraphs"][0]
+        start, end = slot["starts"][0], slot["ends"][0]
+        token = slot["token"]
+        if para is None:
+            continue
+        full = para.text
+        run_text = _paragraph_run_text(para)
+        span_ok = 0 <= start < end <= len(full) and full[start:end]
+        if run_text != full or not span_ok or full[start:end] not in run_text:
+            msg = (
+                f"{token} at {slot['wheres'][0]} not in paragraph runs "
+                "(hyperlink or complex run); left literal"
+            )
+            uncertain.append(msg)
+            not_found.append(token)
+            continue
+        pid = id(para)
+        para_by_id[pid] = para
+        spans_by_para[pid].append((start, end, _token(token)))
+        hits_counts[token] += 1
+    for pid, spans in spans_by_para.items():
+        _apply_spans(para_by_id[pid], spans)
+    instances_collapsed = _collapse_extra_instances(instances)
+    tmpl_path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(tmpl_path))
 
     token_names = [s["token"] for s in slots]
     data_rows = [
@@ -751,11 +884,21 @@ def extract_template(src: str, out_dir: str, *, name: str | None = None) -> dict
                 "where": where,
             })
 
-    return {
+    report = {
         "mapping": mapping,
         "uncertain": uncertain,
         "template": str(tmpl_path),
         "skeleton": str(csv_path),
         "tokens": token_names,
         "instances": len(instances),
+        "instances_collapsed": instances_collapsed,
+        "hits": hits_counts,
+        "not_found": not_found,
+        "pre_existing_tokens": pre_existing,
     }
+    if pre_existing:
+        report["pre_existing_note"] = (
+            "reserved pre-existing token(s) "
+            f"{pre_existing}; inferred slots will not reuse these names"
+        )
+    return report

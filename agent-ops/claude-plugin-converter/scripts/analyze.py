@@ -357,9 +357,16 @@ def analyze_plugin(plugin_dir: Path) -> dict:
     components["mcp_servers"] = []
     mcp_file = plugin_dir / ".mcp.json"
     if mcp_file.exists():
-        mcp_data = json.loads(mcp_file.read_text(encoding="utf-8"))
+        try:
+            mcp_data = json.loads(mcp_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {"error": f"malformed MCP config {mcp_file}: invalid JSON"}
+        if not isinstance(mcp_data, dict) or not isinstance(mcp_data.get("mcpServers"), dict):
+            return {"error": f"malformed MCP config {mcp_file}: mcpServers must be an object"}
         components["mcp_servers"] = analyze_mcp(mcp_data)
     elif inline_mcp:
+        if not isinstance(inline_mcp, dict):
+            return {"error": f"malformed MCP config in plugin.json: mcpServers must be an object"}
         components["mcp_servers"] = analyze_mcp({"mcpServers": inline_mcp})
 
     # LSP servers
