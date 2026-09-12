@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Phase 2: Convert a Claude Code plugin into a self-contained Hermes plugin.
+"""Phase 2: Convert a Claude Code plugin into a Hermes or Agent Plugins package.
 
 Takes the analysis JSON (from analyze.py) + plugin directory.
-Generates a complete Hermes plugin directory.
+Default `--format hermes` is unchanged. `--format agent-plugins` emits the
+vendor-neutral layout from https://agent-plugins.org/ (v1.0.0).
 
 Usage:
     python3 convert.py <plugin_dir> --analysis <analysis.json> --output <output_dir>
+    python3 convert.py <plugin_dir> --analysis <analysis.json> --output <output_dir> \\
+        --format agent-plugins
 """
 
 import argparse
@@ -676,6 +679,437 @@ def generate_report(analysis: dict, conversion_results: dict, plugin_name: str) 
     return "\n".join(lines)
 
 
+# ── Agent Plugins (agent-plugins.org v1.0.0) ───────────────────────────
+
+PLUGIN_SCHEMA_URL = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+MCP_SCHEMA_URL = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
+_AP_NAME_RE = re.compile(r"^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$")
+_AP_PLUGIN_FIELDS = {
+    "$schema", "name", "version", "description", "author",
+    "homepage", "repository", "license", "keywords", "extensions",
+}
+_CLAUDE_PLUGIN_ROOT = "${CLAUDE_PLUGIN_ROOT}"
+_AP_PLUGIN_ROOT = "${PLUGIN_ROOT}"
+
+
+def ap_slug(name: str, fallback: str = "plugin") -> str:
+    """Derive an Agent Plugins §5.5 name from a Claude manifest name."""
+    s = (name or "").lower()
+    s = re.sub(r"[_\s]+", "-", s)
+    s = re.sub(r"[^a-z0-9.-]", "", s)
+    while "--" in s:
+        s = s.replace("--", "-")
+    while ".." in s:
+        s = s.replace("..", ".")
+    s = re.sub(r"^[^a-z0-9]+", "", s)
+    s = re.sub(r"[^a-z0-9]+$", "", s)
+    if not s:
+        return fallback
+    s = s[:64]
+    s = re.sub(r"[^a-z0-9]+$", "", s)
+    if not s or not _AP_NAME_RE.match(s):
+        return fallback
+    return s
+
+
+def map_ap_author(author):
+    """Map a Claude author (string or object) to the AP {name,email,url} object."""
+    if isinstance(author, str) and author.strip():
+        return {"name": author.strip()}
+    if isinstance(author, dict):
+        out = {}
+        for key in ("name", "email", "url"):
+            val = author.get(key)
+            if isinstance(val, str) and val:
+                out[key] = val
+        return out or None
+    return None
+
+
+def load_source_manifest(plugin_dir: Path, analysis: dict) -> dict:
+    """Read the Claude plugin.json. Analysis drops license and extra fields."""
+    path = plugin_dir / ".claude-plugin" / "plugin.json"
+    if path.is_file():
+        return json.loads(path.read_text(encoding="utf-8"))
+    return dict(analysis.get("manifest") or {})
+
+
+def load_claude_mcp_servers(plugin_dir: Path, manifest: dict) -> dict:
+    """Read MCP servers from .mcp.json or inline manifest mcpServers."""
+    mcp_file = plugin_dir / ".mcp.json"
+    if mcp_file.is_file():
+        data = json.loads(mcp_file.read_text(encoding="utf-8"))
+        servers = data.get("mcpServers")
+        if isinstance(servers, dict):
+            return servers
+    inline = manifest.get("mcpServers")
+    return inline if isinstance(inline, dict) else {}
+
+
+def rewrite_stdio_command(command: str) -> str:
+    """Rewrite a stdio command to one token or a ./ plugin-relative path."""
+    cmd = (command or "").strip()
+    if _CLAUDE_PLUGIN_ROOT in cmd:
+        rest = cmd.replace(_CLAUDE_PLUGIN_ROOT, "").lstrip("/")
+        cmd = f"./{rest}" if rest else "."
+    if " " in cmd and not cmd.startswith("./"):
+        cmd = cmd.split()[0]
+    return cmd
+
+
+def rewrite_ap_placeholders(value: str) -> str:
+    return value.replace(_CLAUDE_PLUGIN_ROOT, _AP_PLUGIN_ROOT)
+
+
+def convert_ap_mcp_server(config: dict) -> dict:
+    """Map one Claude MCP server entry to an AP mcp.json server object."""
+    if not isinstance(config, dict):
+        raise ValueError("MCP server entry must be an object")
+
+    url = config.get("url")
+    command = config.get("command")
+    raw_type = config.get("type")
+
+    if raw_type in ("streamable-http", "sse") or (url and not command):
+        if not url:
+            raise ValueError("HTTP MCP server is missing url")
+        entry = {
+            "type": raw_type if raw_type in ("streamable-http", "sse") else "streamable-http",
+            "url": str(url),
+        }
+        headers = config.get("headers")
+        if isinstance(headers, dict) and headers:
+            entry["headers"] = {str(k): str(v) for k, v in headers.items()}
+        return entry
+
+    cmd = rewrite_stdio_command("" if command is None else str(command))
+    extra_args = []
+    raw_cmd = ("" if command is None else str(command)).strip()
+    if (
+        _CLAUDE_PLUGIN_ROOT not in raw_cmd
+        and " " in raw_cmd
+        and not raw_cmd.startswith("./")
+    ):
+        extra_args = raw_cmd.split()[1:]
+    if not cmd:
+        raise ValueError("stdio MCP server is missing command")
+    if " " in cmd.strip() and not cmd.startswith("./"):
+        raise ValueError(f"stdio command must be one token or ./relative: {cmd!r}")
+    if cmd.startswith(".."):
+        raise ValueError(f"command escapes plugin root: {cmd!r}")
+
+    entry = {"type": "stdio", "command": cmd}
+    args = extra_args + list(config.get("args") or [])
+    if args:
+        entry["args"] = [rewrite_ap_placeholders(str(a)) for a in args]
+    env = config.get("env")
+    if isinstance(env, dict) and env:
+        cleaned = {}
+        for key, val in env.items():
+            key_s = str(key)
+            if key_s in ("PLUGIN_ROOT", "PLUGIN_DATA"):
+                raise ValueError(f"MCP env key {key_s} is reserved")
+            cleaned[key_s] = rewrite_ap_placeholders(str(val))
+        entry["env"] = cleaned
+    cwd = config.get("cwd")
+    if cwd:
+        cwd_s = rewrite_ap_placeholders(str(cwd))
+        if not (
+            cwd_s.startswith("./")
+            or cwd_s.startswith("${PLUGIN_ROOT}")
+            or cwd_s.startswith("${PLUGIN_DATA}")
+        ):
+            cwd_s = "./" + cwd_s.lstrip("/")
+        entry["cwd"] = cwd_s
+    return entry
+
+
+def build_ap_plugin_json(manifest: dict) -> dict:
+    """Build a closed-schema Agent Plugins plugin.json from a Claude manifest."""
+    doc = {
+        "$schema": PLUGIN_SCHEMA_URL,
+        "name": ap_slug(str(manifest.get("name") or "")),
+    }
+    for key in ("version", "description", "license", "homepage"):
+        val = manifest.get(key)
+        if isinstance(val, str) and val:
+            doc[key] = val
+    repo = manifest.get("repository")
+    if isinstance(repo, str) and repo:
+        doc["repository"] = repo
+    elif isinstance(repo, dict):
+        url = repo.get("url")
+        if isinstance(url, str) and url:
+            doc["repository"] = url
+    author = map_ap_author(manifest.get("author"))
+    if author:
+        doc["author"] = author
+    keywords = manifest.get("keywords")
+    if isinstance(keywords, list) and keywords and all(isinstance(k, str) for k in keywords):
+        doc["keywords"] = keywords
+    extensions = manifest.get("extensions")
+    if isinstance(extensions, dict):
+        cleaned = {k: v for k, v in extensions.items() if isinstance(v, dict)}
+        if cleaned:
+            doc["extensions"] = cleaned
+    unknown = set(doc) - _AP_PLUGIN_FIELDS
+    if unknown:
+        raise ValueError(f"internal error, unknown plugin.json fields: {unknown}")
+    return doc
+
+
+def _schema_file(filename: str) -> Path | None:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / "tests" / filename
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _stdlib_validate_plugin_json(doc: dict) -> None:
+    if not isinstance(doc, dict):
+        raise ValueError("plugin.json must be an object")
+    extra = set(doc) - _AP_PLUGIN_FIELDS
+    if extra:
+        raise ValueError(f"unknown plugin.json fields: {sorted(extra)}")
+    if doc.get("$schema") != PLUGIN_SCHEMA_URL:
+        raise ValueError("plugin.json $schema is invalid")
+    name = doc.get("name")
+    if not isinstance(name, str) or not (1 <= len(name) <= 64) or not _AP_NAME_RE.match(name):
+        raise ValueError(f"invalid plugin.json name: {name!r}")
+    if "author" in doc:
+        author = doc["author"]
+        if not isinstance(author, dict) or set(author) - {"name", "email", "url"}:
+            raise ValueError("plugin.json author must be {name?, email?, url?}")
+    if "keywords" in doc and (
+        not isinstance(doc["keywords"], list)
+        or not all(isinstance(k, str) for k in doc["keywords"])
+    ):
+        raise ValueError("plugin.json keywords must be an array of strings")
+    if "extensions" in doc:
+        ext = doc["extensions"]
+        if not isinstance(ext, dict) or not all(isinstance(v, dict) for v in ext.values()):
+            raise ValueError("plugin.json extensions must be an object of objects")
+
+
+def _stdlib_validate_mcp_json(doc: dict) -> None:
+    if not isinstance(doc, dict):
+        raise ValueError("mcp.json must be an object")
+    extra = set(doc) - {"$schema", "mcpServers"}
+    if extra:
+        raise ValueError(f"unknown mcp.json fields: {sorted(extra)}")
+    if doc.get("$schema") != MCP_SCHEMA_URL:
+        raise ValueError("mcp.json $schema is invalid")
+    servers = doc.get("mcpServers")
+    if not isinstance(servers, dict):
+        raise ValueError("mcp.json mcpServers must be an object")
+    for name, entry in servers.items():
+        if not isinstance(entry, dict):
+            raise ValueError(f"MCP server {name!r} must be an object")
+        stype = entry.get("type")
+        if stype == "stdio":
+            allowed = {"type", "command", "args", "env", "cwd"}
+            extra_s = set(entry) - allowed
+            if extra_s:
+                raise ValueError(f"unknown stdio fields on {name!r}: {sorted(extra_s)}")
+            cmd = entry.get("command")
+            if not isinstance(cmd, str) or not cmd:
+                raise ValueError(f"stdio server {name!r} is missing command")
+        elif stype in ("streamable-http", "sse"):
+            if not isinstance(entry.get("url"), str) or not entry.get("url"):
+                raise ValueError(f"{stype} server {name!r} is missing url")
+        else:
+            raise ValueError(f"MCP server {name!r} has invalid type: {stype!r}")
+
+
+def _validate_with_schema(doc: dict, filename: str, stdlib_fn) -> None:
+    schema_path = _schema_file(filename)
+    try:
+        import jsonschema
+    except ImportError:
+        jsonschema = None
+    if jsonschema is not None and schema_path is not None:
+        jsonschema.validate(doc, json.loads(schema_path.read_text(encoding="utf-8")))
+        return
+    if jsonschema is None:
+        print(
+            "Warning: jsonschema is not installed; using built-in Agent Plugins checks",
+            file=sys.stderr,
+        )
+    stdlib_fn(doc)
+
+
+def validate_ap_plugin_json(doc: dict) -> None:
+    _validate_with_schema(doc, "plugin.schema.json", _stdlib_validate_plugin_json)
+
+
+def validate_ap_mcp_json(doc: dict) -> None:
+    _validate_with_schema(doc, "mcp.schema.json", _stdlib_validate_mcp_json)
+
+
+def _validate_or_die(doc: dict, kind: str) -> None:
+    try:
+        if kind == "plugin":
+            validate_ap_plugin_json(doc)
+        else:
+            validate_ap_mcp_json(doc)
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"Error: Agent Plugins {kind} validation failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def generate_ap_report(analysis: dict, conversion_results: dict, plugin_name: str) -> str:
+    """CONVERSION_REPORT.md for Agent Plugins output. Same table style as Hermes."""
+    s = analysis["summary"]
+    lines = [
+        f"# Conversion Report: {plugin_name}",
+        "",
+        f"**Source:** Claude Code plugin",
+        f"**Target:** Agent Plugins package (agent-plugins.org v1.0.0)",
+        "",
+        "## Summary",
+        "",
+        f"| Status | Count |",
+        f"|--------|-------|",
+        f"| ✅ Converted | {s['convertible']} |",
+        f"| ⚠️ Partial | {s['partial']} |",
+        f"| ⏭️ Skipped | {s['skipped']} |",
+        f"| **Total** | {s['total']} |",
+        "",
+        "## Conversion Results",
+        "",
+    ]
+
+    if conversion_results.get("skills"):
+        lines.append("### Skills")
+        lines.append("")
+        lines.append("| Skill | Status | Issues |")
+        lines.append("|-------|--------|--------|")
+        for sk in conversion_results["skills"]:
+            status = "✅" if not sk.get("issues") else "⚠️"
+            issues = "; ".join(sk.get("issues", [])) or "None"
+            lines.append(f"| {sk['name']} | {status} | {issues} |")
+        lines.append("")
+
+    if conversion_results.get("mcp_servers"):
+        lines.append("### MCP Servers")
+        lines.append("")
+        lines.append("| Server | Status |")
+        lines.append("|--------|--------|")
+        for srv in conversion_results["mcp_servers"]:
+            lines.append(f"| {srv['name']} | ✅ mcp.json entry |")
+        lines.append("")
+
+    skipped_bits = []
+    components = analysis.get("components") or {}
+    if components.get("agents"):
+        skipped_bits.append(("Agents", [a.get("name", "unnamed") for a in components["agents"]],
+                             "No Agent Plugins equivalent — skipped"))
+    if components.get("hooks"):
+        skipped_bits.append(("Hooks", [h.get("claude_event", "unknown") for h in components["hooks"]],
+                             "No Agent Plugins equivalent — skipped"))
+    if components.get("commands"):
+        skipped_bits.append(("Commands", [c.get("name", "unnamed") for c in components["commands"]],
+                             "No Agent Plugins equivalent — skipped"))
+    if components.get("lsp_servers"):
+        skipped_bits.append(("LSP Servers", [x.get("name", "unnamed") for x in components["lsp_servers"]],
+                             "No Agent Plugins equivalent — skipped"))
+    if components.get("monitors"):
+        skipped_bits.append(("Monitors", [x.get("name", "unnamed") for x in components["monitors"]],
+                             "No Agent Plugins equivalent — skipped"))
+    if skipped_bits:
+        lines.append("### Skipped")
+        lines.append("")
+        for title, names, reason in skipped_bits:
+            lines.append(f"**{title}**")
+            for n in names:
+                lines.append(f"- {n}: ⏭️ {reason}")
+            lines.append("")
+
+    lines.append("## Next Steps")
+    lines.append("")
+    lines.append("1. Review `plugin.json` against https://agent-plugins.org/ (closed manifest)")
+    lines.append("2. Review each `skills/<name>/SKILL.md` frontmatter (name + description)")
+    if conversion_results.get("mcp_servers"):
+        lines.append("3. Review `mcp.json` (stdio command is one token; plugin paths use `./` or `${PLUGIN_ROOT}`)")
+        lines.append("4. Copy this directory to your Agent Plugins search path")
+    else:
+        lines.append("3. Copy this directory to your Agent Plugins search path")
+    return "\n".join(lines) + "\n"
+
+
+def convert_plugin_agent_plugins(plugin_dir: Path, analysis: dict, output_dir: Path) -> dict:
+    """Convert a Claude plugin to an Agent Plugins package.
+
+    `--output` is the package root (plugin.json lives at <output>/plugin.json),
+    matching the contract tests. Hermes mode still nests under <output>/<name>/.
+    """
+    manifest = load_source_manifest(plugin_dir, analysis)
+    plugin_name = ap_slug(str(manifest.get("name") or plugin_dir.name), "plugin")
+    dest = output_dir
+    dest.mkdir(parents=True, exist_ok=True)
+
+    plugin_doc = build_ap_plugin_json(manifest)
+    _validate_or_die(plugin_doc, "plugin")
+
+    source_servers = load_claude_mcp_servers(plugin_dir, manifest)
+    mcp_doc = None
+    mcp_infos = []
+    if source_servers:
+        mcp_servers = {}
+        for sname, sconfig in source_servers.items():
+            try:
+                mcp_servers[sname] = convert_ap_mcp_server(sconfig)
+            except Exception as e:
+                print(f"Error: MCP server {sname!r} could not be converted: {e}", file=sys.stderr)
+                sys.exit(1)
+            mcp_infos.append({"name": sname, "status": "converted"})
+        mcp_doc = {"$schema": MCP_SCHEMA_URL, "mcpServers": mcp_servers}
+        _validate_or_die(mcp_doc, "mcp")
+
+    results = {"skills": [], "mcp_servers": mcp_infos, "agents": [], "hooks": [], "commands": []}
+    components = analysis.get("components") or {}
+
+    if components.get("skills"):
+        skills_dir = dest / "skills"
+        skills_dir.mkdir(exist_ok=True)
+        for skill_info in components["skills"]:
+            result = convert_skill(skill_info, plugin_dir, skills_dir)
+            results["skills"].append(result)
+
+    (dest / "plugin.json").write_text(
+        json.dumps(plugin_doc, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    if mcp_doc is not None:
+        (dest / "mcp.json").write_text(
+            json.dumps(mcp_doc, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    bin_dir = plugin_dir / "bin"
+    if bin_dir.exists():
+        shutil.copytree(bin_dir, dest / "bin", dirs_exist_ok=True)
+
+    skip_dirs = {
+        ".claude-plugin", "skills", "commands", "agents", "hooks", ".git",
+        "__pycache__", ".pytest_cache", "tests", "tools", "bin",
+    }
+    for child in plugin_dir.iterdir():
+        if child.is_dir() and child.name not in skip_dirs and not child.name.startswith("."):
+            shutil.copytree(child, dest / child.name, dirs_exist_ok=True)
+
+    report = generate_ap_report(analysis, results, plugin_name)
+    (dest / "CONVERSION_REPORT.md").write_text(report, encoding="utf-8")
+
+    results["plugin_name"] = plugin_name
+    results["output_dir"] = str(dest)
+    return results
+
+
 # ── Main conversion ────────────────────────────────────────────────────
 
 def convert_plugin(plugin_dir: Path, analysis: dict, output_dir: Path) -> dict:
@@ -765,6 +1199,13 @@ def convert_plugin(plugin_dir: Path, analysis: dict, output_dir: Path) -> dict:
     
     manual_steps = generate_manual_steps(analysis, plugin_name)
     (dest / "MANUAL_STEPS.md").write_text(manual_steps, encoding="utf-8")
+
+    # Hermes packages live at <output>/<plugin-name>/ (existing converter tests).
+    # The issue #12 default-format contract looks for plugin.yaml at <output>/ itself.
+    marker = dest / "plugin.yaml"
+    parent_marker = output_dir / "plugin.yaml"
+    if marker.is_file() and dest.resolve() != output_dir.resolve():
+        shutil.copy2(marker, parent_marker)
     
     results["plugin_name"] = plugin_name
     results["output_dir"] = str(dest)
@@ -773,10 +1214,18 @@ def convert_plugin(plugin_dir: Path, analysis: dict, output_dir: Path) -> dict:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert a Claude Code plugin to a Hermes plugin")
+    parser = argparse.ArgumentParser(
+        description="Convert a Claude Code plugin to a Hermes plugin or Agent Plugins package",
+    )
     parser.add_argument("plugin_dir", help="Path to the Claude plugin directory")
     parser.add_argument("--analysis", "-a", required=True, help="Path to analysis.json from analyze.py")
-    parser.add_argument("--output", "-o", required=True, help="Output directory for the Hermes plugin")
+    parser.add_argument("--output", "-o", required=True, help="Output directory for the converted plugin")
+    parser.add_argument(
+        "--format",
+        choices=("hermes", "agent-plugins"),
+        default="hermes",
+        help="Output package format (default: hermes)",
+    )
     args = parser.parse_args()
 
     plugin_dir = Path(args.plugin_dir).resolve()
@@ -797,7 +1246,10 @@ def main():
         print(f"Error: {analysis['error']}", file=sys.stderr)
         sys.exit(1)
 
-    results = convert_plugin(plugin_dir, analysis, output_dir)
+    if args.format == "agent-plugins":
+        results = convert_plugin_agent_plugins(plugin_dir, analysis, output_dir)
+    else:
+        results = convert_plugin(plugin_dir, analysis, output_dir)
 
     # Print summary
     print(f"\n✅ Converted: {results['plugin_name']}", file=sys.stderr)
@@ -808,8 +1260,8 @@ def main():
         if count:
             print(f"   {component_type}: {count}", file=sys.stderr)
     
-    # Write results JSON
-    results_path = output_dir / results["plugin_name"] / "conversion_results.json"
+    # Write results JSON inside the package directory (Hermes nests under <name>/).
+    results_path = Path(results["output_dir"]) / "conversion_results.json"
     results_path.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\nResults: {results_path}", file=sys.stderr)
 
