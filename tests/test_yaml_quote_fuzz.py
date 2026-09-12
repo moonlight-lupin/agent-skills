@@ -31,6 +31,8 @@ ADVERSARIAL = [
     "",
     "a: b",
     "'quoted'",
+    "emoji 😀 test",
+    "emoji 🎉 ok",
 ]
 
 
@@ -47,3 +49,14 @@ def test_yaml_quote_roundtrips_adversarial_values():
         quoted = mod.yaml_quote(value)
         parsed = yaml.safe_load(quoted)
         assert parsed == value, (value, quoted, parsed)
+
+
+def test_yaml_quote_rejects_non_strings():
+    mod = _load_convert()
+    for value in (123, None, ["a"], {"k": "v"}):
+        try:
+            mod.yaml_quote(value)
+        except ValueError as e:
+            assert "str" in str(e).lower() or "expects" in str(e).lower()
+        else:
+            raise AssertionError(f"yaml_quote({value!r}) should raise ValueError")
