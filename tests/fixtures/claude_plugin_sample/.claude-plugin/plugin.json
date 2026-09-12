@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin.json",
+  "name": "acme-sample",
+  "description": "Sample plugin used by converter contract tests",
+  "version": "0.2.1",
+  "author": "Acme Labs",
+  "license": "MIT"
+}

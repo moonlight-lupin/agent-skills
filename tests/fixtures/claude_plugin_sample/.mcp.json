@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "acme-validator": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/validator.js", "--strict"],
+      "env": {
+        "ACME_MODE": "strict"
+      }
+    }
+  }
+}
