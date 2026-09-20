@@ -5,6 +5,7 @@ Source: https://github.com/oneal2000/SR-Agents/blob/main/src/sragents/retrieve/b
 Indexed once at plugin load; retrieval is sub-millisecond for 128 skills.
 """
 
+import inspect
 import os
 import re
 import sys
@@ -327,6 +328,26 @@ def load_active_skills(
     except ImportError as exc:
         logger.warning("Cannot import Hermes skill discovery helpers: %s", exc)
         return _load_active_skills_legacy()
+
+    # Compat shim for Hermes ≤0.20.x, where _skill_should_show takes 3
+    # positional arguments (no session_platform). The plugin declares
+    # compatibility >=0.20.0, so both signatures must work. Wrap the
+    # 3-arg host function in a 4-arg adapter once, at load time, by
+    # inspecting its declared parameters. Fall back to assuming the
+    # 4-arg form when inspection fails, because the shim must not mask
+    # a real TypeError from a future signature change.
+    _show_params = None
+    try:
+        _show_params = inspect.signature(_skill_should_show).parameters
+    except (TypeError, ValueError):
+        _show_params = None
+    if _show_params is not None and len(_show_params) < 4:
+        _raw_should_show = _skill_should_show
+
+        def _skill_should_show(  # noqa: F811 - deliberate host-function wrapper
+            conditions, available_tools, available_toolsets, session_platform=None,
+        ):
+            return _raw_should_show(conditions, available_tools, available_toolsets)
 
     platform_hint = _current_session_platform_hint() or None
     disabled = get_disabled_skill_names(platform_hint)
