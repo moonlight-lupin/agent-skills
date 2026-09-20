@@ -106,9 +106,26 @@ def _remember_capability_snapshot(*args, **kwargs) -> None:
             return
         tools = kwargs["available_tools"] if has_kw_tools else (args[0] if len(args) > 0 else None)
         toolsets = kwargs["available_toolsets"] if has_kw_toolsets else (args[1] if len(args) > 1 else None)
+        # Identity: explicit session_id kwarg wins (future-proofing). Otherwise
+        # bind to the task-local Hermes session identity via
+        # gateway.session_context.get_session_env("HERMES_SESSION_ID") —
+        # build_skills_system_prompt() has no session_id parameter, so the
+        # session env is the only identity source available at build time
+        # (issue #8 close-out contract). Anonymous (no identity) falls to "".
         session_id = kwargs.get("session_id") or ""
         if not isinstance(session_id, str):
             session_id = str(session_id) if session_id else ""
+        if not session_id:
+            try:
+                get_session_env = getattr(
+                    sys.modules.get("gateway.session_context"), "get_session_env", None,
+                )
+                if callable(get_session_env):
+                    session_id = get_session_env("HERMES_SESSION_ID") or ""
+            except Exception:
+                session_id = ""
+            if not isinstance(session_id, str):
+                session_id = str(session_id) if session_id else ""
         _session_capability_snaps[session_id] = (
             time.monotonic(),
             _freeze_capability_set(tools),
