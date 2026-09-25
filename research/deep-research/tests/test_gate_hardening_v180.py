@@ -267,3 +267,54 @@ class TestQualityMix:
         out = _run(rv.cmd_verify_claims, dir=str(run_dir))[1]
         assert out["source_quality"]["rating"] == "weak"
         assert "primary" in out["quality_warning"]
+
+# ─── Codex review round 2: strict-gate false passes ──────────────────────────
+
+class TestVerifiedCorroboration:
+    """[VERIFIED] must mean CORROBORATED, not just >=2 hosts."""
+
+    def test_unrelated_second_host_does_not_satisfy_verified(self, run_dir):
+        s1 = _source(run_dir, "https://www.alpha.example/report")
+        s2 = _source(run_dir, "https://beta.example/study")
+        # c1 supported by s1; evidence from s2 that does NOT support the claim
+        assert _claim(run_dir, "c1", s1, basis="verified", polarity="refute")[0] == 0
+        _run(rv.cmd_add_evidence, dir=str(run_dir), json=json.dumps(
+            {"claim_id": "c1", "snippet": "Completely unrelated text about a different topic",
+             "source_id": s2}))
+        rc, out = _run(rv.cmd_verify_claims, dir=str(run_dir), strict=True)
+        assert rc == 1, out
+        assert out["basis_warnings"] == 1
+
+
+class TestRefuteClaimSubstance:
+    """A refute claim must actually be evidence-backed to count as counter-evidence."""
+
+    def test_unsupported_refute_claim_does_not_satisfy_the_gate(self, run_dir):
+        sids = [_source(run_dir, f"https://site{i}.example/a") for i in range(5)]
+        for i, sid in enumerate(sids):
+            assert _claim(run_dir, f"c{i}", sid, polarity="support")[0] == 0
+        # refute claim with no snippet and no source — must NOT count
+        assert _claim(run_dir, "r1", "", kind="interpretive", polarity="refute",
+                      snippet="", source_id="")[0] == 0
+        rc, out = _run(rv.cmd_verify_claims, dir=str(run_dir), strict=True)
+        assert rc == 1, out
+        assert "counter-evidence" in out["refute_warning"]
+
+    def test_unpaired_support_does_not_satisfy_the_gate(self, run_dir):
+        # Codex confirm round: a supporting snippet from an UNREGISTERED
+        # source plus an unrelated registered source must not count.
+        sids = [_source(run_dir, f"https://site{i}.example/a") for i in range(5)]
+        for i, sid in enumerate(sids):
+            assert _claim(run_dir, f"c{i}", sid, polarity="support")[0] == 0
+        # refute claim: its own snippet contradicts its own unregistered
+        # source; the evidence record points at a registered source but its
+        # snippet is unrelated to the refute claim.
+        assert _claim(run_dir, "r1", "unregistered-sid", kind="interpretive",
+                      polarity="refute", snippet="Adoption grew 40% in 2025")[0] == 0
+        _run(rv.cmd_add_evidence, dir=str(run_dir), json=json.dumps(
+            {"claim_id": "r1", "snippet": "Unrelated content about nothing",
+             "source_id": sids[0]}))
+        rc, out = _run(rv.cmd_verify_claims, dir=str(run_dir), strict=True)
+        assert rc == 1, out
+        assert out["refute_claims"] == 0
+        assert "counter-evidence" in out["refute_warning"]

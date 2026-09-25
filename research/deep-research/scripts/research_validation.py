@@ -336,7 +336,10 @@ MAGNITUDE_WORD_RE = re.compile(
 _MAG_WORD_SUFFIX = {"thousand": "k", "million": "m", "milliard": "b",
                     "billion": "b", "trillion": "t"}
 # Common abbreviations of the same magnitudes: '2.4bn' == '2.4b' == '2.4 billion'.
-_SUFFIX_ALIASES = {"bn": "b", "mn": "m", "mln": "m", "mm": "m", "tn": "t", "trn": "t"}
+# 'mm' is deliberately NOT aliased: it means both 'million' (finance) and
+# 'millimetre' (physical), and aliasing it would erase '2mm' vs '2m' unit
+# contradictions (Codex review round 2, MAJOR — 2026-09-25).
+_SUFFIX_ALIASES = {"bn": "b", "mn": "m", "mln": "m", "tn": "t", "trn": "t"}
 
 
 def _figures(text: str) -> set:
@@ -466,11 +469,16 @@ def cmd_verify_claims(args) -> int:
                 manifest["provider_used_at"] = utc_now()
                 manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     refute_none = getattr(args, "refute_none", None)
+    if refute_none is not None and not str(refute_none).strip():
+        # A blank waiver is not a waiver — the reason must say what was
+        # searched (Codex review round 2, MINOR — 2026-09-25).
+        refute_none = None
     if refute_none:
         _record_manifest(d, refute_none_reason=refute_none)
     main = {}
     extra = {}
     sources = {}
+    evidence_recs = {}  # claim_id -> list of full evidence records (with source_id)
     for s in _read_jsonl(d / "sources.jsonl"):
         sid = s.get("source_id")
         if sid:
@@ -481,8 +489,10 @@ def cmd_verify_claims(args) -> int:
         if "claim" in rec:
             main[cid] = rec
             extra.setdefault(cid, [])
+            evidence_recs.setdefault(cid, [])
         else:
             extra.setdefault(cid, []).append(rec.get("evidence_snippet", ""))
+            evidence_recs.setdefault(cid, []).append(rec)
     results = []
     failures = 0
     warnings = 0
@@ -534,13 +544,26 @@ def cmd_verify_claims(args) -> int:
         if missing_source:
             entry["warning"] = "claim has no source_id"
             warnings += 1
-        # [VERIFIED] means >=2 independent sources: count distinct hosts.
+        # [VERIFIED] means >=2 independent sources that CORROBORATE the claim:
+        # each (source_id, snippet) pair is scored separately, and only a
+        # source whose OWN snippet supports the claim counts as corroboration
+        # (Codex review round 2, MAJOR — 2026-09-25).
         if rec.get("basis") == "verified":
-            hosts = {_host(sources[sid]) for sid in claim_sids if sid in sources}
-            if len(hosts) < 2:
+            pairs = []
+            if rec.get("snippet") and rec.get("source_id"):
+                pairs.append((rec["source_id"], rec["snippet"]))
+            for ev in ev_recs:
+                if ev.get("evidence_snippet") and ev.get("source_id"):
+                    pairs.append((ev["source_id"], ev["evidence_snippet"]))
+            supporting_hosts = {
+                _host(sources[sid])
+                for sid, sn in pairs
+                if sid in sources and support_score(rec["claim"], [sn]) >= SUPPORTED_THRESHOLD
+            }
+            if len(supporting_hosts) < 2:
                 entry["basis_warning"] = (
-                    f"tagged [VERIFIED] but backed by {len(hosts)} independent source host(s); "
-                    "[VERIFIED] needs >=2 — add corroborating evidence from another site or tag it [SOURCED]")
+                    f"tagged [VERIFIED] but corroborated by only {len(supporting_hosts)} supporting source host(s); "
+                    "[VERIFIED] needs >=2 corroborating evidence from another site or tag it [SOURCED]")
                 basis_warnings += 1
                 if args.strict and not entry["strict_fail"]:
                     failures += 1
@@ -555,7 +578,26 @@ def cmd_verify_claims(args) -> int:
         print(json.dumps(out))
         return 0 if not args.strict else 1
     # Counter-evidence: required once the report reaches the gated size.
-    refute_claims = sum(1 for r in main.values() if r.get("polarity") == "refute")
+    # A refute claim counts ONLY if it is evidence-backed — a qualifying
+    # snippet (score >= PARTIAL_THRESHOLD) that belongs to a REGISTERED
+    # source. Source presence and snippet support must be PAIRED: a
+    # supporting snippet from an unregistered source counts for nothing,
+    # and neither does a registered source with an unrelated snippet
+    # (Codex round 2 MAJOR, confirm round PARTIAL — 2026-09-25).
+    refute_records = []
+    for cid, rec in main.items():
+        if rec.get("polarity") != "refute":
+            continue
+        pairs = []
+        if rec.get("snippet") and rec.get("source_id"):
+            pairs.append((rec["source_id"], rec["snippet"]))
+        for e in evidence_recs.get(cid, []):
+            if e.get("evidence_snippet") and e.get("source_id"):
+                pairs.append((e["source_id"], e["evidence_snippet"]))
+        if any(sid in sources and support_score(rec["claim"], [sn]) >= PARTIAL_THRESHOLD
+               for sid, sn in pairs):
+            refute_records.append(cid)
+    refute_claims = len(refute_records)
     refute_warning = ""
     if refute_claims == 0 and len(sources) >= REFUTE_MIN_SOURCES and not refute_none:
         refute_warning = (
@@ -585,12 +627,17 @@ def _host(source: dict) -> str:
 
 def _quality_mix(sources) -> dict:
     """Counts per tier and the SKILL.md §3e rating: healthy (>=30% primary and
-    <=30% tertiary), weak (no primary, or >50% tertiary), else acceptable."""
+    <=30% tertiary), weak (no primary, or >50% tertiary), else acceptable.
+    Legacy records with a non-tier quality (stored before validation existed)
+    count as their historical default, 'secondary' — dropping them from the
+    denominator would let one primary rate a whole store healthy
+    (Codex review round 2, MINOR — 2026-09-25)."""
     counts = {"primary": 0, "secondary": 0, "tertiary": 0}
     for s in sources:
-        q = str(s.get("quality", "")).lower()
-        if q in counts:
-            counts[q] += 1
+        q = str(s.get("quality", "secondary")).lower()
+        if q not in counts:
+            q = "secondary"
+        counts[q] += 1
     total = sum(counts.values())
     if total == 0:
         rating = "none"
