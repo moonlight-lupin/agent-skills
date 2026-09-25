@@ -61,6 +61,12 @@ ENTITY_RE = re.compile(r"\b[A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+)*\b|[\u4e00-
 SUPPORTED_THRESHOLD = 0.60
 PARTIAL_THRESHOLD = 0.35
 VALID_KINDS = frozenset({"factual", "interpretive", "projective", "synthesis", "speculation"})
+VALID_QUALITIES = frozenset({"primary", "secondary", "tertiary"})
+VALID_POLARITIES = frozenset({"support", "refute", "neutral"})
+# The four evidence-basis labels from SKILL.md, stored lowercase.
+VALID_BASES = frozenset({"verified", "sourced", "reasoned", "estimated"})
+# Counter-evidence is mandatory once a report reaches the gated size (SKILL.md §5.5).
+REFUTE_MIN_SOURCES = 5
 
 REQUIRED_SECTIONS = [
     ("Executive Summary", "Executive summary"),
@@ -193,7 +199,7 @@ def cmd_init_run(args) -> int:
     else:
         manifest_path.write_text(json.dumps({
             "query": args.query or "",
-            "mode": args.mode or "standard",
+            "mode": args.mode or "moderate",
             "provider_preference": args.provider or "auto",
             "provider_used": None,
             "created_at": created,
@@ -220,6 +226,11 @@ def cmd_register_source(args) -> int:
         # urlsplit raises ValueError on malformed input like 'http://['.
         print(json.dumps({"ok": False, "error": f"malformed url: {url!r}"}))
         return 2
+    quality = str(obj.get("quality") or "secondary").strip().lower()
+    if quality not in VALID_QUALITIES:
+        print(json.dumps({"ok": False,
+                          "error": f"invalid quality {obj.get('quality')!r} — valid: {sorted(VALID_QUALITIES)}"}))
+        return 2
     existing = _read_jsonl(d / "sources.jsonl")
     if any(s.get("source_id") == sid for s in existing):
         print(json.dumps({"ok": True, "source_id": sid, "deduplicated": True,
@@ -230,7 +241,7 @@ def cmd_register_source(args) -> int:
         "url": url,
         "canonical_url": canonical,
         "title": obj.get("title", ""),
-        "quality": obj.get("quality", "secondary"),
+        "quality": quality,
         "registered_at": utc_now(),
     }
     _append_jsonl(d / "sources.jsonl", rec)
@@ -255,6 +266,18 @@ def cmd_add_claim(args) -> int:
         print(json.dumps({"ok": False,
                           "error": f"invalid kind {kind!r} — valid: {sorted(VALID_KINDS)}"}))
         return 2
+    polarity = str(obj.get("polarity") or "neutral").strip().lower()
+    if polarity not in VALID_POLARITIES:
+        print(json.dumps({"ok": False,
+                          "error": f"invalid polarity {obj.get('polarity')!r} — valid: {sorted(VALID_POLARITIES)}"}))
+        return 2
+    basis = obj.get("basis")
+    if basis is not None:
+        basis = str(basis).strip().strip("[]").lower()
+        if basis not in VALID_BASES:
+            print(json.dumps({"ok": False,
+                              "error": f"invalid basis {obj.get('basis')!r} — valid: {sorted(VALID_BASES)}"}))
+            return 2
     claim_id = claim_id.strip()
     if _claim_exists(_read_jsonl(d / "claims.jsonl"), claim_id):
         print(json.dumps({"ok": False, "error": f"duplicate claim_id {claim_id}"}))
@@ -263,7 +286,8 @@ def cmd_add_claim(args) -> int:
         "claim_id": claim_id,
         "claim": claim.strip() if isinstance(claim, str) else claim,
         "kind": kind,
-        "polarity": obj.get("polarity", "neutral"),
+        "polarity": polarity,
+        "basis": basis,
         "topic_tag": obj.get("topic_tag", ""),
         "snippet": obj.get("snippet", ""),
         "source_id": obj.get("source_id", ""),
@@ -311,6 +335,8 @@ MAGNITUDE_WORD_RE = re.compile(
     r"(?i)\b(thousand|million|billion|trillion|milliard)s?\b")
 _MAG_WORD_SUFFIX = {"thousand": "k", "million": "m", "milliard": "b",
                     "billion": "b", "trillion": "t"}
+# Common abbreviations of the same magnitudes: '2.4bn' == '2.4b' == '2.4 billion'.
+_SUFFIX_ALIASES = {"bn": "b", "mn": "m", "mln": "m", "mm": "m", "tn": "t", "trn": "t"}
 
 
 def _figures(text: str) -> set:
@@ -351,7 +377,8 @@ def _figures(text: str) -> set:
             after = text[m.end()] if m.end() < len(text) else " "
             if not (re.match(r"\w", before) or re.match(r"\w", after)):
                 continue
-        out.add(val + suffix.lower())
+        suffix = suffix.lower()
+        out.add(val + _SUFFIX_ALIASES.get(suffix, suffix))
     return out
 
 
@@ -438,13 +465,17 @@ def cmd_verify_claims(args) -> int:
                 manifest["provider_used"] = args.provider_used
                 manifest["provider_used_at"] = utc_now()
                 manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    refute_none = getattr(args, "refute_none", None)
+    if refute_none:
+        _record_manifest(d, refute_none_reason=refute_none)
     main = {}
     extra = {}
-    source_ids = set()
+    sources = {}
     for s in _read_jsonl(d / "sources.jsonl"):
         sid = s.get("source_id")
         if sid:
-            source_ids.add(sid)
+            sources[sid] = s
+    source_ids = set(sources)
     for rec in claims:
         cid = rec.get("claim_id")
         if "claim" in rec:
@@ -455,6 +486,7 @@ def cmd_verify_claims(args) -> int:
     results = []
     failures = 0
     warnings = 0
+    basis_warnings = 0
     for cid, rec in main.items():
         snippets = ([rec.get("snippet", "")] if rec.get("snippet") else []) + extra.get(cid, [])
         snippets = [s for s in snippets if s]
@@ -502,6 +534,17 @@ def cmd_verify_claims(args) -> int:
         if missing_source:
             entry["warning"] = "claim has no source_id"
             warnings += 1
+        # [VERIFIED] means >=2 independent sources: count distinct hosts.
+        if rec.get("basis") == "verified":
+            hosts = {_host(sources[sid]) for sid in claim_sids if sid in sources}
+            if len(hosts) < 2:
+                entry["basis_warning"] = (
+                    f"tagged [VERIFIED] but backed by {len(hosts)} independent source host(s); "
+                    "[VERIFIED] needs >=2 — add corroborating evidence from another site or tag it [SOURCED]")
+                basis_warnings += 1
+                if args.strict and not entry["strict_fail"]:
+                    failures += 1
+                    entry["strict_fail"] = True
         results.append(entry)
     if not main:
         # No claims recorded — in strict mode this is a failure (no gate ran);
@@ -511,10 +554,64 @@ def cmd_verify_claims(args) -> int:
                "strict_ok": not args.strict}
         print(json.dumps(out))
         return 0 if not args.strict else 1
+    # Counter-evidence: required once the report reaches the gated size.
+    refute_claims = sum(1 for r in main.values() if r.get("polarity") == "refute")
+    refute_warning = ""
+    if refute_claims == 0 and len(sources) >= REFUTE_MIN_SOURCES and not refute_none:
+        refute_warning = (
+            f"no counter-evidence (polarity 'refute') claims across {len(sources)} sources — "
+            "search for criticism or opposing data, or pass --refute-none '<what you searched>'")
+        if args.strict:
+            failures += 1
+    quality = _quality_mix(sources.values())
+    quality_warning = ""
+    if quality["rating"] == "weak":
+        quality_warning = (
+            f"weak source mix ({quality['primary']} primary, {quality['tertiary']} tertiary of "
+            f"{quality['total']}) — fetch primary sources or qualify claims and flag it under Gaps")
     print(json.dumps({"ok": failures == 0, "claims": len(results),
                       "unsupported_strict": failures, "source_warnings": warnings,
+                      "basis_warnings": basis_warnings,
+                      "refute_claims": refute_claims, "refute_warning": refute_warning,
+                      "source_quality": quality, "quality_warning": quality_warning,
                       "results": results}))
     return 1 if failures else 0
+
+
+def _host(source: dict) -> str:
+    host = urlsplit(source.get("canonical_url") or source.get("url") or "").netloc.lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+def _quality_mix(sources) -> dict:
+    """Counts per tier and the SKILL.md §3e rating: healthy (>=30% primary and
+    <=30% tertiary), weak (no primary, or >50% tertiary), else acceptable."""
+    counts = {"primary": 0, "secondary": 0, "tertiary": 0}
+    for s in sources:
+        q = str(s.get("quality", "")).lower()
+        if q in counts:
+            counts[q] += 1
+    total = sum(counts.values())
+    if total == 0:
+        rating = "none"
+    elif counts["primary"] / total >= 0.30 and counts["tertiary"] / total <= 0.30:
+        rating = "healthy"
+    elif counts["primary"] == 0 or counts["tertiary"] / total > 0.50:
+        rating = "weak"
+    else:
+        rating = "acceptable"
+    return {**counts, "total": total, "rating": rating}
+
+
+def _record_manifest(run_dir: Path, **fields) -> None:
+    path = run_dir / "run_manifest.json"
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except json.JSONDecodeError:
+        return
+    if isinstance(manifest, dict):
+        manifest.update(fields)
+        path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 # ---------------------------------------------------------------- citation check
@@ -551,7 +648,7 @@ def cmd_verify_citations(args) -> int:
     text = path.read_text(encoding="utf-8")
     body, sources, header_level = _split_report(text)
 
-    inline = sorted({int(n) for n in CITATION_RE.findall(body)})
+    inline_all = {int(n) for n in CITATION_RE.findall(body)}
 
     bib = {}
     dup_numbers = []
@@ -577,6 +674,10 @@ def cmd_verify_citations(args) -> int:
             dup_numbers.append(n)
         else:
             bib[n] = entry
+
+    # A bracketed year ('fiscal [2024]') is prose, not a citation — unless the
+    # Sources list really has an entry with that number.
+    inline = sorted(n for n in inline_all if not (1900 <= n <= 2099 and n not in bib))
 
     if not inline and not bib:
         print(json.dumps({"ok": False, "inline_citations": 0, "sources_entries": 0,
@@ -640,14 +741,24 @@ def cmd_verify_citations(args) -> int:
 
 # ---------------------------------------------------------------- structure check
 
+def _section_heading(text: str, name: str):
+    """The '## <name>...' heading, or None.
+
+    A required section is a level-2 heading whose text STARTS with its name:
+    '## Gaps and open questions' and '## Sources & references' count;
+    '## Mind the Gaps' and '### Sources of revenue' do not.
+    """
+    return re.search(rf"^##[ \t]+{re.escape(name)}\b[^\n]*$", text, re.MULTILINE | re.IGNORECASE)
+
+
 def cmd_validate_report(args) -> int:
     path = Path(args.report)
     text = path.read_text(encoding="utf-8")
     problems = []
 
     for heading, label in REQUIRED_SECTIONS:
-        if not re.search(rf"^#+\s*.*{re.escape(heading)}", text, re.MULTILINE | re.IGNORECASE):
-            problems.append(f"missing required section: {label}")
+        if not _section_heading(text, heading):
+            problems.append(f"missing required section: {label} ('## {heading}' heading)")
 
     for pat, label in PLACEHOLDER_PATTERNS:
         hits = re.findall(pat, text)
@@ -660,10 +771,11 @@ def cmd_validate_report(args) -> int:
     # Evidence key legend below the Sources table: all four labels required.
     # The raw Sources section is used (labels are inline-code in the template and
     # code stripping would delete them).
-    m_src = re.search(r"^##\s*Sources\b.*$", text, re.MULTILINE | re.IGNORECASE)
+    # A missing Sources section must not skip this check: no section means no legend.
+    m_src = _section_heading(text, "Sources")
     sources_raw = text[m_src.start():] if m_src else ""
-    if sources_raw and not all(lbl in sources_raw for lbl in
-                               ("[VERIFIED]", "[SOURCED]", "[REASONED]", "[ESTIMATED]")):
+    if not all(lbl in sources_raw for lbl in
+               ("[VERIFIED]", "[SOURCED]", "[REASONED]", "[ESTIMATED]")):
         problems.append("evidence key legend missing under Sources table — all four labels required")
 
     # Empty mandatory sections (heading present but no content). The emptiness
@@ -672,11 +784,10 @@ def cmd_validate_report(args) -> int:
     # section body extends across deeper sub-headings (###) and stops at the
     # next heading of the same or higher level.
     for section in ("Contradictions", "Gaps"):
-        m = re.search(rf"^(?P<h>#+)\s*.*{re.escape(section)}[^#$\n]*$",
-                      text, re.MULTILINE | re.IGNORECASE)
+        m = _section_heading(text, section)
         if not m:
             continue
-        lvl = len(m.group("h"))
+        lvl = 2
         body = text[m.end():]
         stop = re.search(rf"^#{{1,{lvl}}}\s", body, re.MULTILINE)
         content = body[:stop.start()] if stop else body
@@ -696,7 +807,8 @@ def main() -> int:
     s.add_argument("--dir", required=True)
     s.add_argument("--query", default="")
     s.add_argument("--mode", default=None,
-                   help="research depth: quick | standard | deep | ultradeep (default: keep existing)")
+                   help="research complexity, as in SKILL.md: simple | moderate | complex "
+                        "(default: moderate; keeps the existing value on re-init)")
     s.add_argument("--provider", default=None,
                    help="search provider preference: donsetch | auto (default: keep existing)")
     s.set_defaults(func=cmd_init_run)
@@ -721,6 +833,9 @@ def main() -> int:
     s.add_argument("--strict", action="store_true")
     s.add_argument("--provider-used", default=None, dest="provider_used",
                    help="record which search provider was used (e.g. donsetch, built-in)")
+    s.add_argument("--refute-none", default=None, dest="refute_none",
+                   help="counter-evidence was searched for and none found: say what was searched "
+                        "(recorded in run_manifest.json; waives the counter-evidence check)")
     s.set_defaults(func=cmd_verify_claims)
 
     s = sub.add_parser("verify-citations")
