@@ -1,0 +1,6 @@
+name: lumen
+version: 0.1.0
+description: Standalone LLM wiki plugin — methodology + memory-fed curator
+author: moonlight-lupin
+license: MIT
+requires_skills: []

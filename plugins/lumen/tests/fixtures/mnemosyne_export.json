@@ -1,0 +1,65 @@
+{
+  "mnemosyne_export": {
+    "version": "1.3",
+    "generated_at": "2026-09-26T00:00:00Z"
+  },
+  "working_memory": [
+    {
+      "id": "aa11bb22cc33dd44",
+      "content": "Globex Corporation switched its vendor portal to SSO in September 2026.",
+      "source": "fact",
+      "timestamp": "2026-09-20T10:00:00.000000",
+      "session_id": "default",
+      "importance": 0.7,
+      "metadata_json": "{\"entities\": [\"Globex Corporation\"]}",
+      "valid_until": null,
+      "superseded_by": null,
+      "scope": "global",
+      "veracity": "stated"
+    },
+    {
+      "id": "ee55ff66aa77bb88",
+      "content": "Initech's new CTO announced a platform consolidation for Q1.",
+      "source": "note",
+      "timestamp": "2026-09-24T08:30:00.000000",
+      "session_id": "default",
+      "importance": 0.6,
+      "metadata_json": "{}",
+      "valid_until": null,
+      "superseded_by": null,
+      "scope": "global",
+      "veracity": "unknown"
+    },
+    {
+      "id": "cc33dd44ee55ff66",
+      "content": "Old observation superseded by a newer fact; must never reach the curator.",
+      "source": "fact",
+      "timestamp": "2026-08-01T10:00:00.000000",
+      "session_id": "default",
+      "importance": 0.5,
+      "metadata_json": "{}",
+      "valid_until": null,
+      "superseded_by": "ee55ff66aa77bb88",
+      "scope": "global",
+      "veracity": "unknown"
+    }
+  ],
+  "episodic_memory": [
+    {
+      "id": "ep01aa22bb33cc44",
+      "content": "Kickoff call with Acme Freight about the warehouse retrofit went well; follow up next Tuesday.",
+      "timestamp": "2026-09-25T16:00:00.000000",
+      "importance": 0.5,
+      "metadata_json": "{}"
+    },
+    {
+      "id": "ep02bb33cc44dd55",
+      "content": "Vendor demo for the Initech account; pricing tier discussed.",
+      "timestamp": "2026-09-18T11:00:00.000000",
+      "importance": 0.4,
+      "metadata_json": "{}"
+    }
+  ],
+  "scratchpad": [],
+  "consolidation_log": []
+}

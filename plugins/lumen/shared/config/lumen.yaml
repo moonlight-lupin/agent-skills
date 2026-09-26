@@ -1,0 +1,10 @@
+# Lumen plugin defaults. Override with --config or LUMEN_CONFIG.
+# Wiki path: paths.wiki_path, else $WIKI_PATH, else ~/wiki.
+
+paths:
+  wiki_path: null
+
+curator:
+  timezone: Asia/Singapore
+  max_write_pages: 20  # 0 or negative disables the cap
+  memory_source: auto
