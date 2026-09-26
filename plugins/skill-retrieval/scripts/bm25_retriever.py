@@ -37,12 +37,13 @@ def get_plugins_dir() -> Path:
     return get_hermes_home() / "plugins"
 
 
-# Backward-compatible test override points. Runtime code resolves paths through
-# Hermes' official home helpers on every load so multiplexed/named profiles do
-# not read the default profile by accident.
-SKILLS_ROOT = get_skills_dir()
-PLUGINS_ROOT = get_plugins_dir()
-CONFIG_PATH = get_config_path()
+# Explicit test override points for the standalone loader; None at runtime.
+# Runtime code resolves paths through Hermes' official home helpers on every
+# load so multiplexed/named profiles (and Hermes' context-local home override)
+# never read the profile that happened to be active at import time.
+SKILLS_ROOT: "Path | None" = None
+PLUGINS_ROOT: "Path | None" = None
+CONFIG_PATH: "Path | None" = None
 
 # Directories under any plugin's skills/ tree to skip (mirrors the
 # .archive / .curator_backups / .hub exclusions used for standalone skills).
@@ -159,17 +160,15 @@ def _iter_skill_files(root: Path, prefix: str = "") -> list[tuple[Path, str, str
 
 
 def _runtime_paths_are_overridden() -> bool:
-    """Return True when tests monkeypatch the legacy path constants.
+    """Return True when tests explicitly set the legacy path constants.
 
-    Plugin-dir monkeypatches are *not* treated as a legacy-path signal:
-    Hermes-discovery tests (and Issue #8 registry tests) patch
-    ``get_plugins_dir`` while still wanting the registry-aware loader.
-    Legacy tests always patch ``SKILLS_ROOT`` / ``CONFIG_PATH``.
+    Only an explicit (non-None) ``SKILLS_ROOT`` / ``CONFIG_PATH`` counts; a
+    Hermes home change is a profile switch, not a test override.
+    ``PLUGINS_ROOT`` is *not* a signal: Hermes-discovery tests (and Issue #8
+    registry tests) patch ``get_plugins_dir`` while still wanting the
+    registry-aware loader.
     """
-    return (
-        SKILLS_ROOT != get_skills_dir()
-        or CONFIG_PATH != get_config_path()
-    )
+    return SKILLS_ROOT is not None or CONFIG_PATH is not None
 
 
 def _skill_id_from_entry(entry: dict, prefix: str = "") -> str:
@@ -236,20 +235,27 @@ def _index_cache_key(
 
 
 def _load_active_skills_legacy() -> list[dict]:
-    """Original standalone loader used by tests that monkeypatch path constants."""
+    """Standalone loader: explicit test overrides, or no Hermes helpers.
+
+    Unset path constants resolve from the current Hermes home at call time.
+    """
     import yaml
+
+    skills_root = SKILLS_ROOT if SKILLS_ROOT is not None else get_skills_dir()
+    plugins_root = PLUGINS_ROOT if PLUGINS_ROOT is not None else get_plugins_dir()
+    config_path = CONFIG_PATH if CONFIG_PATH is not None else get_config_path()
 
     # Load disabled list and profile-configured external skill directories.
     disabled = set()
-    if CONFIG_PATH.exists():
+    if config_path.exists():
         # A malformed or unreadable config must not abort the index build —
         # that would leave the agent with a compacted prompt and no retrieval.
         try:
-            config = yaml.safe_load(CONFIG_PATH.read_text()) or {}
+            config = yaml.safe_load(config_path.read_text()) or {}
         except (OSError, yaml.YAMLError) as exc:
             logger.warning(
                 "Cannot read %s: %s — treating no skills as disabled",
-                CONFIG_PATH, exc,
+                config_path, exc,
             )
             config = {}
         if not isinstance(config, dict):
@@ -260,9 +266,9 @@ def _load_active_skills_legacy() -> list[dict]:
 
     # Collect candidate skill files from both roots.
     candidates: list[tuple[Path, str, str]] = []
-    candidates += _iter_skill_files(SKILLS_ROOT)
-    if PLUGINS_ROOT.exists():
-        for plugin_dir in sorted(PLUGINS_ROOT.iterdir()):
+    candidates += _iter_skill_files(skills_root)
+    if plugins_root.exists():
+        for plugin_dir in sorted(plugins_root.iterdir()):
             if not plugin_dir.is_dir() or plugin_dir.name.startswith("."):
                 continue
             plugin_skills = plugin_dir / "skills"
@@ -330,8 +336,9 @@ def load_active_skills(
         return _load_active_skills_legacy()
 
     # Compat shim for Hermes ≤0.20.x, where _skill_should_show takes 3
-    # positional arguments (no session_platform). The plugin declares
-    # compatibility >=0.20.0, so both signatures must work. Wrap the
+    # positional arguments (no session_platform). plugin.yaml now requires
+    # >=0.21.1 (4-arg), but the shim is kept for hosts that skip the
+    # requires_hermes gate. Wrap the
     # 3-arg host function in a 4-arg adapter once, at load time, by
     # inspecting its declared parameters. Fall back to assuming the
     # 4-arg form when inspection fails, because the shim must not mask
@@ -524,11 +531,11 @@ class BM25Index:
             for tid in set(vocab[t] for t in tokens):
                 df[tid] = df.get(tid, 0) + 1
 
-        # Lucene-style clipped IDF: max(0, log((N - df + 0.5) / (df + 0.5))).
+        # Lucene BM25 IDF: log(1 + (N - df + 0.5) / (df + 0.5)). Always > 0, so
+        # terms in >= half the docs (and 1-2 doc corpora) still score.
         idf: dict[int, float] = {}
         for tid, df_count in df.items():
-            val = math.log((n_docs - df_count + 0.5) / (df_count + 0.5))
-            idf[tid] = max(0.0, val)
+            idf[tid] = math.log(1.0 + (n_docs - df_count + 0.5) / (df_count + 0.5))
 
         # Build inverted index with precomputed BM25 weights.
         # term → list of (doc_index, weight)

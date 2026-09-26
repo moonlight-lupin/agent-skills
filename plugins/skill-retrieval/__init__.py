@@ -24,6 +24,7 @@ import logging
 import os
 import sys
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 # Ensure scripts/ is importable
@@ -73,18 +74,20 @@ def _parse_bool_env(raw: str | None, *, default: bool = True) -> bool:
 TOP_K = _parse_top_k(os.environ.get("SKILL_RETRIEVAL_TOP_K"))
 COMPACT_SYSTEM_PROMPT = _parse_bool_env(os.environ.get("SKILL_RETRIEVAL_COMPACT"))
 
-# Capability snapshots captured from compact_build (Hermes'
-# build_skills_system_prompt kwargs) so the retrieval hook can rebuild the
-# BM25 corpus with the same available_tools / available_toolsets.
+# Capability snapshots captured from the patched build_skills_system_prompt
+# (its kwargs) so the retrieval hook can rebuild the BM25 corpus with the same
+# available_tools / available_toolsets.
 #
-# Hermes' build_skills_system_prompt() has no session_id parameter, so capture
-# cannot be keyed per session. A single "latest" slot with a STALENESS WINDOW
-# is the safe contract: a prompt build and the pre_llm_call hook for the same
-# turn are adjacent in time; a snapshot older than the window belongs to
-# another session's turn and must NOT be applied (hook falls back to the
-# fail-open bare get_index()).
+# Named sessions are keyed by the session-env identity (see
+# _remember_capability_snapshot). A session's capabilities are fixed, and
+# Hermes builds its system prompt once then restores it from the DB on later
+# turns, so named snapshots never expire — they are only evicted by the LRU
+# bound. The anonymous key ("") is shared by every identity-less build, so it
+# keeps a STALENESS WINDOW: a snapshot older than the window belongs to another
+# turn and must NOT be applied (hook falls back to the fail-open get_index()).
 _SNAPSHOT_MAX_AGE_S = 30.0
-_session_capability_snaps: dict[str, tuple[float, frozenset | None, frozenset | None]] = {}
+_MAX_SNAPSHOT_SESSIONS = 256
+_session_capability_snaps: "OrderedDict[str, tuple[float, frozenset | None, frozenset | None]]" = OrderedDict()
 
 
 def _freeze_capability_set(value) -> frozenset | None:
@@ -131,14 +134,10 @@ def _remember_capability_snapshot(*args, **kwargs) -> None:
             _freeze_capability_set(tools),
             _freeze_capability_set(toolsets),
         )
-        # Bounded map: keep the current session's entry, evict the oldest others.
-        if len(_session_capability_snaps) > 8:
-            others = sorted(
-                (k for k in _session_capability_snaps if k != session_id),
-                key=lambda k: _session_capability_snaps[k][0],
-            )
-            for key in others[: len(_session_capability_snaps) - 8]:
-                del _session_capability_snaps[key]
+        # Bounded LRU: the current session is most recent, evict the least recent.
+        _session_capability_snaps.move_to_end(session_id)
+        while len(_session_capability_snaps) > _MAX_SNAPSHOT_SESSIONS:
+            _session_capability_snaps.popitem(last=False)
     except Exception:
         logger.debug("capability snapshot capture failed", exc_info=True)
 
@@ -150,10 +149,11 @@ def _capability_kwargs_for_session(session_id: str | None) -> dict | None:
     if snap is None:
         return None
     captured_at, tools, toolsets = snap
-    if time.monotonic() - captured_at > _SNAPSHOT_MAX_AGE_S:
-        # Stale snapshot — belongs to another turn. Fail open.
+    if not sid and time.monotonic() - captured_at > _SNAPSHOT_MAX_AGE_S:
+        # Stale anonymous snapshot — belongs to another turn. Fail open.
         _session_capability_snaps.pop(sid, None)
         return None
+    _session_capability_snaps.move_to_end(sid)
     return {
         "available_tools": set(tools) if tools is not None else None,
         "available_toolsets": set(toolsets) if toolsets is not None else None,
@@ -162,12 +162,14 @@ def _capability_kwargs_for_session(session_id: str | None) -> dict | None:
 
 # ─── Phase 1: System prompt compaction ───────────────────────────────────────
 
-def _compact_skills_prompt():
+def _compact_skills_prompt(compact: bool = True):
     """Monkey-patch build_skills_system_prompt to return names-only.
 
     The original function builds a full skill index with descriptions.
     We wrap it: call the original, then strip all descriptions, keeping
-    only skill names organized by category.
+    only skill names organized by category. The wrapper always records the
+    capability snapshot; with ``compact=False`` it returns the original
+    prompt unchanged (SKILL_RETRIEVAL_COMPACT=0).
 
     Since the Sep 2026 decomposition, only ``agent.prompt_builder`` is
     patched — every caller (including the ``run_agent`` PLUGIN-COMPAT
@@ -183,8 +185,10 @@ def _compact_skills_prompt():
             logger.warning("Cannot locate prompt_builder — compaction skipped")
             return False
 
-    # Sep 2026 decomposition (v0.21.0, PR #102117): callers resolve
-    # build_skills_system_prompt via agent.prompt_builder directly
+    # Sep 2026 decomposition (PR #102117; this call site ships from v0.21.1,
+    # hence requires_hermes ">=0.21.1" — v0.21.0 still called run_agent's
+    # import-time binding): callers resolve build_skills_system_prompt via
+    # agent.prompt_builder directly
     # (agent/system_prompt.py uses _pb.build_skills_system_prompt), and the
     # run_agent PLUGIN-COMPAT shim resolves the attribute through
     # agent.prompt_builder at call time too. Patching prompt_builder alone
@@ -201,7 +205,7 @@ def _compact_skills_prompt():
         _remember_capability_snapshot(*args, **kwargs)
         # Call original to get the full prompt
         full_prompt = original(*args, **kwargs)
-        if not full_prompt:
+        if not compact or not full_prompt:
             return full_prompt
 
         # Parse the <available_skills> block and strip descriptions
@@ -235,6 +239,11 @@ def _compact_skills_prompt():
             # Category headers are LESS indented and must clear the flag.
             elif in_skill_entry and indent > entry_indent:
                 continue
+            # Demoted categories (e.g. "  devops [names only]: a, b") are
+            # already names-only — keep the line, its names are the skills.
+            elif "[names only]:" in stripped:
+                compact_lines.append(f"  {stripped}")
+                in_skill_entry = False
             # Category headers (e.g. "  creative:" or "  creative: Some description")
             elif stripped.endswith(":") or ":" in stripped:
                 # Keep category name, drop its description
@@ -252,15 +261,16 @@ def _compact_skills_prompt():
         # Add a note about the retrieval hook
         result += (
             f"\n\nSkill descriptions are injected per-turn by the skill-retrieval "
-            f"plugin (BM25 top-{TOP_K}). If no skills appear in the injected context "
-            f"above your message, use skill_view(name) to load any skill by name."
+            f"plugin (BM25 top-{TOP_K}), appended after the user's message. If none "
+            f"appear there, use skill_view(name) to load any skill by name."
         )
         return result
 
     compact_build._skill_retrieval_patched = True
     prompt_builder.build_skills_system_prompt = compact_build
 
-    logger.info("System prompt compaction enabled (names-only skill index)")
+    if compact:
+        logger.info("System prompt compaction enabled (names-only skill index)")
     return True
 
 
@@ -274,6 +284,11 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
     """
     try:
         cap_kwargs = _capability_kwargs_for_session(session_id)
+        if cap_kwargs is None and session_id:
+            # Named session without a snapshot (never built, or evicted): the
+            # fail-open corpus could suggest skills Hermes hides. Skip the turn.
+            logger.debug("No capability snapshot for session %s — skipping", session_id)
+            return None
         index = get_index(**cap_kwargs) if cap_kwargs is not None else get_index()
         if index is None:
             return None
@@ -313,15 +328,16 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
 
 def register(ctx):
     """Register the pre_llm_call hook and optionally compact the skills system prompt."""
-    # Phase 1: Compact system prompt (names-only). Failures are logged inside
+    # Phase 1: Compact system prompt (names-only). The wrapper is installed
+    # even with compaction disabled, because it also records the capability
+    # snapshot the hook needs. Failures are logged inside
     # _compact_skills_prompt — never abort registration of the retrieval hook.
-    if COMPACT_SYSTEM_PROMPT:
-        try:
-            _compact_skills_prompt()
-        except Exception as e:
-            logger.warning("System prompt compaction failed: %s", e, exc_info=True)
-    else:
+    if not COMPACT_SYSTEM_PROMPT:
         logger.info("System prompt compaction disabled by SKILL_RETRIEVAL_COMPACT")
+    try:
+        _compact_skills_prompt(compact=COMPACT_SYSTEM_PROMPT)
+    except Exception as e:
+        logger.warning("System prompt compaction failed: %s", e, exc_info=True)
 
     # Phase 2: Per-turn retrieval
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)

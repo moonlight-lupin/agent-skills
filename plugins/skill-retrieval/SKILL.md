@@ -8,7 +8,7 @@ description: >-
   skills is a concern, or when skill discovery quality matters.
 license: MIT
 metadata:
-  version: 0.1.0
+  version: 0.3.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [bm25, skill-retrieval, system-prompt, token-optimization, plugin]
@@ -22,7 +22,8 @@ metadata:
 This is a **Hermes Agent** plugin. It is not a Claude Code plugin and will
 not load in Claude Code — that runtime has no `pre_llm_call` event, no Python
 `register()` entry point, and reads `.claude-plugin/plugin.json` rather than
-`plugin.yaml`. Developed against Hermes Agent >=0.20.0.
+`plugin.yaml`. Requires Hermes Agent >=0.21.1 (`requires_hermes` in
+`plugin.yaml`).
 
 BM25-based progressive disclosure for Hermes Agent skills. Instead of dumping
 every skill description into the system prompt (~11.5K tokens), this plugin
@@ -40,7 +41,8 @@ Two-phase progressive disclosure:
 
 2. **Phase 2 — Per-turn BM25 retrieval** (`pre_llm_call` hook): Tokenizes the
    user message, ranks active skill descriptions with BM25 Okapi, and injects
-   the top-K matches (~300 tokens) as context above the user message.
+   the top-K matches (~300 tokens) as context appended after the user
+   message.
 
 ## Architecture
 
@@ -86,10 +88,16 @@ ln -s "$(pwd)/plugins/skill-retrieval" ~/.hermes/plugins/skill-retrieval
 cp -r plugins/skill-retrieval ~/.hermes/plugins/skill-retrieval
 ```
 
-Ensure the plugin is enabled in Hermes (plugins under `~/.hermes/plugins/`
-with a valid `plugin.yaml` are typically auto-discovered). Restart the agent
-session so `register()` runs — it patches the system prompt and registers the
-`pre_llm_call` hook.
+User plugins are opt-in: Hermes discovers the directory but does not load it
+until it is enabled (this adds `skill-retrieval` to `plugins.enabled` in
+`~/.hermes/config.yaml`):
+
+```bash
+hermes plugins enable skill-retrieval
+```
+
+Restart the agent session so `register()` runs — it patches the system prompt
+and registers the `pre_llm_call` hook.
 
 Dependencies (install into the Hermes Python env if missing):
 
@@ -123,10 +131,9 @@ silently empty. After restart, check the Hermes logs.
 
 **Degraded — these warnings mean it's not working:**
 
-- `Cannot locate prompt_builder — compaction skipped` (Phase 1 failed, Phase 2 still works)
-- `Cannot locate run_agent — patching prompt_builder only` (Phase 1 partially
-  applied: callers resolving the builder via `run_agent` still get the full,
-  uncompacted skill list, so the expected token saving does not materialise)
+- `Cannot locate prompt_builder — compaction skipped` (Phase 1 failed; Phase 2
+  still runs for anonymous sessions, but named sessions skip injection because
+  no capability snapshot is recorded)
 - `No active skills found for BM25 index` (index is empty — zero retrieval injection)
 
 ## How it works
@@ -134,9 +141,11 @@ silently empty. After restart, check the Hermes logs.
 - **Tokenizer** — lowercases text, strips punctuation, splits on whitespace.
 - **Corpus** — each skill becomes `"name: description"` from SKILL.md YAML
   frontmatter. Disabled skills from `~/.hermes/config.yaml` are skipped.
-- **Index** — BM25 Okapi TF saturation + Lucene-style clipped IDF, stored as an
-  inverted index: ``dict[str, list[tuple[int, float]]]`` mapping each term to a
-  posting list of (doc_index, precomputed BM25 weight).
+- **Index** — BM25 Okapi TF saturation + Lucene IDF
+  `log(1 + (N-df+0.5)/(df+0.5))` (always positive, so small corpora and common
+  terms still score), stored as an inverted index:
+  ``dict[str, list[tuple[int, float]]]`` mapping each term to a posting list of
+  (doc_index, precomputed BM25 weight).
 - **Retrieve** — for each unique query token present in the index, walk its
   posting list and accumulate scores; sort by descending score (score > 0 only).
 
@@ -161,12 +170,16 @@ silently empty. After restart, check the Hermes logs.
   with a skill's description may rank poorly even when the intent matches.
 - Descriptions longer than 200 characters are truncated in the injected block;
   use `skill_view(name)` for the full skill body.
-- Compaction requires Hermes's `prompt_builder` / `run_agent` modules; if they
-  cannot be imported, Phase 1 is skipped (Phase 2 still works if skills load).
+- Compaction requires Hermes's `agent.prompt_builder` module; if it cannot be
+  imported, Phase 1 is skipped.
+- A named session is only injected once its system prompt has been built in
+  this process (that build records the session's tool capabilities). A session
+  restored after a restart without a rebuild gets no injection rather than
+  risking skills Hermes hides from it.
 - The index is built once at load and never refreshes — skills added, edited,
   or enabled mid-session are invisible until the agent restarts.
-- Phase 1 depends on Hermes internals (`prompt_builder`, `run_agent`) and can
-  break on a Hermes upgrade.
+- Phase 1 depends on Hermes internals (`agent.prompt_builder`) and can break
+  on a Hermes upgrade.
 - BM25 top-1 precision is soft: the best-matching skill is often not rank 1,
   though it usually lands within the first few results. Ranking depends entirely
   on your own corpus and how its descriptions are worded, so `TOP_K` below ~5 is

@@ -312,6 +312,26 @@ def test_compact_wrapped_description_with_colon_in_continuation():
     assert other_lines[0].strip() == "- other"
 
 
+def test_compact_keeps_names_only_category_line():
+    """Hermes' demoted-category line (agent/prompt_builder.py
+    _render_skills_index) already lists names only; the skill names after
+    the colon must survive compaction."""
+    mod = _load_plugin_module()
+    names_only = "  devops [names only]: docker-deploy, k8s-rollout"
+    prompt = (
+        "<available_skills>\n"
+        f"{names_only}\n"
+        "  research: Research helpers\n"
+        "    - arxiv: Search arXiv papers\n"
+        "</available_skills>"
+    )
+    output, ok = _compact_block(mod, prompt)
+    assert ok is True
+    assert names_only in output.split("\n")
+    assert "  research:" in output.split("\n")
+    assert "    - arxiv" in output.split("\n")
+
+
 def test_compact_no_available_skills_block_returns_unchanged():
     """A prompt with no <available_skills> block must be returned unchanged (minus the trailing note)."""
     mod = _load_plugin_module()
@@ -350,6 +370,9 @@ def test_compact_idempotence():
 # B — coverage gaps: hook, compaction, singleton
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# These hook tests use the anonymous session (""): a named session without a
+# capability snapshot skips injection before reaching the index at all.
+
 def test_on_pre_llm_call_empty_index(monkeypatch):
     """_on_pre_llm_call returns None when the index is empty / not built."""
     mod = _load_plugin_module()
@@ -362,7 +385,7 @@ def test_on_pre_llm_call_empty_index(monkeypatch):
     monkeypatch.setattr(br, "PLUGINS_ROOT", Path("/nonexistent-sr-test-plugins"))
     monkeypatch.setattr(br, "CONFIG_PATH", Path("/nonexistent-sr-test-config.yaml"))
 
-    result = mod._on_pre_llm_call("session-1", "search for images")
+    result = mod._on_pre_llm_call("", "search for images")
     assert result is None
 
 
@@ -395,7 +418,7 @@ def test_on_pre_llm_call_no_results(monkeypatch):
     monkeypatch.setattr(br, "CONFIG_PATH", config_path)
 
     try:
-        result = mod._on_pre_llm_call("session-1", "zzzzqqqqxxxx")
+        result = mod._on_pre_llm_call("", "zzzzqqqqxxxx")
         assert result is None
     finally:
         import shutil
@@ -417,7 +440,7 @@ def test_on_pre_llm_call_internal_exception(monkeypatch):
     # Also patch the module-level reference in the plugin
     monkeypatch.setattr(mod, "get_index", boom)
 
-    result = mod._on_pre_llm_call("session-1", "search for images")
+    result = mod._on_pre_llm_call("", "search for images")
     assert result is None
 
 
@@ -459,7 +482,7 @@ def test_on_pre_llm_call_hit(monkeypatch):
     monkeypatch.setattr(br, "CONFIG_PATH", config_path)
 
     try:
-        result = mod._on_pre_llm_call("session-1", "generate an image with fal.ai")
+        result = mod._on_pre_llm_call("", "generate an image with fal.ai")
         assert result is not None
         assert isinstance(result, dict)
         assert "context" in result
@@ -571,7 +594,7 @@ def test_get_index_builds_and_caches(tmp_path, monkeypatch, reset_singleton):
     plugins_root = tmp_path / "plugins"
     config_path = tmp_path / "config.yaml"
 
-    # Need >=2 docs for get_index to build (single doc has zero IDF but still builds)
+    # Two docs so the query term discriminates between documents
     (skills_root / "a/SKILL.md").parent.mkdir(parents=True, exist_ok=True)
     (skills_root / "a/SKILL.md").write_text(
         "---\nname: alpha\ndescription: travel planning flights\n---\n\n# Body\n"

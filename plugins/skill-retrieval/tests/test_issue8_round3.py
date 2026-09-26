@@ -10,7 +10,7 @@ the named-session snapshot-binding contract from the issue's final comment:
        session_id parameter, so the ContextVar/env session is the only
        identity source available at build time.
 
-    2. A NAMED session whose exact snapshot is missing or stale must SKIP
+    2. A NAMED session whose exact snapshot is missing (or evicted) must SKIP
        BM25 injection for that turn (return no context) instead of
        falling back to the fail-open zero-argument corpus. Missing
        retrieval is safer than injecting a skill Hermes explicitly hid.
@@ -208,21 +208,39 @@ def _setup_plugin_module(br, monkeypatch, tmp_path, *, conditions_map):
     return root
 
 
-def test_named_session_missing_snapshot_skips_injection(monkeypatch, tmp_path):
-    """A NAMED session with no exact snapshot must get NO injection rather
-    than the fail-open bare corpus (reporter contract #2: 'missing exact
-    named snapshot: FAIL — hidden Skill retrieved' must become a skip)."""
-    br = _load_fresh()
-    mod = _load_plugin_init(monkeypatch, tmp_path)
+def _write_gated_corpus(monkeypatch, tmp_path):
+    """One capability-gated skill plus fillers. At least three documents so
+    the probe token and "filler" genuinely score (a vacuous empty result
+    cannot pass the skip/leak assertions below by accident)."""
     root = tmp_path / "skills"
-    # Two docs: single-doc corpora score zero under clipped-IDF BM25.
     _write_skill(root, "plain", "plain-skill", "always visible filler")
     _write_skill(root, "gated", "gated-skill", "quasarneedle9z")
+    _write_skill(root, "extra", "extra-skill", "unrelated filler vocabulary")
+    _write_skill(root, "extra2", "extra2-skill", "more unrelated words")
     stubs = _install_hermes_stubs(
         monkeypatch,
         conditions_map={"gated-skill": {"requires_tools": ["special_tool"]}},
     )
     _point_discovery_at(monkeypatch, stubs, root)
+    return stubs
+
+
+def _advance_clock(monkeypatch, seconds):
+    real = time.monotonic()
+    monkeypatch.setattr(time, "monotonic", lambda: real + seconds)
+
+
+def test_named_session_missing_snapshot_skips_injection(monkeypatch, tmp_path):
+    """A NAMED session with no exact snapshot must get NO injection rather
+    than the fail-open bare corpus (reporter contract #2: 'missing exact
+    named snapshot: FAIL — hidden Skill retrieved' must become a skip)."""
+    _load_fresh()
+    mod = _load_plugin_init(monkeypatch, tmp_path)
+    _write_gated_corpus(monkeypatch, tmp_path)
+
+    # Sanity: the fail-open corpus really would leak the gated skill.
+    leaked = mod._on_pre_llm_call(session_id="", user_message="quasarneedle9z")
+    assert leaked and "gated-skill" in leaked["context"]
 
     # No snapshot recorded for "sess-A" at all.
     result = mod._on_pre_llm_call(
@@ -234,54 +252,104 @@ def test_named_session_missing_snapshot_skips_injection(monkeypatch, tmp_path):
     )
 
 
-def test_named_session_stale_snapshot_skips_injection(monkeypatch, tmp_path):
-    """A NAMED session whose snapshot is older than the staleness window
-    must skip injection (reporter: 'snapshot age 30.001s: FAIL')."""
+def test_named_session_snapshot_does_not_expire(monkeypatch, tmp_path):
+    """Hermes builds the system prompt once per session and restores it from
+    the DB afterwards, so a named session's snapshot must keep applying on
+    later turns instead of expiring into the fail-open corpus."""
+    _load_fresh()
     mod = _load_plugin_init(monkeypatch, tmp_path)
-    root = tmp_path / "skills"
-    # Two docs: single-doc corpora score zero under clipped-IDF BM25.
-    _write_skill(root, "plain", "plain-skill", "always visible filler")
-    _write_skill(root, "gated", "gated-skill", "quasarneedle9z")
-    stubs = _install_hermes_stubs(
-        monkeypatch,
-        conditions_map={"gated-skill": {"requires_tools": ["special_tool"]}},
-    )
-    _point_discovery_at(monkeypatch, stubs, root)
+    SC = _FakeSessionContext.install(monkeypatch)
+    _write_gated_corpus(monkeypatch, tmp_path)
 
-    # Simulate a stale snapshot for sess-A.
-    mod._session_capability_snaps["sess-A"] = (
-        time.monotonic() - (mod._SNAPSHOT_MAX_AGE_S + 1.0),
-        frozenset({"special_tool"}),
-        frozenset(),
+    SC.session_id = "sess-A"
+    mod._remember_capability_snapshot(available_tools=set(), available_toolsets=set())
+    _advance_clock(monkeypatch, 3600.0)
+
+    result = mod._on_pre_llm_call(
+        session_id="sess-A", user_message="quasarneedle9z filler"
     )
+    assert result is not None and "plain-skill" in result["context"]
+    assert "gated-skill" not in result["context"]
+
+
+def test_snapshot_cache_holds_more_than_eight_sessions(monkeypatch, tmp_path):
+    """A busy gateway interleaves many sessions; a session's snapshot must
+    survive other sessions' prompt builds."""
+    _load_fresh()
+    mod = _load_plugin_init(monkeypatch, tmp_path)
+    SC = _FakeSessionContext.install(monkeypatch)
+    _write_gated_corpus(monkeypatch, tmp_path)
+
+    SC.session_id = "sess-A"
+    mod._remember_capability_snapshot(available_tools=set(), available_toolsets=set())
+    for i in range(20):
+        SC.session_id = f"other-{i}"
+        mod._remember_capability_snapshot(available_tools=set(), available_toolsets=set())
+
+    result = mod._on_pre_llm_call(
+        session_id="sess-A", user_message="quasarneedle9z filler"
+    )
+    assert result is not None and "plain-skill" in result["context"]
+    assert "gated-skill" not in result["context"]
+
+
+def test_named_session_evicted_snapshot_skips_injection(monkeypatch, tmp_path):
+    """Once the bounded LRU evicts a named session's snapshot, that session
+    must skip injection, not fall back to the fail-open corpus."""
+    _load_fresh()
+    mod = _load_plugin_init(monkeypatch, tmp_path)
+    SC = _FakeSessionContext.install(monkeypatch)
+    _write_gated_corpus(monkeypatch, tmp_path)
+
+    SC.session_id = "sess-A"
+    mod._remember_capability_snapshot(available_tools=set(), available_toolsets=set())
+    for i in range(getattr(mod, "_MAX_SNAPSHOT_SESSIONS", 256) + 1):
+        SC.session_id = f"other-{i}"
+        mod._remember_capability_snapshot(available_tools=set(), available_toolsets=set())
+
+    assert "sess-A" not in mod._session_capability_snaps
     result = mod._on_pre_llm_call(
         session_id="sess-A", user_message="quasarneedle9z"
     )
-    assert result is None, (
-        "named session with stale snapshot must skip injection, "
-        "not fall back to the fail-open corpus"
+    assert result is None
+
+
+def test_snapshot_captured_when_compaction_disabled(monkeypatch, tmp_path):
+    """SKILL_RETRIEVAL_COMPACT=0 leaves the prompt untouched but must still
+    record the capability snapshot, or every named session would skip."""
+    _load_fresh()
+    mod = _load_plugin_init(monkeypatch, tmp_path)
+    SC = _FakeSessionContext.install(monkeypatch)
+    stubs = _write_gated_corpus(monkeypatch, tmp_path)
+    full = "<available_skills>\n  cat: Desc\n    - plain-skill: always visible filler\n</available_skills>"
+    stubs["pb"].build_skills_system_prompt = lambda *a, **k: full
+
+    class Ctx:
+        def register_hook(self, name, func):
+            pass
+
+    monkeypatch.setattr(mod, "COMPACT_SYSTEM_PROMPT", False)
+    mod.register(Ctx())
+
+    SC.session_id = "sess-A"
+    out = stubs["pb"].build_skills_system_prompt(
+        available_tools=set(), available_toolsets=set()
     )
+    assert out == full, "compaction disabled: prompt must be returned unchanged"
+    result = mod._on_pre_llm_call(
+        session_id="sess-A", user_message="quasarneedle9z filler"
+    )
+    assert result is not None and "plain-skill" in result["context"]
+    assert "gated-skill" not in result["context"]
 
 
 def test_anonymous_session_keeps_fail_open(monkeypatch, tmp_path):
     """The anonymous path (session_id='') keeps Hermes' fail-open semantics:
     bare get_index() fallback when no snapshot exists. Backward compat with
     test_no_capability_args_fails_open."""
-    br = _load_fresh()
+    _load_fresh()
     mod = _load_plugin_init(monkeypatch, tmp_path)
-    root = tmp_path / "skills"
-    # Three docs: the BM25 clipped IDF zeroes every term in a 1- or 2-doc
-    # corpus (N=2, df=1 gives idf=log(1.5/1.5)=0). Three docs with the probe
-    # token in exactly one yield idf=log(2.5/1.5)>0, so the assertion can
-    # actually exercise retrieval instead of silently testing an empty set.
-    _write_skill(root, "plain", "plain-skill", "always visible filler")
-    _write_skill(root, "gated", "gated-skill", "quasarneedle9z")
-    _write_skill(root, "extra", "extra-skill", "unrelated filler vocabulary")
-    stubs = _install_hermes_stubs(
-        monkeypatch,
-        conditions_map={"gated-skill": {"requires_tools": ["special_tool"]}},
-    )
-    _point_discovery_at(monkeypatch, stubs, root)
+    _write_gated_corpus(monkeypatch, tmp_path)
 
     result = mod._on_pre_llm_call(session_id="", user_message="quasarneedle9z")
     assert result is not None and result.get("context"), (
@@ -294,15 +362,19 @@ def test_anonymous_session_keeps_fail_open(monkeypatch, tmp_path):
 
 
 def test_interleaved_named_sessions_no_leakage(monkeypatch, tmp_path):
-    """Two named sessions with disjoint capabilities, interleaved build/hook
-    cycles. Neither session may ever retrieve the other's hidden skill
-    (reporter: 200/200 leakage at 50daa54 — must be 0)."""
-    br = _load_fresh()
+    """Two named sessions with disjoint capabilities. Like Hermes, each
+    session builds its system prompt ONCE, then runs many interleaved turns
+    (restored prompt, no rebuild) spread over time. Neither session may ever
+    retrieve the other's hidden skill (reporter: 200/200 leakage at 50daa54
+    — must be 0), and each must keep retrieving its own skill."""
+    _load_fresh()
     mod = _load_plugin_init(monkeypatch, tmp_path)
     SC = _FakeSessionContext.install(monkeypatch)
     root = tmp_path / "skills"
     _write_skill(root, "a", "alpha-skill", "alphaleak3f unique token")
     _write_skill(root, "b", "beta-skill", "betaleak5g unique token")
+    _write_skill(root, "x", "x-skill", "unrelated filler vocabulary")
+    _write_skill(root, "y", "y-skill", "more unrelated words here")
     stubs = _install_hermes_stubs(
         monkeypatch,
         conditions_map={
@@ -312,35 +384,25 @@ def test_interleaved_named_sessions_no_leakage(monkeypatch, tmp_path):
     )
     _point_discovery_at(monkeypatch, stubs, root)
 
-    alpha_caps = {"available_tools": {"tool_a"}, "available_toolsets": set()}
-    beta_caps = {"available_tools": {"tool_b"}, "available_toolsets": set()}
+    SC.session_id = "sess-A"
+    mod._remember_capability_snapshot(available_tools={"tool_a"}, available_toolsets=set())
+    SC.session_id = "sess-B"
+    mod._remember_capability_snapshot(available_tools={"tool_b"}, available_toolsets=set())
 
     leak_count = 0
     for cycle in range(20):
-        # Session A's turn: build under A's identity, then hook with A's id.
-        SC.session_id = "sess-A"
-        mod._remember_capability_snapshot(**alpha_caps)
+        _advance_clock(monkeypatch, 31.0 * (cycle + 1))
         result_a = mod._on_pre_llm_call(
             session_id="sess-A", user_message="alphaleak3f betaleak5g"
         )
-        if result_a and "beta-skill" in result_a.get("context", ""):
-            leak_count += 1
-
-        # Session B's turn.
-        SC.session_id = "sess-B"
-        mod._remember_capability_snapshot(**beta_caps)
         result_b = mod._on_pre_llm_call(
             session_id="sess-B", user_message="alphaleak3f betaleak5g"
         )
-        if result_b and "alpha-skill" in result_b.get("context", ""):
+        assert result_a and "alpha-skill" in result_a["context"]
+        assert result_b and "beta-skill" in result_b["context"]
+        if "beta-skill" in result_a["context"]:
             leak_count += 1
-
-        # Interleaved stale-snapshot probe: A asks again after B's build
-        # overwrote nothing of A's (exact-key binding must keep A's snap).
-        result_a2 = mod._on_pre_llm_call(
-            session_id="sess-A", user_message="alphaleak3f betaleak5g"
-        )
-        if result_a2 and "beta-skill" in result_a2.get("context", ""):
+        if "alpha-skill" in result_b["context"]:
             leak_count += 1
 
     assert leak_count == 0, (
