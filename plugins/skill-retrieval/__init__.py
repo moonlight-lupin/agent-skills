@@ -32,7 +32,7 @@ _scripts_dir = Path(__file__).parent / "scripts"
 if str(_scripts_dir) not in sys.path:
     sys.path.insert(0, str(_scripts_dir))
 
-from bm25_retriever import get_index, get_skill_info
+from bm25_retriever import clear_index_cache, get_index, get_skill_info
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +274,42 @@ def _compact_skills_prompt(compact: bool = True):
     return True
 
 
+def _hook_skills_cache_clear():
+    """Wrap clear_skills_system_prompt_cache so it also drops the BM25 index.
+
+    Hermes calls it after skill_manage create/patch/delete, hub installs and
+    skill toggles. Every caller (tools/skill_manager_tool.py,
+    agent/learning_mutations.py, hermes_cli/skills_hub.py, ...) does a
+    function-local ``from agent.prompt_builder import
+    clear_skills_system_prompt_cache`` at call time, so replacing the module
+    attribute reaches them all. The original always runs first; a failure
+    clearing the plugin cache never propagates into Hermes.
+    """
+    try:
+        from agent import prompt_builder
+    except ImportError:
+        logger.debug("Cannot locate prompt_builder — cache-clear hook skipped")
+        return False
+    original = getattr(prompt_builder, "clear_skills_system_prompt_cache", None)
+    if original is None:
+        return False
+    if getattr(original, "_skill_retrieval_patched", False):
+        return True  # Already patched
+
+    def clear_with_index(*args, **kwargs):
+        try:
+            return original(*args, **kwargs)
+        finally:
+            try:
+                clear_index_cache()
+            except Exception:
+                logger.debug("BM25 index cache clear failed", exc_info=True)
+
+    clear_with_index._skill_retrieval_patched = True
+    prompt_builder.clear_skills_system_prompt_cache = clear_with_index
+    return True
+
+
 # ─── Phase 2: Per-turn retrieval hook ───────────────────────────────────────
 
 def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | None:
@@ -338,6 +374,12 @@ def register(ctx):
         _compact_skills_prompt(compact=COMPACT_SYSTEM_PROMPT)
     except Exception as e:
         logger.warning("System prompt compaction failed: %s", e, exc_info=True)
+
+    # Invalidate the BM25 index whenever Hermes drops its skills prompt cache.
+    try:
+        _hook_skills_cache_clear()
+    except Exception as e:
+        logger.warning("Skill cache-clear hook failed: %s", e, exc_info=True)
 
     # Phase 2: Per-turn retrieval
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)

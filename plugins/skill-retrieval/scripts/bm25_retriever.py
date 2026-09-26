@@ -2,7 +2,8 @@
 
 Adapted from SR-Agents (oneal2000/SR-Agents, MIT license).
 Source: https://github.com/oneal2000/SR-Agents/blob/main/src/sragents/retrieve/bm25.py
-Indexed once at plugin load; retrieval is sub-millisecond for 128 skills.
+Indexed lazily and cached (invalidated on skill/config changes); retrieval is
+sub-millisecond for 128 skills.
 """
 
 import inspect
@@ -227,11 +228,61 @@ def _index_cache_key(
     home_key: str,
     available_tools: "set[str] | None",
     available_toolsets: "set[str] | None",
+    platform_hint: "str | None" = None,
+    disabled: "frozenset[str] | None" = None,
 ):
-    """Cache key for a BM25 index. Fail-open (both sets None) stays a plain home string."""
-    if available_tools is None and available_toolsets is None:
+    """Cache key for a BM25 index.
+
+    The corpus also depends on the session platform (``platform_disabled``
+    and ``session_platforms`` gates), so the platform hint and the resolved
+    disabled set are part of the key, mirroring Hermes' own skills prompt
+    cache key. Fail-open with no platform/disabled info stays a plain home
+    string.
+    """
+    if available_tools is None and available_toolsets is None and not platform_hint and not disabled:
         return home_key
-    return (home_key, frozenset(available_tools or ()), frozenset(available_toolsets or ()))
+    return (
+        home_key,
+        frozenset(available_tools or ()),
+        frozenset(available_toolsets or ()),
+        platform_hint or None,
+        disabled or frozenset(),
+    )
+
+
+def _session_platform_key_parts() -> "tuple[str | None, frozenset[str] | None]":
+    """Return ``(platform_hint, frozenset(disabled))`` for the index cache key.
+
+    Same inputs ``load_active_skills`` gates on. Never raises: any failure
+    degrades that part to None (the key then matches the loader's own
+    fail-open behavior as closely as the host allows).
+    """
+    try:
+        from agent.prompt_builder import _current_session_platform_hint
+        from agent.skill_utils import get_disabled_skill_names
+    except Exception:
+        return None, None
+    try:
+        platform_hint = _current_session_platform_hint() or None
+    except Exception:
+        platform_hint = None
+    try:
+        disabled = frozenset(get_disabled_skill_names(platform_hint) or ())
+    except Exception:
+        disabled = None
+    return platform_hint, disabled
+
+
+def _runtime_cache_key(
+    available_tools: "set[str] | None",
+    available_toolsets: "set[str] | None",
+):
+    """Runtime cache key shared by ``get_index`` and ``get_skill_info``."""
+    home_key = str(get_hermes_home().expanduser().resolve(strict=False))
+    platform_hint, disabled = _session_platform_key_parts()
+    return home_key, _index_cache_key(
+        home_key, available_tools, available_toolsets, platform_hint, disabled,
+    )
 
 
 def _load_active_skills_legacy() -> list[dict]:
@@ -608,6 +659,85 @@ _skills_by_id: dict[str, dict] = {}
 # zero-arg path keeps using ``_index`` / ``_skills_by_id`` exactly as before.
 _override_indexes_by_cap: dict = {}
 _override_skills_by_cap: dict = {}
+# Runtime entries are validated against a cheap on-disk manifest (see
+# _corpus_manifest) so skills added/removed or config edits made outside this
+# process are picked up without a restart. An empty corpus is cached too
+# (value None) so zero-skill installs don't rescan every root each turn.
+_manifest_by_key: dict = {}
+_warned_empty_keys: set = set()
+
+
+def clear_index_cache() -> None:
+    """Drop every cached BM25 index and skill-info map.
+
+    Called from the plugin's wrapper around Hermes'
+    ``clear_skills_system_prompt_cache`` (skill_manage create/patch, hub
+    install, ``/skills`` toggles), so the next turn rebuilds the corpus.
+    """
+    global _index, _skills_by_id
+    _indexes_by_home.clear()
+    _skills_by_home_and_id.clear()
+    _cap_key_order_by_home.clear()
+    _manifest_by_key.clear()
+    _warned_empty_keys.clear()
+    _override_indexes_by_cap.clear()
+    _override_skills_by_cap.clear()
+    _index = None
+    _skills_by_id = {}
+
+
+def _stat_signature(path: str) -> "tuple[int, int] | None":
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
+def _corpus_manifest() -> "tuple | None":
+    """Cheap signature of the on-disk inputs to the runtime corpus.
+
+    Covers each skills root and plugin ``skills/`` dir, their immediate
+    children (category dirs / flat skill dirs) and those children's
+    ``SKILL.md``, plus config.yaml (mtime_ns, size). Adding or removing a
+    skill changes a root or category dir mtime; a content-only edit of a
+    nested SKILL.md is left to the ``clear_skills_system_prompt_cache``
+    hook. Returns None when the manifest cannot be computed (the cache is
+    then trusted as before); never raises.
+    """
+    try:
+        roots: list[str] = []
+        try:
+            from agent.skill_utils import get_all_skills_dirs, get_project_skills_dirs
+            roots += [str(d) for d in (get_project_skills_dirs() or [])]
+            roots += [str(d) for d in (get_all_skills_dirs() or [])]
+        except Exception:
+            roots.append(str(get_skills_dir()))
+        plugins_root = str(get_plugins_dir())
+        entries: list = [("config", _stat_signature(str(get_config_path())))]
+        entries.append((plugins_root, _stat_signature(plugins_root)))
+        try:
+            with os.scandir(plugins_root) as it:
+                roots += sorted(
+                    os.path.join(e.path, "skills") for e in it if e.is_dir()
+                )
+        except OSError:
+            pass
+        for root in roots:
+            entries.append((root, _stat_signature(root)))
+            try:
+                with os.scandir(root) as it:
+                    children = sorted(e.path for e in it if e.is_dir())
+            except OSError:
+                continue
+            for child in children:
+                entries.append((child, _stat_signature(child)))
+                skill_md = os.path.join(child, "SKILL.md")
+                entries.append((skill_md, _stat_signature(skill_md)))
+        return tuple(entries)
+    except Exception as exc:
+        logger.debug("Skill corpus manifest unavailable: %s", exc)
+        return None
 
 
 def _load_active_skills_for_index(
@@ -663,30 +793,37 @@ def get_index(
         _override_skills_by_cap[cap_key] = {s["skill_id"]: s for s in skills}
         return index
 
-    home_key = str(get_hermes_home().expanduser().resolve(strict=False))
-    cache_key = _index_cache_key(home_key, available_tools, available_toolsets)
-    if cache_key in _indexes_by_home:
+    home_key, cache_key = _runtime_cache_key(available_tools, available_toolsets)
+    manifest = _corpus_manifest()
+    if cache_key in _indexes_by_home and _manifest_by_key.get(cache_key) == manifest:
         return _indexes_by_home[cache_key]
 
     skills = _load_active_skills_for_index(available_tools, available_toolsets)
-    if not skills:
+    index = None
+    if skills:
+        _warned_empty_keys.discard(cache_key)
+        index = BM25Index()
+        index.build(
+            [s["skill_id"] for s in skills],
+            [s["text"] for s in skills],
+        )
+    elif cache_key not in _warned_empty_keys:
+        _warned_empty_keys.add(cache_key)
         logger.warning("No active skills found for BM25 index")
-        return None
-
-    index = BM25Index()
-    index.build(
-        [s["skill_id"] for s in skills],
-        [s["text"] for s in skills],
-    )
     _indexes_by_home[cache_key] = index
     _skills_by_home_and_id[cache_key] = {s["skill_id"]: s for s in skills}
-    _cap_key_order_by_home.setdefault(home_key, []).append(cache_key)
-    if len(_cap_key_order_by_home[home_key]) > _MAX_CACHED_CAP_KEYS_PER_HOME:
-        stale = _cap_key_order_by_home[home_key][:-_MAX_CACHED_CAP_KEYS_PER_HOME]
-        _cap_key_order_by_home[home_key] = _cap_key_order_by_home[home_key][-_MAX_CACHED_CAP_KEYS_PER_HOME:]
+    _manifest_by_key[cache_key] = manifest
+    order = _cap_key_order_by_home.setdefault(home_key, [])
+    if cache_key not in order:
+        order.append(cache_key)
+    if len(order) > _MAX_CACHED_CAP_KEYS_PER_HOME:
+        stale = order[:-_MAX_CACHED_CAP_KEYS_PER_HOME]
+        _cap_key_order_by_home[home_key] = order[-_MAX_CACHED_CAP_KEYS_PER_HOME:]
         for key in stale:
             _indexes_by_home.pop(key, None)
             _skills_by_home_and_id.pop(key, None)
+            _manifest_by_key.pop(key, None)
+            _warned_empty_keys.discard(key)
     return index
 
 
@@ -700,6 +837,5 @@ def get_skill_info(
             return _skills_by_id.get(skill_id)
         cap_key = _index_cache_key("", available_tools, available_toolsets)
         return _override_skills_by_cap.get(cap_key, {}).get(skill_id)
-    home_key = str(get_hermes_home().expanduser().resolve(strict=False))
-    cache_key = _index_cache_key(home_key, available_tools, available_toolsets)
+    _home_key, cache_key = _runtime_cache_key(available_tools, available_toolsets)
     return _skills_by_home_and_id.get(cache_key, {}).get(skill_id)

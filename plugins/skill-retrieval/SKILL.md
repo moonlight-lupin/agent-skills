@@ -8,7 +8,7 @@ description: >-
   skills is a concern, or when skill discovery quality matters.
 license: MIT
 metadata:
-  version: 0.3.0
+  version: 0.3.1
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [bm25, skill-retrieval, system-prompt, token-optimization, plugin]
@@ -60,8 +60,14 @@ Phase 2: BM25Index.retrieve(user_message, top_k)
     └── inject "## Retrieved Skills ..." into user message (~300 tokens)
 ```
 
-The BM25 index is built once at plugin load from standalone skills
-(`~/.hermes/skills`) and plugin-bundled skills (`~/.hermes/plugins/*/skills`).
+The BM25 index is built lazily on the first turn from standalone skills
+(`~/.hermes/skills`) and plugin-bundled skills (`~/.hermes/plugins/*/skills`),
+then cached per Hermes home, tool capability snapshot, session platform and
+resolved disabled-skill set (the same inputs Hermes keys its own skills prompt
+cache on). The cache is rebuilt without a restart when Hermes clears its skills
+prompt cache (`skill_manage` create/patch/delete, hub install, skill toggles)
+or when a cheap on-disk manifest changes (skill root and category dir mtimes,
+top-level `SKILL.md` files, `config.yaml`).
 Retrieval uses a pure-stdlib inverted index (term → posting list of
 precomputed BM25 weights) and is sub-millisecond for ~200 skills.
 
@@ -151,7 +157,10 @@ silently empty. After restart, check the Hermes logs.
 
 ## Performance
 
-- Index built once at plugin load (~8 ms for 200 skills on a CPU-only VM).
+- Index built on first use and cached (~8 ms for 200 skills on a CPU-only
+  VM). Each later turn only stats the skill roots, their immediate
+  subdirectories and `config.yaml` to validate the cache. A zero-skill
+  install caches the empty result too (one warning, no rescans).
 - Retrieval is sub-millisecond (~0.03 ms mean for 200 skills). The inverted
   index touches only documents that share a query term — no full-corpus scan.
 - No compiled dependencies. The plugin uses only the Python standard library
@@ -176,8 +185,11 @@ silently empty. After restart, check the Hermes logs.
   this process (that build records the session's tool capabilities). A session
   restored after a restart without a rebuild gets no injection rather than
   risking skills Hermes hides from it.
-- The index is built once at load and never refreshes — skills added, edited,
-  or enabled mid-session are invisible until the agent restarts.
+- A content-only edit of a nested `SKILL.md` (`category/skill/SKILL.md`)
+  made outside Hermes (e.g. in an editor) changes no directory mtime, so it is
+  picked up only after Hermes clears its skills prompt cache or the agent
+  restarts. Edits through `skill_manage`, and any added/removed skill or
+  config change, are picked up on the next turn.
 - Phase 1 depends on Hermes internals (`agent.prompt_builder`) and can break
   on a Hermes upgrade.
 - BM25 top-1 precision is soft: the best-matching skill is often not rank 1,
