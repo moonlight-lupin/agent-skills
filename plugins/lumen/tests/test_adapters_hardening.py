@@ -22,15 +22,15 @@ import wiki_curator  # noqa: E402  # SourceItem owner, required by parse_mnemosy
 
 def test_normalise_source_id_is_deterministic():
     record = {"title": "Pricing review", "text": "Dana asked about timeline."}
-    first = adapters._normalise_source_id("memory", record, 3)
-    second = adapters._normalise_source_id("memory", record, 3)
+    first = adapters._normalise_source_id("memory", record)
+    second = adapters._normalise_source_id("memory", record)
     assert first == second
-    assert first.startswith("memory_3_")
+    assert re.fullmatch(r"memory_[0-9a-f]{12}", first)
 
 
 def test_normalise_source_id_sanitizes_unsafe_characters():
     record = {"id": "evil id!with spaces/x"}
-    source_id = adapters._normalise_source_id("memory", record, 1)
+    source_id = adapters._normalise_source_id("memory", record)
     assert "!" not in source_id
     assert "/" not in source_id
     assert " " not in source_id
@@ -80,11 +80,10 @@ def test_mnemosyne_export_timeout_warns(capsys):
     assert "warning: mnemosyne export failed (timeout); considering 0 records" in err
 
 
-def test_empty_sanitized_id_matches_prefix_ordinal_digest():
+def test_empty_sanitized_id_matches_prefix_digest():
     record = {"id": "!!!"}
-    source_id = adapters._normalise_source_id("memory", record, 7)
-    assert re.fullmatch(r"\w+_\d+_[0-9a-f]{12}", source_id)
-    assert source_id.startswith("memory_7_")
+    source_id = adapters._normalise_source_id("memory", record)
+    assert re.fullmatch(r"memory_[0-9a-f]{12}", source_id)
 
     now = datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc)
     items = adapters.parse_mnemosyne_envelope(
@@ -101,7 +100,7 @@ def test_empty_sanitized_id_matches_prefix_ordinal_digest():
         now=now,
     )
     assert len(items) == 1
-    assert re.fullmatch(r"\w+_\d+_[0-9a-f]{12}", items[0].source_id)
+    assert re.fullmatch(r"memory_[0-9a-f]{12}", items[0].source_id)
 
 
 def test_mnemosyne_export_bad_json_warns(tmp_path, capsys):

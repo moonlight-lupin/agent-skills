@@ -3,7 +3,7 @@ name: curator
 description: "Use when ingesting memory into the wiki, running wiki_curator.py (run/report/validate/lint/search), or linting wiki structure."
 license: MIT
 metadata:
-  version: 0.1.1
+  version: 0.1.2
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [wiki, curator, knowledge-base, okf]
@@ -64,6 +64,8 @@ curator:
 | `mnemosyne` | `hermes mnemosyne export --output <tmp>` | Parses `working_memory` + `episodic_memory`. Subprocess failure → `[]`. |
 | `none` | empty | Explicit opt-out. |
 
+**Record fields.** `people` / `entities` / `projects` take a list for several names; a plain string is one name (`"Acme, Inc."` stays one entity). `tags` may be a list or a comma-separated string. Records without an `id` get a content-derived id (`memory_<digest>` of timestamp and text), so reordering or inserting records does not re-ingest them. When a record names no people/entities/projects, capitalised words in its title/text are used as entity hints; a sentence-initial word ("Met with…", "Sent…") only counts if the same word also appears capitalised mid-sentence, and the `Untitled` placeholder title is never scanned.
+
 **Extension point (`generic-json`).** Any provider that can emit the json-file `memory.json` shape (a `records` mapping or a list of record objects, with tolerant people/entities/projects keys) can be dropped in as `<wiki>/.knowledge/memory.json` and selected with `memory_source: json-file`. A dedicated `generic-json` adapter that takes an arbitrary export path is the documented next step; do not add provider-specific imports.
 
 ## CLI
@@ -85,7 +87,7 @@ python3 "$CURATOR" search "Acme" --format text --wiki ~/wiki
 
 Global flags: `--config <lumen.yaml>`, `--wiki <path>` (also accepted after the subcommand).
 
-`--since` accepts `90m`, `24h`, `7d`, `2w`.
+`--since` accepts `90m`, `24h`, `7d`, `2w`; anything else is a usage error (exit 2). Runtime errors such as a wiki subdirectory that is a symlink out of the wiki print `error: …` and exit non-zero.
 
 **Read-only vs mutating:** `lint`, `validate`, `report`, and `search` are read-only. `run` writes. `run --dry-run` previews. The curator never deletes pages.
 
@@ -96,6 +98,8 @@ Global flags: `--config <lumen.yaml>`, `--wiki <path>` (also accepted after the 
 - Refresh only the `<!-- lumen:auto:start -->` … `<!-- lumen:auto:end -->` block of `index.md` and `overview.md` (hand-written content outside the markers is preserved; a file without markers gets a block appended); append `log.md`
 - Record text, titles and names are flattened to one line with `[source:` / `[[` / leading `#` neutralised, so memory content cannot forge sections, source markers or links
 - Never overwrite an existing page `title` or `created` value
+- Skip an existing page whose YAML frontmatter does not parse: it is left byte-for-byte unchanged, a `skip` line naming the page appears in the run report (and a warning on stderr), and the source is retried on the next run once the page is fixed
+- Rewritten files keep their existing permission bits; new files get `0666 & ~umask`
 - Cap source items per run at `curator.max_write_pages` (default 20; 0 or negative disables the cap)
 - Backup the wiki tree to `<wiki>/.lumen/backup/<timestamp>/` before large batches (>5 items). `.lumen/` is excluded from index and overview regeneration.
 
@@ -115,7 +119,7 @@ Every curated `.md` page needs parseable YAML frontmatter with a non-empty `type
 
 ## File naming
 
-Lowercase hyphenated slugs: `acme-logistics.md`. Avoid generic names like `notes.md`.
+Lowercase hyphenated ASCII slugs: `acme-logistics.md`. Accents are folded (`Zoë` → `zoe.md`); a name with no ASCII letters or digits (`张伟`) gets `untitled-<first 8 hex of sha256(name)>.md`, stable across runs and distinct per name. Wikilinks use the page title, so `[[张伟]]` resolves. Avoid generic names like `notes.md`.
 
 ## Common pitfalls
 

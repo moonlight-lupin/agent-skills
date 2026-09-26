@@ -42,6 +42,8 @@ ENTITY_KEYS = (
 _TOKEN_NAME_RE = re.compile(
     r"\b(?:[A-Z][A-Za-z0-9&.'-]+)(?:\s+(?:[A-Z][A-Za-z0-9&.'-]+)){0,3}\b"
 )
+_CAP_WORD_RE = re.compile(r"[A-Z][A-Za-z0-9&'-]*")
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 
 def _source_item_cls():
@@ -103,12 +105,18 @@ def _as_list(value: Any) -> list[Any]:
     if isinstance(value, set):
         return sorted(value, key=str)
     if isinstance(value, str):
-        if not value.strip():
-            return []
-        if "," in value:
-            return [part.strip() for part in value.split(",") if part.strip()]
-        return [value.strip()]
+        # A plain string is one name: commas occur inside names ("Acme, Inc.",
+        # "Doe, Jane"). Pass a list for several names.
+        return [value.strip()] if value.strip() else []
     return [value]
+
+
+def _tag_list(value: Any) -> list[Any]:
+    """Tags, unlike names, may be given as one comma-delimited string."""
+
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return _as_list(value)
 
 
 def _parse_datetime(value: Any, default_tz: tzinfo) -> datetime | None:
@@ -212,6 +220,14 @@ def _extract_text(record: Mapping[str, Any]) -> tuple[str, str]:
     return title[:160], text[:1200]
 
 
+def _heuristic_scan_text(record: Mapping[str, Any], title: str, text: str) -> str:
+    """Title and text to scan for names, never the ``Untitled`` placeholder."""
+
+    has_title = bool(_safe_str(record.get("title") or record.get("name") or record.get("summary")))
+    has_body = any(_safe_str(record.get(field_name)) for field_name in TEXT_FIELDS)
+    return "\n".join(part for part, keep in ((title, has_title), (text, has_body)) if keep)
+
+
 def _record_timestamp(record: Mapping[str, Any], default: datetime) -> datetime:
     for field_name in TIME_FIELDS:
         parsed = _parse_datetime(record.get(field_name), default.tzinfo or timezone.utc)
@@ -238,8 +254,32 @@ def _extract_named_values(record: Mapping[str, Any], keys: Sequence[str]) -> lis
     return _unique(_normalise_name(v) for v in values)
 
 
+def _sentence_initial(text: str, start: int) -> bool:
+    """True when position ``start`` begins the text, a line, a joined field
+    (`` — ``) or a sentence (after ``.``/``!``/``?`` and whitespace)."""
+
+    before = text[:start]
+    stripped = before.rstrip()
+    if not stripped or "\n" in before[len(stripped):]:
+        return True
+    return stripped[-1] in ".!?—" and len(stripped) < len(before)
+
+
 def _heuristic_entities(text: str) -> list[str]:
-    candidates = _TOKEN_NAME_RE.findall(text)
+    # A capitalised word that starts a sentence ("Met with…", "Sent…") is only
+    # evidence of a name when the same word is also capitalised mid-sentence.
+    confirmed = {
+        m.group(0) for m in _CAP_WORD_RE.finditer(text) if not _sentence_initial(text, m.start())
+    }
+    candidates: list[str] = []
+    for match in _TOKEN_NAME_RE.finditer(text):
+        # A run such as "Dana. Sent Proposal" spans two sentences; judge each part.
+        offset = match.start()
+        for part in _SENTENCE_SPLIT_RE.split(match.group(0)):
+            start = text.index(part, offset)
+            offset = start + len(part)
+            if not _sentence_initial(text, start) or _CAP_WORD_RE.match(part).group(0) in confirmed:
+                candidates.append(part)
     stop = {
         "Draft",
         "Current",
@@ -268,16 +308,26 @@ def _sanitize_source_id(text: str, max_len: int) -> str:
     return re.sub(r"[^A-Za-z0-9_.:-]+", "_", text)[:max_len]
 
 
-def _normalise_source_id(prefix: str, record: Mapping[str, Any], ordinal: int) -> str:
+def _content_seed(record: Mapping[str, Any]) -> str:
+    """Stable digest seed from a record's timestamp and text fields.
+
+    Never includes the record's position in the store, so inserting a record
+    ahead of an already-ingested one does not change the latter's id.
+    """
+
+    content = {key: record[key] for key in TIME_FIELDS + TEXT_FIELDS if key in record}
+    return _safe_str(content or record)
+
+
+def _normalise_source_id(prefix: str, record: Mapping[str, Any]) -> str:
     for key in ("id", "event_id", "source_id", "key", "uuid"):
         text = _safe_str(record.get(key))
         if text:
             cleaned = _sanitize_source_id(text, 120)
             if cleaned.strip("_"):
                 return cleaned
-            return f"{prefix}_{ordinal}_{_digest_source_id(text)}"
-    seed = _safe_str(record)[:80]
-    return f"{prefix}_{ordinal}_{_digest_source_id(seed)}"
+            return f"{prefix}_{_digest_source_id(text)}"
+    return f"{prefix}_{_digest_source_id(_content_seed(record))}"
 
 
 def _metadata_mapping(record: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -341,18 +391,18 @@ class JsonFileAdapter(MemorySourceAdapter):
             return []
         SourceItem = _source_item_cls()
         items = []
-        for index, record in enumerate(_iter_record_mappings(data), start=1):
+        for record in _iter_record_mappings(data):
             timestamp = _ensure_aware(_record_timestamp(record, now), now)
             if timestamp < cutoff:
                 continue
             title, text = _extract_text(record)
-            source_id = _normalise_source_id("memory", record, index)
+            source_id = _normalise_source_id("memory", record)
             people = _extract_named_values(record, PEOPLE_KEYS)
             projects = _extract_named_values(record, PROJECT_KEYS)
             entities = _extract_named_values(record, ENTITY_KEYS)
-            tags = _unique(_as_list(record.get("tags")) + ["memory"])
+            tags = _unique(_tag_list(record.get("tags")) + ["memory"])
             if not people and not projects and not entities:
-                entities = _heuristic_entities(f"{title} {text}")[:3]
+                entities = _heuristic_entities(_heuristic_scan_text(record, title, text))[:3]
             items.append(
                 SourceItem(
                     source_id=source_id,
@@ -408,7 +458,7 @@ def parse_mnemosyne_envelope(envelope: Mapping[str, Any], cutoff: datetime, now:
             entities = _heuristic_entities(content)[:3]
         source_field = _safe_str(record.get("source"))
         tags = _unique(["memory", source_field])
-        source_id = _normalise_source_id("memory", record, 0)
+        source_id = _normalise_source_id("memory", record)
         items.append(
             SourceItem(
                 source_id=source_id,

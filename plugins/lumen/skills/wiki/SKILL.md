@@ -3,7 +3,7 @@ name: wiki
 description: "Karpathy's LLM Wiki: build/query interlinked markdown KB. Use when creating, ingesting into, querying, or linting a markdown wiki."
 license: MIT
 metadata:
-  version: 0.1.1
+  version: 0.1.2
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [wiki, knowledge-base, research, notes, markdown, rag-alternative]

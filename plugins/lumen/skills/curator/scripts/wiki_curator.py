@@ -10,12 +10,15 @@ pages, removes sources, or changes operator-confirmed facts.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
+import unicodedata
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from pathlib import Path
@@ -111,7 +114,7 @@ def parse_since(value: str) -> timedelta:
 
     match = re.fullmatch(r"\s*(\d+)\s*([mhdw])\s*", value.lower())
     if not match:
-        raise argparse.ArgumentTypeError("--since must look like 90m, 24h, 7d, or 2w")
+        raise argparse.ArgumentTypeError(f"invalid duration {value!r}; use e.g. 90m, 24h, 7d, or 2w")
     amount = int(match.group(1))
     unit = match.group(2)
     if unit == "m":
@@ -210,8 +213,20 @@ def _as_list(value: Any) -> list[Any]:
 
 
 def _slugify(title: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-    return slug or "untitled"
+    """ASCII page slug: accents are folded (``Zoë`` -> ``zoe``); names with no
+    ASCII letters/digits get a stable ``untitled-<sha256[:8]>`` so distinct
+    names never share a page."""
+
+    folded = "".join(
+        ch for ch in unicodedata.normalize("NFKD", title) if not unicodedata.combining(ch)
+    )
+    slug = re.sub(r"[^a-z0-9]+", "-", folded.lower()).strip("-")
+    if slug:
+        return slug
+    name = title.strip()
+    if not name:
+        return "untitled"
+    return f"untitled-{hashlib.sha256(name.encode('utf-8')).hexdigest()[:8]}"
 
 
 def _frontmatter_value(value: Any) -> Any:
@@ -623,15 +638,40 @@ def _assert_under_wiki(path: Path, wiki_path: Path) -> None:
         raise ValueError(f"Refusing to write outside wiki directory: {path}")
 
 
+def _read_umask() -> int:
+    current = os.umask(0)
+    os.umask(current)
+    return current
+
+
+# Read once at import: os.umask can only be read by setting it.
+_UMASK = _read_umask()
+
+
+def _target_mode(path: Path) -> int:
+    """Mode for a rewritten file: keep an existing file's mode, else 0o666 & ~umask.
+
+    ``mkstemp`` creates 0600 files and ``os.replace`` keeps that mode, which
+    would otherwise tighten every page the curator touches.
+    """
+
+    try:
+        return stat.S_IMODE(os.stat(path).st_mode)
+    except FileNotFoundError:
+        return 0o666 & ~_UMASK
+
+
 def _atomic_write(path: Path, content: str, wiki_path: Path) -> None:
     _assert_under_wiki(path, wiki_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    mode = _target_mode(path)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(content)
             if content and not content.endswith("\n"):
                 handle.write("\n")
+        os.chmod(tmp_name, mode)
         os.replace(tmp_name, path)
     finally:
         try:
@@ -809,6 +849,9 @@ class WikiCurator:
         self.today = self.now.date().isoformat()
         self.changes: list[Change] = []
         self._seq_max: dict[str, int] = {}
+        # Sources whose pages were skipped this run (not marked processed, so
+        # they are retried once the page is repaired).
+        self._skipped_sources: set[str] = set()
         if get_max_write_pages is not None:
             self.max_write_pages = get_max_write_pages(config)
         else:
@@ -916,6 +959,21 @@ class WikiCurator:
 {self.now.isoformat()}
 """
 
+    def _skip_malformed_page(self, path: Path, old: str, valid: bool, source_id: str) -> bool:
+        """Refuse to rewrite a page whose YAML frontmatter block does not parse.
+
+        Rewriting would replace the author's frontmatter with fresh defaults, so
+        the page is left byte-for-byte unchanged and reported for manual repair.
+        """
+
+        if valid or not old.startswith("---\n"):
+            return False
+        detail = f"malformed YAML frontmatter; page left unchanged (source {source_id}) — fix it by hand"
+        print(f"warning: {self._relative(path)}: {detail}", file=sys.stderr)
+        self.changes.append(Change("skip", path, detail))
+        self._skipped_sources.add(source_id)
+        return True
+
     def upsert_page(
         self,
         page_type: str,
@@ -937,7 +995,9 @@ class WikiCurator:
             body = self._new_page_body(title, observation=observation, activity=activity, sources=[source_ref])
         else:
             old = path.read_text(encoding="utf-8")
-            frontmatter, body, _valid = split_frontmatter(old)
+            frontmatter, body, valid = split_frontmatter(old)
+            if self._skip_malformed_page(path, old, valid, source_ref):
+                return
         updates = {
             "type": page_type,
             "title": title,
@@ -978,7 +1038,9 @@ class WikiCurator:
             body = self._new_page_body(item.day, activity=activity, sources=[item.source_id])
         else:
             old = path.read_text(encoding="utf-8")
-            frontmatter, body, _valid = split_frontmatter(old)
+            frontmatter, body, valid = split_frontmatter(old)
+            if self._skip_malformed_page(path, old, valid, item.source_id):
+                return
         updates = {
             "type": "daily",
             "title": item.day,
@@ -1366,7 +1428,7 @@ class WikiCurator:
                     continue
                 self.upsert_page("entity", entity, item, extra_tags=["entity"], related_titles=related_titles)
         if capped and not self.dry_run:
-            processed.update(item.source_id for item in capped)
+            processed.update(item.source_id for item in capped if item.source_id not in self._skipped_sources)
             self._store_processed_ids(processed)
         self.refresh_index()
         self.refresh_overview()
@@ -1859,7 +1921,7 @@ def run_command(args: argparse.Namespace, write: bool) -> int:
     config = _with_wiki_override(_load_configuration(args.config), getattr(args, "wiki", None))
     dry_run = bool(args.dry_run or not write)
     curator = WikiCurator(config, dry_run=dry_run)
-    since = parse_since(args.since)
+    since = args.since if isinstance(args.since, timedelta) else parse_since(args.since)
     cutoff = curator.now - since
     items = _load_adapter_items(config, curator.wiki_path, cutoff, curator.now)
     curator.curate_items(items)
@@ -1907,13 +1969,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="Create/update wiki pages from the configured memory source")
-    run.add_argument("--since", default="24h", help="Lookback window such as 24h, 7d, or 90m")
+    run.add_argument("--since", type=parse_since, default="24h", help="Lookback window such as 24h, 7d, or 90m")
     run.add_argument("--dry-run", action="store_true", help="Report planned changes without writing")
     run.add_argument("--config", dest="sub_config", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     run.add_argument("--wiki", dest="wiki", default=argparse.SUPPRESS, help="Override wiki directory path")
 
     report = sub.add_parser("report", help="Print planned wiki maintenance summary without writing")
-    report.add_argument("--since", default="24h", help="Lookback window such as 24h, 7d, or 90m")
+    report.add_argument("--since", type=parse_since, default="24h", help="Lookback window such as 24h, 7d, or 90m")
     report.add_argument("--config", dest="sub_config", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     report.add_argument("--wiki", dest="wiki", default=argparse.SUPPRESS, help="Override wiki directory path")
 
@@ -1959,6 +2021,10 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    except ValueError as exc:
+        # e.g. a symlinked wiki subdirectory tripping the wiki-root write guard.
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":  # pragma: no cover
