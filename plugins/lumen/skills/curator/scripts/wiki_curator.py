@@ -16,7 +16,7 @@ import re
 import shutil
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -46,6 +46,8 @@ WIKI_DIRS = ("raw", "daily", "projects", "entities", "people", "decisions")
 SEARCH_DIRS = ("entities", "concepts", "comparisons", "queries", "people", "projects", "decisions")
 SEARCH_SKIP_NAMES = {"index.md", "overview.md", "SCHEMA.md", "purpose.md", "log.md"}
 MANAGED_ROOT_FILES = {"index.md", "overview.md"}
+AUTO_BLOCK_START = "<!-- lumen:auto:start -->"
+AUTO_BLOCK_END = "<!-- lumen:auto:end -->"
 SPECIAL_ROOT_FILES = {"index.md", "overview.md", "log.md", "purpose.md", "SCHEMA.md"}
 REGEN_EXCLUDE_DIR_NAMES = {".lumen"}
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
@@ -128,10 +130,50 @@ def _safe_str(value: Any, default: str = "") -> str:
         return value.strip()
     if isinstance(value, (int, float, bool)):
         return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
     try:
         return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
     except TypeError:
         return str(value)
+
+
+_SOURCE_TOKEN_RE = re.compile(r"\[(\s*source)\s*:", re.IGNORECASE)
+_NAME_UNSAFE_RE = re.compile(r"[\[\]|#]+")
+
+
+def _sanitize_inline(value: Any) -> str:
+    """Render untrusted memory text safe for a single Markdown line.
+
+    Collapses whitespace (no newlines, so no forged ``## `` sections), escapes
+    a leading ``#`` and neutralises ``[source:`` / ``[[`` so record text cannot
+    forge curator source markers or wikilinks.
+    """
+
+    text = re.sub(r"\s+", " ", _safe_str(value)).strip()
+    text = _SOURCE_TOKEN_RE.sub(lambda match: f"[{match.group(1).strip()}\\:", text)
+    while "[[" in text:
+        text = text.replace("[[", "[\\[")
+    if text.startswith("#"):
+        text = f"\\{text}"
+    return text
+
+
+def _sanitize_name(value: Any) -> str:
+    """Sanitise an untrusted person/project/entity name used as a title and wikilink."""
+
+    return re.sub(r"\s+", " ", _NAME_UNSAFE_RE.sub(" ", _safe_str(value))).strip()
+
+
+def _sanitize_item(item: "SourceItem") -> "SourceItem":
+    return replace(
+        item,
+        title=_sanitize_inline(item.title),
+        text=_sanitize_inline(item.text),
+        people=_unique(_sanitize_name(name) for name in item.people),
+        projects=_unique(_sanitize_name(name) for name in item.projects),
+        entities=_unique(_sanitize_name(name) for name in item.entities),
+    )
 
 
 def _unique(values: Iterable[Any]) -> list[str]:
@@ -173,7 +215,7 @@ def _slugify(title: str) -> str:
 
 
 def _frontmatter_value(value: Any) -> Any:
-    if isinstance(value, (str, int, float, bool)) or value is None:
+    if isinstance(value, (str, int, float, bool, date, datetime)) or value is None:
         return value
     if isinstance(value, list):
         return [_frontmatter_value(item) for item in value]
@@ -601,6 +643,17 @@ def _atomic_write(path: Path, content: str, wiki_path: Path) -> None:
 # ─── Frontmatter and section editing ────────────────────────────────
 
 
+def _replace_auto_block(body: str, block: str) -> str:
+    """Replace the first ``lumen:auto`` block in body, or append one when absent."""
+
+    start = body.find(AUTO_BLOCK_START)
+    end = body.find(AUTO_BLOCK_END, start + len(AUTO_BLOCK_START)) if start != -1 else -1
+    if start != -1 and end != -1:
+        return body[:start] + block + body[end + len(AUTO_BLOCK_END) :]
+    prefix = body.rstrip()
+    return f"{prefix}\n\n{block}\n" if prefix else f"{block}\n"
+
+
 def split_frontmatter(text: str) -> tuple[dict[str, Any], str, bool]:
     if not text.startswith("---\n"):
         return {}, text, False
@@ -717,7 +770,7 @@ def _merge_frontmatter(existing: Mapping[str, Any], updates: Mapping[str, Any]) 
     for key, value in updates.items():
         if key in {"tags", "sources", "aliases"}:
             merged[key] = _unique(_as_list(merged.get(key)) + _as_list(value))
-        elif key in {"status", "confidence", "seq"} and merged.get(key) not in (None, ""):
+        elif key in {"status", "confidence", "seq", "title", "created"} and merged.get(key) not in (None, ""):
             continue
         else:
             merged[key] = value
@@ -1269,6 +1322,7 @@ class WikiCurator:
         )
 
     def curate_items(self, items: Sequence[SourceItem]) -> None:
+        items = [_sanitize_item(item) for item in items]
         self.ensure_dirs()
         processed = self._known_processed_ids(items)
         outstanding: list[SourceItem] = []
@@ -1343,6 +1397,38 @@ class WikiCurator:
                 return line[2:].strip()
         return ""
 
+    def _upsert_auto_block(self, path: Path, generated: str, defaults: Mapping[str, Any], detail: str) -> None:
+        """Regenerate only the ``lumen:auto`` block of a root page; keep hand-written content."""
+
+        block = f"{AUTO_BLOCK_START}\n{generated.strip()}\n{AUTO_BLOCK_END}"
+        try:
+            old: str | None = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            old = None
+        except OSError:
+            return
+        if old is None:
+            frontmatter = {**defaults, "updated": self.today}
+            content = join_frontmatter(frontmatter, f"# {defaults['title']}\n\n{block}\n")
+        else:
+            frontmatter, body, valid = split_frontmatter(old)
+            if not valid:
+                body = old
+            new_body = _replace_auto_block(body, block)
+            if new_body == body:
+                return
+            if valid:
+                merged = dict(frontmatter)
+                merged.setdefault("type", defaults["type"])
+                merged["updated"] = self.today
+                content = join_frontmatter(merged, new_body)
+            elif old.startswith("---\n"):
+                # Malformed frontmatter: leave the author's text untouched apart from the block.
+                content = new_body
+            else:
+                content = join_frontmatter({**defaults, "updated": self.today}, new_body)
+        self.maybe_write(path, content, "update", detail)
+
     def refresh_index(self) -> None:
         pages = [p for p in self.all_markdown_pages() if p.name not in {"index.md", "overview.md", "log.md"}]
         grouped: dict[str, list[str]] = {}
@@ -1359,9 +1445,9 @@ class WikiCurator:
         sections = []
         for page_type in sorted(grouped):
             sections.append(f"## {page_type.title()}\n\n" + "\n".join(sorted(grouped[page_type])))
-        body = "# Wiki Index\n\nAuto-regenerated content catalog.\n\n" + ("\n\n".join(sections) if sections else "(No pages yet)") + "\n"
-        frontmatter = {"type": "index", "okf_version": "0.2", "updated": self.today, "title": "Wiki Index"}
-        self.maybe_write(self.wiki_path / "index.md", join_frontmatter(frontmatter, body), "update", "refresh content catalog")
+        generated = "Auto-regenerated content catalog.\n\n" + ("\n\n".join(sections) if sections else "(No pages yet)")
+        defaults = {"type": "index", "okf_version": "0.2", "title": "Wiki Index"}
+        self._upsert_auto_block(self.wiki_path / "index.md", generated, defaults, "refresh content catalog")
 
     def refresh_overview(self) -> None:
         pages = [p for p in self.all_markdown_pages() if p.name not in {"overview.md", "log.md"}]
@@ -1378,9 +1464,7 @@ class WikiCurator:
         recent_lines = "\n".join(
             f"- {updated}: [{title}]({rel})" for updated, title, rel in sorted(recent, reverse=True)[:15]
         ) or "- No recent updates"
-        body = f"""# Wiki Overview
-
-Auto-regenerated summary of the wiki.
+        generated = f"""Auto-regenerated summary of the wiki.
 
 ## Page counts
 
@@ -1392,11 +1476,11 @@ Auto-regenerated summary of the wiki.
 
 ## Notes
 
-- This page is maintained by `wiki_curator.py`.
+- The block between the `lumen:auto` markers is maintained by `wiki_curator.py`; edit outside it.
 - Draft pages contain source-backed observations only; operator-confirmed facts are never overwritten.
 """
-        frontmatter = {"type": "overview", "title": "Wiki Overview", "updated": self.today}
-        self.maybe_write(self.wiki_path / "overview.md", join_frontmatter(frontmatter, body), "update", "refresh wiki overview")
+        defaults = {"type": "overview", "title": "Wiki Overview"}
+        self._upsert_auto_block(self.wiki_path / "overview.md", generated, defaults, "refresh wiki overview")
 
     def append_action_log(self) -> None:
         if self.dry_run or not self.changes:

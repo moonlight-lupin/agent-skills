@@ -3,7 +3,7 @@ name: curator
 description: "Use when ingesting memory into the wiki, running wiki_curator.py (run/report/validate/lint/search), or linting wiki structure."
 license: MIT
 metadata:
-  version: 0.1.0
+  version: 0.1.1
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [wiki, curator, knowledge-base, okf]
@@ -52,11 +52,11 @@ curator:
   memory_source: auto        # auto | json-file | mnemosyne | none
 ```
 
-`auto` uses Mnemosyne when `hermes` is on `PATH`, otherwise the json-file adapter. `none` disables ingest (file-only lint/search still work).
+`auto` tries Mnemosyne when `hermes` is on `PATH` and falls back to the json-file adapter if the export fails; without `hermes` it uses json-file. `none` disables ingest (file-only lint/search still work).
 
 ## Adapter layer
 
-`skills/curator/scripts/adapters.py` is the read-only memory boundary. Adapters emit `SourceItem` records (`source_id`, `source_kind`, `title`, `text`, `timestamp`, `tags`, `people`, `entities`, `projects`, `raw`). Nothing writes back to a memory store.
+`${HERMES_SKILL_DIR}/scripts/adapters.py` is the read-only memory boundary. Adapters emit `SourceItem` records (`source_id`, `source_kind`, `title`, `text`, `timestamp`, `tags`, `people`, `entities`, `projects`, `raw`). Nothing writes back to a memory store.
 
 | Adapter | Source | Notes |
 |---|---|---|
@@ -68,10 +68,10 @@ curator:
 
 ## CLI
 
-Script: `skills/curator/scripts/wiki_curator.py`. Run with system `python3` (stdlib + PyYAML).
+Script: `${HERMES_SKILL_DIR}/scripts/wiki_curator.py` (Hermes substitutes `${HERMES_SKILL_DIR}` with this skill's directory, so the path works from any cwd). Run with system `python3` (stdlib + PyYAML).
 
 ```bash
-CURATOR=skills/curator/scripts/wiki_curator.py
+CURATOR="${HERMES_SKILL_DIR}/scripts/wiki_curator.py"
 
 python3 "$CURATOR" run --since 24h          # ingest (writes wiki pages)
 python3 "$CURATOR" run --since 24h --dry-run
@@ -93,7 +93,9 @@ Global flags: `--config <lumen.yaml>`, `--wiki <path>` (also accepted after the 
 
 - Create or update people / project / entity / daily pages from source items only
 - Preserve operator-confirmed facts; append observations with `[source: id]`
-- Refresh `index.md` and `overview.md`; append `log.md`
+- Refresh only the `<!-- lumen:auto:start -->` … `<!-- lumen:auto:end -->` block of `index.md` and `overview.md` (hand-written content outside the markers is preserved; a file without markers gets a block appended); append `log.md`
+- Record text, titles and names are flattened to one line with `[source:` / `[[` / leading `#` neutralised, so memory content cannot forge sections, source markers or links
+- Never overwrite an existing page `title` or `created` value
 - Cap source items per run at `curator.max_write_pages` (default 20; 0 or negative disables the cap)
 - Backup the wiki tree to `<wiki>/.lumen/backup/<timestamp>/` before large batches (>5 items). `.lumen/` is excluded from index and overview regeneration.
 

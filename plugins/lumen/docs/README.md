@@ -13,6 +13,12 @@ ln -s /path/to/lumen ~/.hermes/plugins/lumen   # equivalent
 hermes plugins install lumen
 ```
 
+User plugins are opt-in (discovery skips plugins not in `plugins.enabled`). Enable Lumen — accept the install prompt, pass `hermes plugins install --enable`, or after a symlink/copy install run:
+
+```bash
+hermes plugins enable lumen
+```
+
 Restart Hermes. Skills: `lumen:wiki`, `lumen:curator`.
 
 Python: 3.11 stdlib + PyYAML. Tests: `python3 -m pytest plugins/lumen/tests/` from the agent-skills repo root (or `python3 -m pytest lumen/tests/` in this dev tree).
@@ -33,7 +39,9 @@ curator:
 
 Wiki path order: `--wiki` → `paths.wiki_path` → `$WIKI_PATH` → `~/wiki`.
 
-`auto` selects Mnemosyne when `hermes` is on `PATH`, otherwise json-file (`<wiki>/.knowledge/memory.json`, missing file → empty ingest).
+`auto` tries Mnemosyne when `hermes` is on `PATH`; if the export fails (for example the Mnemosyne plugin is not installed) it falls back to json-file with a warning. Without `hermes` it uses json-file directly (`<wiki>/.knowledge/memory.json`, missing file → empty ingest). Explicit `memory_source: mnemosyne` never falls back.
+
+`index.md` and `overview.md`: the curator only rewrites the block between `<!-- lumen:auto:start -->` and `<!-- lumen:auto:end -->`. Content outside the markers is yours; a file without markers gets a marked block appended.
 
 ## Adapter extension point (generic-json)
 
@@ -63,12 +71,12 @@ Write that file to `<wiki>/.knowledge/memory.json` and set `curator.memory_sourc
 ## CLI cheatsheet
 
 ```bash
-python3 skills/curator/scripts/wiki_curator.py run --since 24h
-python3 skills/curator/scripts/wiki_curator.py run --since 24h --dry-run
-python3 skills/curator/scripts/wiki_curator.py report --since 7d --config /tmp/lumen.yaml
-python3 skills/curator/scripts/wiki_curator.py validate --wiki ~/wiki
-python3 skills/curator/scripts/wiki_curator.py lint --summary --wiki ~/wiki
-python3 skills/curator/scripts/wiki_curator.py search "Acme" --format json --limit 5 --wiki ~/wiki
+python3 <plugin>/skills/curator/scripts/wiki_curator.py run --since 24h
+python3 <plugin>/skills/curator/scripts/wiki_curator.py run --since 24h --dry-run
+python3 <plugin>/skills/curator/scripts/wiki_curator.py report --since 7d --config /tmp/lumen.yaml
+python3 <plugin>/skills/curator/scripts/wiki_curator.py validate --wiki ~/wiki
+python3 <plugin>/skills/curator/scripts/wiki_curator.py lint --summary --wiki ~/wiki
+python3 <plugin>/skills/curator/scripts/wiki_curator.py search "Acme" --format json --limit 5 --wiki ~/wiki
 ```
 
 `--since` values: `90m`, `24h`, `7d`, `2w`. `lint`/`validate` exit 1 when any ERROR finding exists.

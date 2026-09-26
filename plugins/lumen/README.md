@@ -25,7 +25,13 @@ Catalog install (after this tree is published to `moonlight-lupin/agent-skills`)
 hermes plugins install lumen
 ```
 
-Restart the Hermes session so `register()` runs. Load skills with `skill_view('lumen:wiki')` and `skill_view('lumen:curator')`.
+Hermes user plugins are opt-in: discovery skips any plugin not listed in `plugins.enabled`. Enable Lumen (answer yes to the install prompt, pass `--enable` to `hermes plugins install`, or run this after a symlink/copy install):
+
+```bash
+hermes plugins enable lumen
+```
+
+Then restart the Hermes session so `register()` runs. Load skills with `skill_view('lumen:wiki')` and `skill_view('lumen:curator')`.
 
 ## Configuration
 
@@ -36,7 +42,7 @@ Edit `shared/config/lumen.yaml` or pass `--config`:
 | `paths.wiki_path` | `$WIKI_PATH` or `~/wiki` | Wiki root |
 | `curator.timezone` | `Asia/Singapore` | Timestamps on generated pages |
 | `curator.max_write_pages` | `20` | Cap on source items ingested per `run` |
-| `curator.memory_source` | `auto` | `auto` \| `json-file` \| `mnemosyne` \| `none` |
+| `curator.memory_source` | `auto` | `auto` \| `json-file` \| `mnemosyne` \| `none` (`auto` tries Mnemosyne and falls back to json-file if the export fails) |
 
 ## License
 

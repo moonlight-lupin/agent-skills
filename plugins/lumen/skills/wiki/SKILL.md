@@ -3,7 +3,7 @@ name: wiki
 description: "Karpathy's LLM Wiki: build/query interlinked markdown KB. Use when creating, ingesting into, querying, or linting a markdown wiki."
 license: MIT
 metadata:
-  version: 0.1.0
+  version: 0.1.1
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [wiki, knowledge-base, research, notes, markdown, rag-alternative]
@@ -315,6 +315,11 @@ okf_version: "0.2"
 ## Queries
 ```
 
+**Curator-managed block:** when `lumen:curator` runs on the wiki, it regenerates only the
+text between `<!-- lumen:auto:start -->` and `<!-- lumen:auto:end -->` in `index.md` and
+`overview.md` (appending that block if a file has none). Keep hand-maintained sections, like
+the ones above, outside the markers; never edit inside them, since the next run replaces it.
+
 **Scaling rule:** When any section exceeds 50 entries, split it into sub-sections
 by first letter or sub-domain. When the index exceeds 200 entries total, create
 a `_meta/topic-map.md` that groups pages by theme for faster navigation.
@@ -414,6 +419,7 @@ sequential phases for better quality — Analysis, then Generation.
 ⑦ **Update navigation & overview:**
    - Add new pages to `index.md` under the correct section, alphabetically
    - Update the "Total pages" count and "Last updated" date in index header
+   - Edit hand-maintained content only outside the `<!-- lumen:auto:start -->` … `<!-- lumen:auto:end -->` block (the curator owns that block)
    - **Regenerate `overview.md`** — a global summary of the entire wiki, updated after every ingest. Include: total pages, main topics, recent changes, key themes. This is the wiki's "elevator pitch" and helps the LLM orient quickly on future sessions.
    - Append to `log.md`: `## [YYYY-MM-DD] ingest | Source Title`
    - List every file created or updated in the log entry

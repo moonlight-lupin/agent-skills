@@ -426,11 +426,14 @@ def parse_mnemosyne_envelope(envelope: Mapping[str, Any], cutoff: datetime, now:
     return items
 
 
-def _warn_mnemosyne_failed(reason: str) -> None:
-    print(f"warning: mnemosyne export failed ({reason}); considering 0 records", file=sys.stderr)
+_ZERO_RECORDS = "considering 0 records"
 
 
-def run_mnemosyne_export() -> dict[str, Any] | None:
+def _warn_mnemosyne_failed(reason: str, consequence: str = _ZERO_RECORDS) -> None:
+    print(f"warning: mnemosyne export failed ({reason}); {consequence}", file=sys.stderr)
+
+
+def run_mnemosyne_export(on_failure: str = _ZERO_RECORDS) -> dict[str, Any] | None:
     hermes = shutil.which("hermes")
     if hermes is None:
         return None
@@ -445,22 +448,22 @@ def run_mnemosyne_export() -> dict[str, Any] | None:
             timeout=120,
         )
         if result.returncode != 0:
-            _warn_mnemosyne_failed(f"exit {result.returncode}")
+            _warn_mnemosyne_failed(f"exit {result.returncode}", on_failure)
             return None
         try:
             data = json.loads(tmp_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-            _warn_mnemosyne_failed(type(exc).__name__)
+            _warn_mnemosyne_failed(type(exc).__name__, on_failure)
             return None
         if not isinstance(data, dict):
-            _warn_mnemosyne_failed("not a JSON object")
+            _warn_mnemosyne_failed("not a JSON object", on_failure)
             return None
         return data
     except subprocess.TimeoutExpired:
-        _warn_mnemosyne_failed("timeout")
+        _warn_mnemosyne_failed("timeout", on_failure)
         return None
     except Exception as exc:
-        _warn_mnemosyne_failed(type(exc).__name__)
+        _warn_mnemosyne_failed(type(exc).__name__, on_failure)
         return None
     finally:
         try:
@@ -517,10 +520,41 @@ def _memory_source_name(config: Mapping[str, Any] | None) -> str:
     return raw or "auto"
 
 
+class AutoMnemosyneAdapter(MnemosyneAdapter):
+    """``auto`` mode: prefer Mnemosyne, fall back to json-file when the export fails.
+
+    A ``hermes`` binary on PATH does not guarantee the Mnemosyne plugin is
+    installed, so a failed export (non-zero exit, timeout, bad JSON) must not
+    silently yield zero records. Explicit ``memory_source: mnemosyne`` keeps
+    the plain ``MnemosyneAdapter`` behaviour.
+    """
+
+    _FALLBACK_NOTE = "falling back to json-file adapter"
+
+    def __init__(self, wiki_path: str | os.PathLike[str] | None = None) -> None:
+        self.fallback = JsonFileAdapter(wiki_path=wiki_path)
+
+    def _run_export(self) -> dict[str, Any] | None:
+        return run_mnemosyne_export(on_failure=self._FALLBACK_NOTE)
+
+    def load_items(self, cutoff: datetime, now: datetime) -> list:
+        try:
+            envelope = self._run_export()
+        except Exception as exc:
+            _warn_mnemosyne_failed(type(exc).__name__, self._FALLBACK_NOTE)
+            envelope = None
+        if envelope is None:
+            return self.fallback.load_items(cutoff, now)
+        try:
+            return parse_mnemosyne_envelope(envelope, cutoff, now)
+        except Exception as exc:
+            _warn_mnemosyne_failed(type(exc).__name__, self._FALLBACK_NOTE)
+            return self.fallback.load_items(cutoff, now)
+
+
 def _auto_adapter(wiki_path: str | os.PathLike[str] | None) -> MemorySourceAdapter:
-    mnemosyne = MnemosyneAdapter()
-    if mnemosyne.is_available():
-        return mnemosyne
+    if MnemosyneAdapter().is_available():
+        return AutoMnemosyneAdapter(wiki_path=wiki_path)
     return JsonFileAdapter(wiki_path=wiki_path)
 
 
