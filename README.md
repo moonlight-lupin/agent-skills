@@ -52,7 +52,8 @@ agent_skills/
 ├── devops/                           ← infrastructure and system maintenance skills
 │   └── disk-cleanup/                 ← triage survey → safe/ask buckets → execute → verify delta
 └── plugins/                          ← installable Hermes Agent plugins
-    └── skill-retrieval/              ← BM25 retrieval that injects the top-K relevant skills per turn
+    ├── skill-retrieval/              ← BM25 retrieval that injects the top-K relevant skills per turn
+    └── lumen/                        ← LLM wiki plugin: methodology + memory-fed curator
 ```
 
 New skills are added as folders under the relevant domain directory.
@@ -109,6 +110,16 @@ A Hermes plugin that scales skill usage to large libraries. As a skill catalog g
 
 Install by copying or symlinking `plugins/skill-retrieval/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/skill-retrieval/tests/`.
 
+### lumen
+
+A Hermes plugin that turns an agent's memory exports into a maintained markdown wiki (Karpathy-style LLM wiki). Two skills: `lumen:wiki` (the methodology: OKF frontmatter, three-layer page layout, ingest/query/lint workflows) and `lumen:curator` (the `wiki_curator.py` script plus a read-only memory-source adapter layer — Mnemosyne via the `hermes` CLI export, plain JSON files, or none).
+
+- **Cap-bounded curation** — batch ingest, update, and validate runs are capped per run, with per-page backups and atomic replace.
+- **Source attribution contract** — every generated line is `[source: id]` attributed; operator-authored text outside generated sections is preserved on update (verified through 7 review rounds with independent confirm reviewers).
+- **Stdlib + PyYAML only** — no network calls except the `hermes` CLI for memory export; adapters read exports, never provider internals.
+
+Install by copying or symlinking `plugins/lumen/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/lumen/tests/`.
+
 ## Skill maturity
 
 | Skill | Status | Tests | Dependencies |
@@ -144,7 +155,7 @@ Install by copying or symlinking `plugins/skill-retrieval/` into `~/.hermes/plug
 | hermes-onboarding | Beta | evals | None (prompt-only) |
 | disk-cleanup | Stable | evals | None (prompt-only) |
 
-> *Stable* = production-tested with real workflows. *Tests* column: ✓ = has a pytest suite; *evals* = ships routing/output-contract fixtures under `evals/` (sample request → expected routing, required output fields, forbidden patterns), validated by `tests/test_routing_fixtures.py` — no live-model execution in CI. *Dependencies* lists pip/runtime requirements beyond Python stdlib.
+> *Stable* = production-tested with real workflows. *Tests* column: ✓ = has a pytest suite; *evals* = ships routing/output-contract fixtures under `evals/` (sample request → expected routing, required output fields, forbidden patterns), validated by `tests/test_routing_fixtures.py` — no live-model execution in CI. *Dependencies* lists pip/runtime requirements beyond Python stdlib. Plugins are tested separately (`plugins/<name>/tests/`) and tracked under Plugins above.
 
 ## Install
 
