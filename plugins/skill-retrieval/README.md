@@ -2,7 +2,7 @@
 
 BM25-based skill retrieval plugin for [Hermes Agent](https://hermes-agent.nousresearch.com). Replaces the full skill list in the system prompt with a names-only compact view (~2K tokens) and injects top-K relevant skill descriptions per turn (~300 tokens), saving ~9K tokens/turn while keeping skills discoverable by name. Those figures were measured on a Hermes install with ~300 skills; the saving scales with your own skill count.
 
-This is a **Hermes Agent** plugin. It is not a Claude Code plugin and will not load in Claude Code — that runtime has no `pre_llm_call` event, no Python `register()` entry point, and reads `.claude-plugin/plugin.json` rather than `plugin.yaml`. Developed against Hermes Agent >=0.20.0.
+This is a **Hermes Agent** plugin. It is not a Claude Code plugin and will not load in Claude Code — that runtime has no `pre_llm_call` event, no Python `register()` entry point, and reads `.claude-plugin/plugin.json` rather than `plugin.yaml`. Requires Hermes Agent >=0.21.1.
 
 See [SKILL.md](SKILL.md) for full architecture, token measurements, how it works, performance, limitations, and how to verify a healthy install.
 
@@ -17,7 +17,13 @@ ln -s "$(pwd)/plugins/skill-retrieval" ~/.hermes/plugins/skill-retrieval
 pip install pyyaml
 ```
 
-Restart the Hermes session so the plugin's `register()` runs.
+User plugins are opt-in — Hermes discovers the directory but does not load it until you enable it:
+
+```bash
+hermes plugins enable skill-retrieval
+```
+
+Then restart the Hermes session so the plugin's `register()` runs.
 
 ## Configuration
 
@@ -30,12 +36,12 @@ Restart the Hermes session so the plugin's `register()` runs.
 
 ```bash
 export SKILL_RETRIEVAL_TOP_K=8
-export SKILL_RETRIEVAL_COMPACT=0  # retrieval-only mode; no prompt-builder monkey patch
+export SKILL_RETRIEVAL_COMPACT=0  # retrieval-only mode; the skills prompt is left unchanged (the builder is still wrapped to record tool capabilities)
 ```
 
 ## Uninstall
 
-1. Remove the plugin from the Hermes plugins folder:
+1. Disable the plugin (`hermes plugins disable skill-retrieval`), then remove it from the Hermes plugins folder:
    ```bash
    # If symlinked:
    rm ~/.hermes/plugins/skill-retrieval

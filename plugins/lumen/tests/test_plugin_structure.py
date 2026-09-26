@@ -97,18 +97,44 @@ def test_register_exposed():
     spec.loader.exec_module(mod)
 
     class RecordingCtx:
+        """Mirrors hermes_cli.plugins.PluginContext.register_skill."""
+
+        def __init__(self) -> None:
+            self.registered: list[tuple[str, Path, str, dict]] = []
+
+        def register_skill(self, name, path, description="", frontmatter=None) -> None:
+            self.registered.append((name, Path(path), description, dict(frontmatter or {})))
+
+    ctx = RecordingCtx()
+    mod.register(ctx)
+    assert [entry[0] for entry in ctx.registered] == ["wiki", "curator"]
+    for name, path, description, frontmatter in ctx.registered:
+        assert path.is_file(), f"missing SKILL.md for {name}: {path}"
+        assert path.name == "SKILL.md"
+        text = path.read_text(encoding="utf-8")
+        expected = yaml.safe_load(text[3 : text.index("---", 3)]) or {}
+        assert description, f"empty description for {name}"
+        assert description == expected["description"]
+        assert frontmatter == expected
+
+
+def test_register_falls_back_for_legacy_two_arg_ctx():
+    init_path = PLUGIN_ROOT / "__init__.py"
+    spec = importlib.util.spec_from_file_location("lumen_plugin_legacy", init_path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    class LegacyCtx:
         def __init__(self) -> None:
             self.registered: list[tuple[str, Path]] = []
 
         def register_skill(self, name, path) -> None:
             self.registered.append((name, Path(path)))
 
-    ctx = RecordingCtx()
+    ctx = LegacyCtx()
     mod.register(ctx)
     assert [name for name, _ in ctx.registered] == ["wiki", "curator"]
-    for name, path in ctx.registered:
-        assert path.is_file(), f"missing SKILL.md for {name}: {path}"
-        assert path.name == "SKILL.md"
 
 
 def test_no_forbidden_references():

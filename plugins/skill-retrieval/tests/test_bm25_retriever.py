@@ -125,17 +125,14 @@ def test_bm25_no_matches(small_index):
 
 
 def test_bm25_single_document():
-    """Single-doc corpus: Lucene-clipped IDF is 0, so scores are all zero.
-
-    Build must succeed; retrieve returns [] because idf.clip(min=0) zeros
-    the only term's IDF when n_docs == df == 1.
-    """
+    """Single-doc corpus: Lucene IDF log(1 + ...) stays positive, so it hits."""
     index = br.BM25Index()
     index.build(["only"], ["unique widget factory"])
     assert index._built
-    assert index.retrieve("widget", top_k=5) == []
+    results = index.retrieve("widget", top_k=5)
+    assert [r[0] for r in results] == ["only"]
+    assert results[0][1] > 0
 
-    # Need n_docs >= 3 for a df=1 term to get positive Lucene IDF.
     index2 = br.BM25Index()
     index2.build(
         ["only", "other", "third"],
@@ -149,6 +146,22 @@ def test_bm25_single_document():
     assert len(results) == 1
     assert results[0][0] == "only"
     assert results[0][1] > 0
+
+
+def test_bm25_term_in_half_the_corpus_still_retrieves():
+    """A term in >= half the docs must not be zeroed (old clipped IDF did)."""
+    index = br.BM25Index()
+    index.build(
+        ["commit", "rebase", "calendar"],
+        ["git commit helper", "git rebase tool", "calendar planner"],
+    )
+    assert {r[0] for r in index.retrieve("git", top_k=5)} == {"commit", "rebase"}
+
+
+def test_bm25_two_document_corpus_retrieves():
+    index = br.BM25Index()
+    index.build(["commit", "calendar"], ["git commit helper", "calendar planner"])
+    assert [r[0] for r in index.retrieve("commit", top_k=5)] == ["commit"]
 
 
 def test_bm25_not_built_returns_empty():
@@ -276,12 +289,9 @@ def test_load_active_skills_uses_hermes_discovery_precedence(tmp_path, monkeypat
     _write_skill(external_root, "external-only", "external-only", "External skill")
     _write_skill(plugins_root / "helper" / "skills", "bundled", "bundled", "Bundled skill")
 
-    monkeypatch.setattr(br, "SKILLS_ROOT", br.get_skills_dir())
+    # Legacy path constants stay unset, so this runs the Hermes-discovery
+    # branch of load_active_skills().
     monkeypatch.setattr(br, "get_plugins_dir", lambda: plugins_root)
-    # Keep the runtime path helper and the legacy constants in sync so
-    # `_runtime_paths_are_overridden()` stays False (Hermes-discovery branch).
-    monkeypatch.setattr(br, "PLUGINS_ROOT", plugins_root)
-    monkeypatch.setattr(br, "CONFIG_PATH", br.get_config_path())
 
     # Registry-aware loader: with the real Hermes registry reachable, plugin
     # skills come from the registry, not the fixture dir. Stub it to report
@@ -448,10 +458,14 @@ def test_register_can_disable_prompt_compaction(monkeypatch):
             self.hooks.append((name, func))
 
     monkeypatch.setattr(mod, "COMPACT_SYSTEM_PROMPT", False)
-    monkeypatch.setattr(mod, "_compact_skills_prompt", lambda: called.append(True))
+    # The wrapper is still installed (it records capability snapshots), but
+    # in pass-through mode.
+    monkeypatch.setattr(
+        mod, "_compact_skills_prompt", lambda compact=True: called.append(compact)
+    )
 
     ctx = Ctx()
     mod.register(ctx)
 
-    assert called == []
+    assert called == [False]
     assert ctx.hooks == [("pre_llm_call", mod._on_pre_llm_call)]

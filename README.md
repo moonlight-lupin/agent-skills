@@ -118,7 +118,7 @@ A Hermes plugin that turns an agent's memory exports into a maintained markdown 
 - **Source attribution contract** — every generated line is `[source: id]` attributed; operator-authored text outside generated sections is preserved on update (verified through 7 review rounds with independent confirm reviewers).
 - **Stdlib + PyYAML only** — no network calls except the `hermes` CLI for memory export; adapters read exports, never provider internals.
 
-Install by copying or symlinking `plugins/lumen/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/lumen/tests/`.
+Install by copying or symlinking `plugins/lumen/` into `~/.hermes/plugins/` (or your profile's `plugins/`), enable it with `hermes plugins enable lumen` (user plugins are opt-in), then restart the gateway. Tests: `python3 -m pytest plugins/lumen/tests/`.
 
 ## Skill maturity
 

@@ -7,6 +7,9 @@ updated: 2026-09-26
 
 # Wiki Index
 
+<!-- lumen:auto:start -->
+Auto-regenerated content catalog.
+
 ## Entity
 
 - [Acme Logistics](entities/acme-logistics.md) — type: `entity`, updated: 2026-09-26
@@ -14,3 +17,4 @@ updated: 2026-09-26
 ## Person
 
 - [Dana](people/dana.md) — type: `person`, updated: 2026-09-26
+<!-- lumen:auto:end -->

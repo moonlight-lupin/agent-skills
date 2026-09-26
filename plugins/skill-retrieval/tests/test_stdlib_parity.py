@@ -35,8 +35,8 @@ def _reference_bm25(
 ) -> dict[str, list[tuple[str, float]]]:
     """Independent BM25 Okapi implementation for parity checking.
 
-    Uses the same formulas: Okapi TF saturation, Lucene-style clipped IDF
-    (max(0, log((N-df+0.5)/(df+0.5)))), query-token de-duplication, descending
+    Uses the same formulas: Okapi TF saturation, Lucene IDF
+    (log(1 + (N-df+0.5)/(df+0.5))), query-token de-duplication, descending
     sort with score > 0 filter.
     """
 
@@ -57,11 +57,10 @@ def _reference_bm25(
         for t in set(toks):
             df[t] = df.get(t, 0) + 1
 
-    # Clipped IDF.
+    # Lucene IDF.
     idf: dict[str, float] = {}
     for term, d in df.items():
-        val = math.log((n_docs - d + 0.5) / (d + 0.5))
-        idf[term] = max(0.0, val)
+        idf[term] = math.log(1.0 + (n_docs - d + 0.5) / (d + 0.5))
 
     # Precompute per-doc term weights.
     doc_weights: list[dict[str, float]] = []

@@ -8,7 +8,9 @@ updated: 2026-09-26
 
 Sample wiki used by Lumen lint tests.
 
+<!-- lumen:auto:start -->
 ## Page counts
 
 - entity: 1
 - person: 1
+<!-- lumen:auto:end -->
