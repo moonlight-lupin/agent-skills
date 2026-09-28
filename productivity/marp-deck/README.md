@@ -20,7 +20,8 @@ and native export to PDF, PPTX, and HTML — all from one `.md` file.
   icons, and 14 ready-to-paste themes (2 starters + 12 presets) on one shared
   base stylesheet and variable contract, each checked for text contrast.
 - **Native export** — `marp-cli` to PDF (static), HTML (keeps animations and
-  interactivity), or PPTX (image-per-slide, or editable shapes via LibreOffice).
+  interactivity), or PPTX (image-per-slide, or editable shapes via LibreOffice
+  or the bundled officecli fallback).
 
 ## Why Markdown source
 
@@ -39,7 +40,8 @@ marp-deck/
 ├── scripts/
 │   ├── extract-pptx.py          # PPTX → JSON + extracted images
 │   ├── preview.sh               # render style previews to PNG
-│   └── export.sh                # deck.md → PDF / PPTX / HTML
+│   ├── export.sh                # deck.md → PDF / PPTX / HTML
+│   └── md2pptx-officecli.py     # editable PPTX via officecli (no-LibreOffice fallback)
 ├── examples/                    # reference decks (the quality bar)
 └── tests/                       # maintainer tests (not loaded by the skill)
 ```
@@ -51,7 +53,14 @@ marp-deck/
   inline `<svg>` charts as literal text.
 - Node.js for export (`marp-cli` is fetched via `npx`).
 - Python + `python-pptx` for PowerPoint import.
-- LibreOffice (optional) for editable PPTX export.
+- LibreOffice (optional) for editable PPTX export. On machines where
+  `--pptx-editable` fails (LibreOffice 24.2+ removed the Impress HTML import
+  filter), `scripts/md2pptx-officecli.py` builds the editable PPTX with
+  [officecli](https://github.com/iOfficeAI/OfficeCLI) instead — install it with
+  `curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash`,
+  or read the [release notes](https://github.com/iOfficeAI/OfficeCLI/releases)
+  for other install routes. `export.sh --editable` falls back to it
+  automatically.
 
 ## Credits
 

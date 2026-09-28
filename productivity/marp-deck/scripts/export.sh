@@ -11,6 +11,11 @@
 #   - --allow-local-files is always passed so relative ./assets/ images resolve.
 #   - PPTX is image-per-slide by default. Add --editable for editable shapes
 #     (requires LibreOffice installed and on PATH; uses --pptx-editable).
+#   - If --pptx-editable fails (LibreOffice 24.2+ removed the Impress HTML
+#     import filter), the script falls back to md2pptx-officecli.py, which
+#     builds an editable PPTX via the officecli CLI (no LibreOffice needed).
+#     The fallback drops CSS fidelity: theme colours are carried over from the
+#     deck's :root variables, HTML components and SVG charts become plain text.
 #   - Animations and <details> interactivity survive ONLY in HTML export.
 set -euo pipefail
 
@@ -33,7 +38,12 @@ case "$FORMAT" in
   html) run -o "${DECK%.md}.html" ;;
   pptx)
     if [[ "$EDITABLE" == "--editable" ]]; then
-      run --pptx --pptx-editable
+      if ! run --pptx --pptx-editable; then
+        echo "→ marp --pptx-editable failed (this machine's LibreOffice cannot" >&2
+        echo "  import HTML into Impress — true for LibreOffice 24.2+)." >&2
+        echo "→ Falling back to officecli editable build." >&2
+        python3 "$(dirname "$0")/md2pptx-officecli.py" "$DECK" "${DECK%.md}-editable.pptx"
+      fi
     else
       run --pptx
     fi
@@ -41,7 +51,14 @@ case "$FORMAT" in
   all)
     run --pdf
     run -o "${DECK%.md}.html"
-    if [[ "$EDITABLE" == "--editable" ]]; then run --pptx --pptx-editable; else run --pptx; fi
+    if [[ "$EDITABLE" == "--editable" ]]; then
+      if ! run --pptx --pptx-editable; then
+        echo "→ marp --pptx-editable failed; falling back to officecli." >&2
+        python3 "$(dirname "$0")/md2pptx-officecli.py" "$DECK" "${DECK%.md}-editable.pptx"
+      fi
+    else
+      run --pptx
+    fi
     ;;
   *)
     echo "Unknown format: $FORMAT (use pdf|pptx|html|all)" >&2

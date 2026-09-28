@@ -3,7 +3,7 @@ name: marp-deck
 description: Marp decks — slides kept as one Markdown file. Use when the user asks for Marp or a deck kept as Markdown/version-controlled text, wants a .pptx rebuilt as Markdown slides, or hands over an existing Marp .md deck to change.
 license: MIT
 metadata:
-  version: "2.1"
+  version: "2.2"
 ---
 
 # Marp Deck
@@ -104,6 +104,19 @@ Done when every slide is clean. Delete the PNGs and `.marp-deck/previews/`.
 2. Offer export, with honest trade-offs:
    - **PDF** — pixel-faithful and static; email and print. Add `--pdf-notes` to carry speaker notes, `--pdf-outlines` for bookmarks.
    - **PPTX** — one image per slide, so text is not editable. `--pptx-editable` gives real text boxes, needs LibreOffice, and is less faithful to the CSS.
+   - **Editable PPTX without LibreOffice** — when `--pptx-editable` fails (LibreOffice 24.2+ dropped the Impress HTML import filter), export via `officecli` instead:
+
+     ```bash
+     # Install officecli (single binary, no Office installation needed):
+     curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash
+
+     # Build the editable deck from the same Markdown source:
+     python3 scripts/md2pptx-officecli.py deck.md deck-editable.pptx
+     # or: bash scripts/export.sh deck.md pptx --editable  (auto-falls back to officecli)
+     ```
+
+     `md2pptx-officecli.py` parses the deck structurally — headings, bullets, numbered lists, tables, blockquotes, and simple header-tag rows (`<div class="peg-row">`-style markup becomes a small square + label) — and writes native text boxes, tables and shapes. It carries the deck's theme colours over from the `:root` variables when present, and uses neutral defaults otherwise. Fidelity is intentionally lower than the Marp render: HTML components and SVG charts become placeholder text. Treat the PDF/HTML export as the visual master and this as the editable companion.
+   - **Full-fidelity editable decks** — for house-style decks with signature components (numbered tags, callouts, accent bands), build the PPTX directly with officecli commands (`officecli create`, `add`, `batch` — see `officecli help pptx`). This is the route used when a brand system must survive into the editable file; it needs a per-deck builder script.
    - **HTML** — the only format that keeps animations, `<details>`, and `*` fragment reveals.
 3. To edit by hand: VS Code with "Marp for VS Code", settings `markdown.marp.enableHtml: true` and `markdown.marp.allowLocalFiles: true`. Colours live in the `:root`/`section` variables, fonts in the `@import`.
 
