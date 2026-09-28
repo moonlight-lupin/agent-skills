@@ -85,6 +85,7 @@ New skills are added as folders under the relevant domain directory.
 | [file-organizer](productivity/file-organizer/) | productivity | LLM-powered directory organizer: scan → propose structure → confirm → chunked moves | — |
 | [receipt-compiler](productivity/receipt-compiler/) | productivity | Phone-camera receipt photos → straightened B&W scans → A4 expense-claim PDF with confirmation gate | pdf |
 | [task-brief](productivity/task-brief/) | productivity | Goal/context/constraints/tooling brief compiled and confirmed before substantial work starts | — |
+| [marp-deck](productivity/marp-deck/) | productivity | Marp presentations: Markdown source of truth → PDF/PPTX/HTML, with themes, SVG components, PPTX import, and render tests | — |
 | [claude-plugin-converter](agent-ops/claude-plugin-converter/) | agent-ops | Two-phase converter: analyze Claude Code plugins → generate installable Hermes plugins | skill-maintainer |
 | [skill-maintainer](agent-ops/skill-maintainer/) | agent-ops | Skill library maintenance: author, curate, upstream drift tracking, publish | — |
 | [log-analyzer](agent-ops/log-analyzer/) | agent-ops | Log pattern detection: error clusters, rate limits, timeout clusters, tool failures | scheduled-summary |
@@ -147,6 +148,7 @@ Install by copying or symlinking `plugins/lumen/` into `~/.hermes/plugins/` (or 
 | scheduled-summary | Stable | ✓ | None (stdlib) |
 | file-organizer | Stable | ✓ | None (stdlib); optional external LLM via urllib (deepseek/openrouter/ollama) |
 | task-brief | Beta | — | None (prompt-only) |
+| marp-deck | Stable | ✓ | Node.js (marp-cli); LibreOffice only for editable PPTX export |
 | claude-plugin-converter | Beta | ✓ | None (stdlib) |
 | skill-maintainer | Beta | ✓ | None (stdlib; curl for GitHub API). Unix-first — cron, curl, `which`, shell loops. Windows via WSL/MSYS2 untested. |
 | log-analyzer | Stable | ✓ | None (stdlib) |
