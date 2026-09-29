@@ -18,6 +18,25 @@ python3 <skill_dir>/scripts/research_validation.py verify-citations --report <re
 python3 <skill_dir>/scripts/research_validation.py verify-claims    --dir <run_dir> --strict --provider-used donsetch
 ```
 
+**Optional advisory pre-screen (`--jev-prescreen`, v1.8.1).** On instances with a
+TypeSafe Jev trial (`TYPESAFE_KEY`, prescreen module in the jev-trial dir),
+`verify-claims --jev-prescreen` first runs a semantic pre-screen: one System One
+Choice per claim (supported / partial / unsupported), compared against the
+deterministic scorer. Confident disagreements print as `JEV-PRESCREEN advisory`
+lines (stderr) plus a summary JSON — false-red candidates (gate capped a
+semantically-supported claim) and false-green candidates (tokens matched but
+snippet does not support). Contract:
+
+- **Advisory only.** Never blocks, never changes the exit code; deterministic
+  verdicts below the advisory lines are the source of truth.
+- **Fails gracefully.** No `TYPESAFE_KEY`, absent prescreen module, network
+  error, or API failure → `{"jev_prescreen": "SKIPPED", "reason": ...}` and the
+  gate continues unchanged. The script stays fully offline-capable.
+- Cost is small (measured: ~$0.0001 per 7-claim store, ~300 ms) and recorded in
+  the summary line.
+- When this instance has no Jev setup, omit the flag entirely — plain
+  `verify-claims` behavior is unchanged.
+
 - `validate-report`: required sections as `##` headings that start with the
   section name (`## Gaps and open questions` counts; `## Mind the Gaps` and
   `### Sources of revenue` do not) — including **Contradictions** and **Gaps**,

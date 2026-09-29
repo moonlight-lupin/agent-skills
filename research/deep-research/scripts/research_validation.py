@@ -449,7 +449,80 @@ def support_score(claim: str, snippets: list) -> float:
     return round(best, 3)
 
 
+def _jev_prescreen_report(run_dir: Path) -> dict:
+    """Call the advisory Jev pre-screen (trial dir) if this instance has Jev.
+
+    Returns a dict with ok + skipped/reason on any failure — including the
+    module being absent, the environment lacking TYPESAFE_KEY, network
+    errors, or an API failure. Never raises; never touches run_dir state.
+    """
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "jev_prescreen",
+            Path("/root/.hermes/data/jev-trial/jev_claim_prescreen.py"))
+        if spec is None or spec.loader is None:
+            raise ImportError("prescreen module not found")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "skipped": True,
+                "reason": f"pre-screen unavailable ({str(e)[:120]})",
+                "claims": 0}
+    try:
+        if not mod.env_available():
+            return {"ok": False, "skipped": True,
+                    "reason": "Jev not configured in this instance "
+                              "(no TYPESAFE_KEY) — deterministic gate runs alone",
+                    "claims": 0}
+        import subprocess, sys as _sys
+        r = subprocess.run(
+            [_sys.executable, str(Path("/root/.hermes/data/jev-trial/"
+                                       + "jev_claim_prescreen.py")),
+             "--dir", str(run_dir), "--conf-floor", "0.60"],
+            capture_output=True, text=True, timeout=120)
+        try:
+            body = json.loads(r.stdout) if r.stdout.strip() else {}
+        except json.JSONDecodeError:
+            body = {"ok": False, "skipped": True,
+                    "reason": "unparseable pre-screen output"}
+        body.setdefault("skipped", False)
+        return body
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "skipped": True,
+                "reason": f"pre-screen execution failed ({str(e)[:120]})",
+                "claims": 0}
+
+
+def _run_jev_prescreen(run_dir: Path) -> None:
+    """Print the pre-screen result as a clearly-labelled advisory block."""
+    result = _jev_prescreen_report(run_dir)
+    if result.get("skipped"):
+        print(json.dumps({"jev_prescreen": "SKIPPED",
+                          "reason": result.get("reason", "not configured")}))
+        return
+    summary = {
+        "jev_prescreen": "RAN",
+        "ok": result.get("ok"),
+        "claims": result.get("claims"),
+        "model": result.get("model"),
+        "cost_usd": result.get("cost_usd"),
+        "flags": [d for d in result.get("disagreements", []) if d.get("flag")],
+    }
+    print(json.dumps(summary))
+    for f in summary["flags"]:
+        # Advisory pointer; the deterministic verdict printed below wins.
+        print(f"JEV-PRESCREEN advisory {f['claim_id']}: {f['flag']}", file=sys.stderr)
+
+
 def cmd_verify_claims(args) -> int:
+    # Optional advisory Jev pre-screen (v1.8.1). Runs BEFORE the deterministic
+    # checks, prints its own JSON report, and NEVER affects this command's
+    # exit code: the script must stay fully offline-capable, so a missing
+    # TYPESAFE_KEY, unreachable network, or API error degrades to a recorded
+    # skip — the deterministic gate is and remains the source of truth.
+    if getattr(args, "jev_prescreen", False):
+        _run_jev_prescreen(Path(args.dir))
     d = Path(args.dir)
     claims = _read_jsonl(d / "claims.jsonl")
     # Record the provider actually used, so the manifest reflects reality.
@@ -883,6 +956,10 @@ def main() -> int:
     s.add_argument("--refute-none", default=None, dest="refute_none",
                    help="counter-evidence was searched for and none found: say what was searched "
                         "(recorded in run_manifest.json; waives the counter-evidence check)")
+    s.add_argument("--jev-prescreen", action="store_true", dest="jev_prescreen",
+                   help="run the optional advisory Jev pre-screen BEFORE the deterministic "
+                        "checks (conf-floor 0.60). Skips cleanly when Jev is not configured; "
+                        "never blocks or changes this command's exit code.")
     s.set_defaults(func=cmd_verify_claims)
 
     s = sub.add_parser("verify-citations")

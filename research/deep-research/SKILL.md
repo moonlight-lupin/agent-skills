@@ -12,7 +12,7 @@ description: >
   for news digests use news-monitoring; for source-grounded Q&A use notebooklm-mode.
 license: MIT
 metadata:
-  version: 1.8.0
+  version: 1.8.1
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   hermes:
@@ -390,6 +390,8 @@ After the report, output a compact stats block:
 ## Step 5.5 — Validation Gates (mandatory before delivery)
 
 **Deterministic gates** — `scripts/research_validation.py`, stdlib-only, checks structure not judgment. Every report with 5+ sources passes three gates before delivery: `validate-report` (structure), `verify-citations` (inline `[N]` ↔ Sources rows), and `verify-claims --strict` (stored evidence must support each factual claim; a claim stored with `basis: verified` needs sources on ≥2 different sites; at least one `polarity: refute` claim, or `--refute-none "<what you searched>"`). **Loop:** validate → fix → re-run all three, max 3 cycles; still failing → stop and report the remaining problems to the user honestly. Never skip the gates, never deliver with a red gate. Quick 2-3 source reports (no store): `verify-claims` warns instead of failing — record it in the stats block. Full contract, flags, and the failure loop: `references/validation-gates.md`.
+
+**Optional Jev pre-screen.** On instances with TypeSafe Jev configured, add `--jev-prescreen` to `verify-claims` for an advisory semantic pre-check that flags gate false-reds/false-greens before the deterministic run. It degrades to a clean SKIPPED line when Jev is not set up — never blocks, never changes the gate's exit code. See the contract in `references/validation-gates.md`.
 
 ## Follow-on Investment Analysis (optional)
 
