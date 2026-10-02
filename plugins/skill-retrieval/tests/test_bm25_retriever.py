@@ -448,24 +448,34 @@ def test_parse_bool_env_accepts_compaction_switch_values():
 
 def test_register_can_disable_prompt_compaction(monkeypatch):
     mod = _load_plugin_module("skill_retrieval_register_compact_test")
-    called = []
 
     class Ctx:
         def __init__(self):
             self.hooks = []
+            self.middleware = []
 
         def register_hook(self, name, func):
             self.hooks.append((name, func))
 
-    monkeypatch.setattr(mod, "COMPACT_SYSTEM_PROMPT", False)
-    # The wrapper is still installed (it records capability snapshots), but
-    # in pass-through mode.
-    monkeypatch.setattr(
-        mod, "_compact_skills_prompt", lambda compact=True: called.append(compact)
-    )
+        def register_middleware(self, name, func):
+            self.middleware.append((name, func))
 
+    monkeypatch.setattr(mod, "COMPACT_SYSTEM_PROMPT", False)
     ctx = Ctx()
     mod.register(ctx)
 
-    assert called == [False]
-    assert ctx.hooks == [("pre_llm_call", mod._on_pre_llm_call)]
+    assert ctx.middleware == [("llm_request", mod._on_llm_request)]
+    assert ("pre_llm_call", mod._on_pre_llm_call) in ctx.hooks
+    assert ("on_skill_lifecycle", mod._on_skill_lifecycle) in ctx.hooks
+
+    prompt = (
+        "<available_skills>\n"
+        "  test:\n"
+        "    - foo: Bar description\n"
+        "</available_skills>"
+    )
+    result = mod._on_llm_request(
+        request={"messages": [{"role": "system", "content": prompt}]},
+        session_id="",
+    )
+    assert result is None

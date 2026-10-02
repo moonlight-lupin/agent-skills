@@ -1,6 +1,6 @@
 name: skill-retrieval
-version: 0.3.1
-description: "BM25-based skill retrieval — injects top-K relevant skill descriptions per turn via pre_llm_call hook, replacing the full skill list in the system prompt."
+version: 0.4.0
+description: "BM25 skill retrieval. Rewrites the outgoing request's skills index to names-only and injects retrieved skills per turn."
 author: moonlight-lupin
 license: MIT
 homepage: https://github.com/moonlight-lupin/agent-skills/tree/main/plugins/skill-retrieval
@@ -8,3 +8,6 @@ tags: [bm25, skill-retrieval, system-prompt, token-optimization, plugin]
 requires_hermes: ">=0.21.1"
 provides_hooks:
   - pre_llm_call
+  - on_skill_lifecycle
+provides_middleware:
+  - llm_request

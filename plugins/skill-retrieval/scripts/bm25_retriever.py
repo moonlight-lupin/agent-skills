@@ -13,6 +13,7 @@ import sys
 import time
 import math
 import logging
+import threading
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,19 @@ CONFIG_PATH: "Path | None" = None
 # Directories under any plugin's skills/ tree to skip (mirrors the
 # .archive / .curator_backups / .hub exclusions used for standalone skills).
 _SKIP_DIRS = (".archive", ".curator_backups", ".hub")
+
+# Copied from agent/skill_utils.py. Do not import those private sets.
+_EXCLUDED_SKILL_DIRS = frozenset((
+    ".git", ".github", ".hub", ".archive", ".curator_backups", ".locks",
+    ".venv", "venv", "node_modules", "site-packages", "__pycache__",
+    ".tox", ".nox", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+))
+_SKILL_SUPPORT_DIRS = frozenset(("references", "templates", "assets", "scripts"))
+# Org mirrors live at ``<root>/_org/<org_id>/``. Core gates them on
+# ``<root>/_org/.active_org`` (agent/skill_utils.py read_active_org_id).
+_ORG_MIRROR_DIR = "_org"
+_ORG_ACTIVE_MARKER = ".active_org"
+_ABSENT_ORG_MARKER = ("absent",)
 
 K1 = 1.5
 B = 0.75
@@ -194,6 +208,7 @@ def _record_skill(skills: list[dict], seen_names: set[str], entry: dict, *, pref
         "frontmatter_name": str(entry.get("frontmatter_name") or name),
         "description": desc,
         "text": f"{name}: {desc}",
+        "plugin_origin": entry.get("plugin_origin") is True,
     })
 
 
@@ -224,12 +239,37 @@ def _try_list_plugin_skill_metadata():
         sys.path[:] = saved_path
 
 
+def _skill_doc_is_visible(skill: dict, visible_names: "set[str] | frozenset[str] | None") -> bool:
+    """True when ``visible_names`` is None (fail-open) or a rendered identity is listed.
+
+    Core's ``<available_skills>`` block lists the frontmatter name, not a
+    ``category/skill`` path and not a ``:``-suffix of a qualified name.
+    Match those rendered strings exactly. A colon in the name is not
+    provenance. Only entries tagged ``plugin_origin`` during the plugin
+    directory scan are exempt. They never appear in the block.
+    """
+    if visible_names is None:
+        return True
+    if skill.get("plugin_origin") is True:
+        return True
+    candidates = {
+        str(skill.get("leaf_name") or ""),
+        str(skill.get("name") or ""),
+        str(skill.get("frontmatter_name") or ""),
+        str(skill.get("skill_name") or ""),
+        str(skill.get("skill_id") or ""),
+    }
+    candidates.discard("")
+    return any(c in visible_names for c in candidates)
+
+
 def _index_cache_key(
     home_key: str,
     available_tools: "set[str] | None",
     available_toolsets: "set[str] | None",
     platform_hint: "str | None" = None,
     disabled: "frozenset[str] | None" = None,
+    visible_names: "frozenset[str] | None" = None,
 ):
     """Cache key for a BM25 index.
 
@@ -239,7 +279,13 @@ def _index_cache_key(
     cache key. Fail-open with no platform/disabled info stays a plain home
     string.
     """
-    if available_tools is None and available_toolsets is None and not platform_hint and not disabled:
+    if (
+        available_tools is None
+        and available_toolsets is None
+        and not platform_hint
+        and not disabled
+        and visible_names is None
+    ):
         return home_key
     return (
         home_key,
@@ -247,6 +293,7 @@ def _index_cache_key(
         frozenset(available_toolsets or ()),
         platform_hint or None,
         disabled or frozenset(),
+        None if visible_names is None else frozenset(visible_names),
     )
 
 
@@ -276,16 +323,23 @@ def _session_platform_key_parts() -> "tuple[str | None, frozenset[str] | None]":
 def _runtime_cache_key(
     available_tools: "set[str] | None",
     available_toolsets: "set[str] | None",
+    visible_names: "frozenset[str] | None" = None,
+    platform_hint: "str | None" = None,
 ):
     """Runtime cache key shared by ``get_index`` and ``get_skill_info``."""
     home_key = str(get_hermes_home().expanduser().resolve(strict=False))
-    platform_hint, disabled = _session_platform_key_parts()
+    live_platform, disabled = _session_platform_key_parts()
+    if platform_hint is None:
+        platform_hint = live_platform
     return home_key, _index_cache_key(
         home_key, available_tools, available_toolsets, platform_hint, disabled,
+        visible_names=None if visible_names is None else frozenset(visible_names),
     )
 
 
-def _load_active_skills_legacy() -> list[dict]:
+def _load_active_skills_legacy(
+    visible_names: "set[str] | frozenset[str] | None" = None,
+) -> list[dict]:
     """Standalone loader: explicit test overrides, or no Hermes helpers.
 
     Unset path constants resolve from the current Hermes home at call time.
@@ -342,14 +396,19 @@ def _load_active_skills_legacy() -> list[dict]:
             "name": name,
             "description": desc,
             "text": f"{name}: {desc}",
+            # Legacy/fallback entries are not the plugin directory scan.
+            "plugin_origin": False,
         })
 
+    if visible_names is not None:
+        skills = [s for s in skills if _skill_doc_is_visible(s, visible_names)]
     return skills
 
 
 def load_active_skills(
     available_tools: "set[str] | None" = None,
     available_toolsets: "set[str] | None" = None,
+    visible_names: "set[str] | frozenset[str] | None" = None,
 ) -> list[dict]:
     """Load active skills using Hermes' own profile-aware discovery helpers.
 
@@ -363,9 +422,14 @@ def load_active_skills(
     ``available_tools`` / ``available_toolsets`` are forwarded to
     ``_skill_should_show``. Both default to None, which is Hermes' fail-open
     (index everything) when the session's capability snapshot is unknown.
+
+    ``visible_names`` is an allowlist of skill leaf/names currently shown in
+    the core ``<available_skills>`` block. A skill whose leaf/name is not in
+    the set is excluded. None is fail-open (no allowlist filter). Entries
+    from the plugin directory scan are exempt. A colon in a local name is not.
     """
     if _runtime_paths_are_overridden():
-        return _load_active_skills_legacy()
+        return _load_active_skills_legacy(visible_names=visible_names)
 
     try:
         from agent.prompt_builder import (
@@ -384,7 +448,7 @@ def load_active_skills(
         )
     except ImportError as exc:
         logger.warning("Cannot import Hermes skill discovery helpers: %s", exc)
-        return _load_active_skills_legacy()
+        return _load_active_skills_legacy(visible_names=visible_names)
 
     # Compat shim for Hermes ≤0.20.x, where _skill_should_show takes 3
     # positional arguments (no session_platform). plugin.yaml now requires
@@ -417,13 +481,29 @@ def load_active_skills(
 
     def add_skill_file(
         skill_file: Path, root: Path, *, prefix: str = "", qualify_name: bool = False,
+        plugin_origin: bool = False,
     ) -> None:
         try:
             is_compatible, frontmatter, desc = _parse_skill_file(skill_file)
             if not is_compatible:
                 return
-            entry = _build_snapshot_entry(skill_file, root, frontmatter, desc)
-            if entry["frontmatter_name"] in disabled or entry["skill_name"] in disabled:
+            entry = dict(_build_snapshot_entry(skill_file, root, frontmatter, desc))
+            bare_frontmatter = entry["frontmatter_name"]
+            bare_skill = entry["skill_name"]
+            # Qualified identity before the disabled check, so ``foo:hidden``
+            # in the disabled set matches the name the scan will publish.
+            if qualify_name and prefix:
+                qname = f"{prefix}{bare_frontmatter}"
+                entry["frontmatter_name"] = qname
+                entry["skill_name"] = qname
+                prefix = ""
+            entry["plugin_origin"] = plugin_origin
+            if (
+                entry["frontmatter_name"] in disabled
+                or entry["skill_name"] in disabled
+                or bare_frontmatter in disabled
+                or bare_skill in disabled
+            ):
                 return
             if not _skill_should_show(
                 extract_skill_conditions(frontmatter),
@@ -432,12 +512,8 @@ def load_active_skills(
                 platform_hint,
             ):
                 return
-            if qualify_name and prefix:
-                qname = f"{prefix}{entry['frontmatter_name']}"
-                entry = dict(entry)
-                entry["frontmatter_name"] = qname
-                entry["skill_name"] = qname
-                prefix = ""
+            if not _skill_doc_is_visible(entry, visible_names):
+                return
             _record_skill(skills, seen_names, entry, prefix=prefix)
         except Exception as exc:
             logger.debug("Error reading skill %s: %s", skill_file, exc)
@@ -457,6 +533,7 @@ def load_active_skills(
                     skill_file, plugin_skills,
                     prefix=f"{plugin_dir.name}:",
                     qualify_name=qualify_name,
+                    plugin_origin=True,
                 )
 
     def add_registry_plugin_skill(plugin_skill: dict, pm) -> None:
@@ -513,6 +590,7 @@ def load_active_skills(
             "frontmatter_name": qualified,
             "description": desc,
         }
+        # Registry ids are ``plugin:skill`` and are absent from <available_skills>.
         _record_skill(skills, seen_names, entry)
 
     # Precedence mirrors Hermes: trusted project-local → profile-local →
@@ -649,10 +727,15 @@ class BM25Index:
 # without limit in long-lived processes; evict the oldest snapshot per home
 # beyond the cap so stale snapshots cannot accumulate.
 _MAX_CACHED_CAP_KEYS_PER_HOME = 8
+_MAX_CACHED_HOMES = 8
 
 _indexes_by_home: dict = {}
 _skills_by_home_and_id: dict = {}
 _cap_key_order_by_home: dict = {}
+_home_order: list = []
+# Gateway threads share these lists. The lock covers mutations and removals
+# only. Dict reads stay unlocked. A torn get is a miss and rebuilds.
+_cache_lock = threading.Lock()
 _index: BM25Index | None = None
 _skills_by_id: dict[str, dict] = {}
 # Runtime-override (legacy-test) caches keyed by capability snapshot. The
@@ -670,20 +753,22 @@ _warned_empty_keys: set = set()
 def clear_index_cache() -> None:
     """Drop every cached BM25 index and skill-info map.
 
-    Called from the plugin's wrapper around Hermes'
-    ``clear_skills_system_prompt_cache`` (skill_manage create/patch, hub
-    install, ``/skills`` toggles), so the next turn rebuilds the corpus.
+    Called from the plugin's ``on_skill_lifecycle`` observer (skill_manage
+    create/patch, hub install, ``/skills`` toggles) and whenever the recursive
+    corpus manifest detects an on-disk change.
     """
     global _index, _skills_by_id
-    _indexes_by_home.clear()
-    _skills_by_home_and_id.clear()
-    _cap_key_order_by_home.clear()
-    _manifest_by_key.clear()
-    _warned_empty_keys.clear()
-    _override_indexes_by_cap.clear()
-    _override_skills_by_cap.clear()
-    _index = None
-    _skills_by_id = {}
+    with _cache_lock:
+        _indexes_by_home.clear()
+        _skills_by_home_and_id.clear()
+        _cap_key_order_by_home.clear()
+        _home_order.clear()
+        _manifest_by_key.clear()
+        _warned_empty_keys.clear()
+        _override_indexes_by_cap.clear()
+        _override_skills_by_cap.clear()
+        _index = None
+        _skills_by_id = {}
 
 
 def _stat_signature(path: str) -> "tuple[int, int] | None":
@@ -694,16 +779,32 @@ def _stat_signature(path: str) -> "tuple[int, int] | None":
     return st.st_mtime_ns, st.st_size
 
 
+def _read_active_org_id(marker_path: str) -> "str | None":
+    """Org id from ``_org/.active_org``, or None when the marker is missing.
+
+    Mirrors core ``read_active_org_id``: utf-8-sig, strip, empty means no
+    org skills. The manifest does not import that helper.
+    """
+    try:
+        with open(marker_path, "r", encoding="utf-8-sig") as handle:
+            text = handle.read()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return text.strip() or None
+
+
 def _corpus_manifest() -> "tuple | None":
     """Cheap signature of the on-disk inputs to the runtime corpus.
 
-    Covers each skills root and plugin ``skills/`` dir, their immediate
-    children (category dirs / flat skill dirs) and those children's
-    ``SKILL.md``, plus config.yaml (mtime_ns, size). Adding or removing a
-    skill changes a root or category dir mtime; a content-only edit of a
-    nested SKILL.md is left to the ``clear_skills_system_prompt_cache``
-    hook. Returns None when the manifest cannot be computed (the cache is
-    then trusted as before); never raises.
+    Walks each skills root and plugin ``skills/`` dir, recording a
+    (mtime_ns, size) signature for ``SKILL.md`` and ``DESCRIPTION.md`` only,
+    plus config.yaml. Skill-package support dirs and VCS/cache dirs are not
+    walked. A symlink cycle is cut by a visited-realpath set. Adding or
+    removing a skill changes the manifest because its ``SKILL.md`` entry
+    appears or disappears. Each root also records ``_org/.active_org``.
+    With no marker the ``_org`` tree is not walked. With a marker only
+    ``_org/<active_id>/`` is walked. Returns None when the manifest cannot
+    be computed (the cache is then trusted as before); never raises.
     """
     try:
         roots: list[str] = []
@@ -723,17 +824,71 @@ def _corpus_manifest() -> "tuple | None":
                 )
         except OSError:
             pass
-        for root in roots:
+
+        seen_real: set[str] = set()
+
+        def _record_org_marker(root: str) -> "str | None":
+            marker_path = os.path.join(root, _ORG_MIRROR_DIR, _ORG_ACTIVE_MARKER)
+            sig = _stat_signature(marker_path)
+            if sig is None:
+                # Creating the marker must change the manifest even when the
+                # new org mirror has no SKILL.md yet.
+                entries.append((marker_path, _ABSENT_ORG_MARKER))
+                return None
+            # Core's snapshot keys the marker on stat. Resolution keys on the
+            # stripped text. This stat pair has no inode or ctime, so a
+            # same-size rewrite that restores mtime would not invalidate.
+            # The text is the org id, so it is part of the signature.
+            active = _read_active_org_id(marker_path)
+            entries.append((marker_path, (sig, active)))
+            return active
+
+        def _walk_root(root: str, active_org: "str | None") -> None:
             entries.append((root, _stat_signature(root)))
+            org_root = os.path.normpath(os.path.join(root, _ORG_MIRROR_DIR))
+            root_key = os.path.normpath(root)
             try:
-                with os.scandir(root) as it:
-                    children = sorted(e.path for e in it if e.is_dir())
+                walker = os.walk(root, followlinks=True)
             except OSError:
-                continue
-            for child in children:
-                entries.append((child, _stat_signature(child)))
-                skill_md = os.path.join(child, "SKILL.md")
-                entries.append((skill_md, _stat_signature(skill_md)))
+                return
+            try:
+                for dirpath, dirnames, filenames in walker:
+                    try:
+                        real = os.path.realpath(dirpath)
+                    except OSError:
+                        dirnames[:] = []
+                        continue
+                    if real in seen_real:
+                        dirnames[:] = []
+                        continue
+                    seen_real.add(real)
+                    has_skill_md = "SKILL.md" in filenames
+                    here = os.path.normpath(dirpath)
+                    # Same org gate as core iter_skill_index_files: no marker
+                    # skips ``_org`` entirely; a marker descends only into
+                    # ``_org/<active_id>/``.
+                    if here == root_key and active_org is None:
+                        if _ORG_MIRROR_DIR in dirnames:
+                            dirnames.remove(_ORG_MIRROR_DIR)
+                    elif here == org_root:
+                        dirnames[:] = [d for d in dirnames if d == active_org]
+                    # Same prune as core's iter_skill_index_files: never walk
+                    # VCS/cache dirs, and never walk support dirs of a skill
+                    # package (scripts, assets, references, templates).
+                    dirnames[:] = sorted(
+                        d for d in dirnames
+                        if d not in _EXCLUDED_SKILL_DIRS
+                        and not (has_skill_md and d in _SKILL_SUPPORT_DIRS)
+                    )
+                    for filename in ("DESCRIPTION.md", "SKILL.md"):
+                        if filename in filenames:
+                            path = os.path.join(dirpath, filename)
+                            entries.append((path, _stat_signature(path)))
+            except OSError:
+                return
+
+        for root in roots:
+            _walk_root(root, _record_org_marker(root))
         return tuple(entries)
     except Exception as exc:
         logger.debug("Skill corpus manifest unavailable: %s", exc)
@@ -743,29 +898,73 @@ def _corpus_manifest() -> "tuple | None":
 def _load_active_skills_for_index(
     available_tools: "set[str] | None",
     available_toolsets: "set[str] | None",
+    visible_names: "set[str] | frozenset[str] | None" = None,
 ) -> list[dict]:
-    """Call ``load_active_skills`` without kwargs when both snapshots are unknown.
+    """Call ``load_active_skills`` without kwargs when every snapshot is unknown.
 
     Existing tests monkeypatch ``load_active_skills`` with a zero-arg fake;
     fail-open ``get_index()`` must keep calling it that way.
     """
-    if available_tools is None and available_toolsets is None:
+    if available_tools is None and available_toolsets is None and visible_names is None:
         return load_active_skills()
-    return load_active_skills(
-        available_tools=available_tools, available_toolsets=available_toolsets,
-    )
+    kwargs = {}
+    if available_tools is not None or available_toolsets is not None:
+        kwargs["available_tools"] = available_tools
+        kwargs["available_toolsets"] = available_toolsets
+    if visible_names is not None:
+        kwargs["visible_names"] = visible_names
+    return load_active_skills(**kwargs)
+
+
+def _drop_cached_key(key) -> None:
+    _indexes_by_home.pop(key, None)
+    _skills_by_home_and_id.pop(key, None)
+    _manifest_by_key.pop(key, None)
+    _warned_empty_keys.discard(key)
+
+
+def _touch_cap_key(home_key: str, cache_key) -> None:
+    """LRU of capability keys for one home. A hit moves the key to the end
+    so an idle key is the one rebuilt when the cap is exceeded."""
+    with _cache_lock:
+        order = _cap_key_order_by_home.setdefault(home_key, [])
+        try:
+            order.remove(cache_key)
+        except ValueError:
+            pass
+        order.append(cache_key)
+        if len(order) > _MAX_CACHED_CAP_KEYS_PER_HOME:
+            stale = order[:-_MAX_CACHED_CAP_KEYS_PER_HOME]
+            del order[:-_MAX_CACHED_CAP_KEYS_PER_HOME]
+            for key in stale:
+                _drop_cached_key(key)
+
+
+def _touch_cached_home(home_key: str) -> None:
+    """LRU of Hermes homes. Evict the oldest home past the bound, and every
+    capability key stored for it."""
+    with _cache_lock:
+        if home_key in _home_order:
+            _home_order.remove(home_key)
+        _home_order.append(home_key)
+        while len(_home_order) > _MAX_CACHED_HOMES:
+            stale_home = _home_order.pop(0)
+            for key in _cap_key_order_by_home.pop(stale_home, ()):
+                _drop_cached_key(key)
 
 
 def get_index(
     available_tools: "set[str] | None" = None,
     available_toolsets: "set[str] | None" = None,
+    visible_names: "set[str] | frozenset[str] | None" = None,
+    platform_hint: "str | None" = None,
 ) -> BM25Index | None:
     global _index, _skills_by_id
     if _runtime_paths_are_overridden():
-        if available_tools is None and available_toolsets is None:
+        if available_tools is None and available_toolsets is None and visible_names is None:
             if _index is not None:
                 return _index
-            skills = _load_active_skills_for_index(available_tools, available_toolsets)
+            skills = _load_active_skills_for_index(available_tools, available_toolsets, visible_names)
             if not skills:
                 logger.warning("No active skills found for BM25 index")
                 return None
@@ -776,11 +975,13 @@ def get_index(
             )
             _skills_by_id = {s["skill_id"]: s for s in skills}
             return _index
-        cap_key = _index_cache_key("", available_tools, available_toolsets)
+        cap_key = _index_cache_key(
+            "", available_tools, available_toolsets, visible_names=None if visible_names is None else frozenset(visible_names),
+        )
         cached = _override_indexes_by_cap.get(cap_key)
         if cached is not None:
             return cached
-        skills = _load_active_skills_for_index(available_tools, available_toolsets)
+        skills = _load_active_skills_for_index(available_tools, available_toolsets, visible_names)
         if not skills:
             logger.warning("No active skills found for BM25 index")
             return None
@@ -793,12 +994,17 @@ def get_index(
         _override_skills_by_cap[cap_key] = {s["skill_id"]: s for s in skills}
         return index
 
-    home_key, cache_key = _runtime_cache_key(available_tools, available_toolsets)
+    home_key, cache_key = _runtime_cache_key(
+        available_tools, available_toolsets, visible_names=visible_names, platform_hint=platform_hint,
+    )
     manifest = _corpus_manifest()
     if cache_key in _indexes_by_home and _manifest_by_key.get(cache_key) == manifest:
-        return _indexes_by_home[cache_key]
+        cached = _indexes_by_home[cache_key]
+        _touch_cap_key(home_key, cache_key)
+        _touch_cached_home(home_key)
+        return cached
 
-    skills = _load_active_skills_for_index(available_tools, available_toolsets)
+    skills = _load_active_skills_for_index(available_tools, available_toolsets, visible_names)
     index = None
     if skills:
         _warned_empty_keys.discard(cache_key)
@@ -813,17 +1019,8 @@ def get_index(
     _indexes_by_home[cache_key] = index
     _skills_by_home_and_id[cache_key] = {s["skill_id"]: s for s in skills}
     _manifest_by_key[cache_key] = manifest
-    order = _cap_key_order_by_home.setdefault(home_key, [])
-    if cache_key not in order:
-        order.append(cache_key)
-    if len(order) > _MAX_CACHED_CAP_KEYS_PER_HOME:
-        stale = order[:-_MAX_CACHED_CAP_KEYS_PER_HOME]
-        _cap_key_order_by_home[home_key] = order[-_MAX_CACHED_CAP_KEYS_PER_HOME:]
-        for key in stale:
-            _indexes_by_home.pop(key, None)
-            _skills_by_home_and_id.pop(key, None)
-            _manifest_by_key.pop(key, None)
-            _warned_empty_keys.discard(key)
+    _touch_cap_key(home_key, cache_key)
+    _touch_cached_home(home_key)
     return index
 
 
@@ -831,11 +1028,18 @@ def get_skill_info(
     skill_id: str,
     available_tools: "set[str] | None" = None,
     available_toolsets: "set[str] | None" = None,
+    visible_names: "set[str] | frozenset[str] | None" = None,
+    platform_hint: "str | None" = None,
 ) -> dict | None:
     if _runtime_paths_are_overridden():
-        if available_tools is None and available_toolsets is None:
+        if available_tools is None and available_toolsets is None and visible_names is None:
             return _skills_by_id.get(skill_id)
-        cap_key = _index_cache_key("", available_tools, available_toolsets)
+        cap_key = _index_cache_key(
+            "", available_tools, available_toolsets,
+            visible_names=None if visible_names is None else frozenset(visible_names),
+        )
         return _override_skills_by_cap.get(cap_key, {}).get(skill_id)
-    _home_key, cache_key = _runtime_cache_key(available_tools, available_toolsets)
+    _home_key, cache_key = _runtime_cache_key(
+        available_tools, available_toolsets, visible_names=visible_names, platform_hint=platform_hint,
+    )
     return _skills_by_home_and_id.get(cache_key, {}).get(skill_id)

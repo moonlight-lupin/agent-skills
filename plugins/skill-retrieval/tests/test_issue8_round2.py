@@ -191,6 +191,20 @@ def test_no_capability_args_fails_open(monkeypatch, tmp_path):
     assert "gated-skill" in ids
 
 
+def test_visible_names_allowlist_excludes_unlisted(monkeypatch, tmp_path):
+    """visible_names is a direct allowlist: unlisted skills are dropped."""
+    br = _load_fresh()
+    root = tmp_path / "skills"
+    _write_skill(root, "ok", "plain-skill", "always visible")
+    _write_skill(root, "gated", "gated-skill", "quasarneedle9z")
+    stubs = _install_hermes_stubs(monkeypatch)
+    _point_discovery_at(monkeypatch, stubs, root)
+    skills = br.load_active_skills(visible_names=frozenset({"plain-skill"}))
+    names = {s["frontmatter_name"] for s in skills}
+    assert "plain-skill" in names
+    assert "gated-skill" not in names
+
+
 # ─── Divergence 2: plugin skills from Hermes' registry, not raw dirs ───────
 
 

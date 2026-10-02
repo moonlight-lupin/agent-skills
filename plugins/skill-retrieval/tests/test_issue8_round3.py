@@ -161,32 +161,30 @@ class _FakeSessionContext:
 # ─── Contract 1: build snapshot binds to the active session identity ────────
 
 
+_GATED_VISIBLE = frozenset({"plain-skill", "extra-skill", "extra2-skill"})
+
+
 def test_build_snapshot_binds_to_session_env_identity(monkeypatch, tmp_path):
-    """compact_build() must key the capability snapshot to
-    get_session_env("HERMES_SESSION_ID") when no explicit session_id kwarg
-    is passed — that is the task-local identity Hermes binds before the
-    system prompt builds (agent_init._publish_session_id)."""
+    """Snapshot capture with an empty session_id must key to
+    get_session_env("HERMES_SESSION_ID") — the task-local identity Hermes
+    binds for the turn."""
     mod = _load_plugin_init(monkeypatch, tmp_path)
     SC = _FakeSessionContext.install(monkeypatch)
     SC.session_id = "sess-A"
-    mod._remember_capability_snapshot(available_tools={"tool_a"}, available_toolsets=set())
+    mod._remember_capability_snapshot("", frozenset({"alpha-skill"}))
     snap = mod._session_capability_snaps.get("sess-A")
     assert snap is not None, (
         "snapshot must be keyed to the session-env identity, not the anonymous key"
     )
-    assert snap[1] == frozenset({"tool_a"})
+    assert snap[1] == frozenset({"alpha-skill"})
 
 
 def test_build_snapshot_explicit_session_id_still_wins(monkeypatch, tmp_path):
-    """An explicit session_id kwarg (future-proofing: if Hermes ever adds a
-    session_id parameter to build_skills_system_prompt) takes precedence
-    over the session-env identity."""
+    """An explicit session_id argument takes precedence over the session-env identity."""
     mod = _load_plugin_init(monkeypatch, tmp_path)
     SC = _FakeSessionContext.install(monkeypatch)
     SC.session_id = "sess-ENV"
-    mod._remember_capability_snapshot(
-        available_tools={"t"}, available_toolsets=set(), session_id="sess-EXPLICIT"
-    )
+    mod._remember_capability_snapshot("sess-EXPLICIT", frozenset({"t"}))
     assert "sess-EXPLICIT" in mod._session_capability_snaps
     assert "sess-ENV" not in mod._session_capability_snaps
 
@@ -262,7 +260,7 @@ def test_named_session_snapshot_does_not_expire(monkeypatch, tmp_path):
     _write_gated_corpus(monkeypatch, tmp_path)
 
     SC.session_id = "sess-A"
-    mod._remember_capability_snapshot(available_tools=set(), available_toolsets=set())
+    mod._remember_capability_snapshot("sess-A", _GATED_VISIBLE)
     _advance_clock(monkeypatch, 3600.0)
 
     result = mod._on_pre_llm_call(
@@ -281,10 +279,10 @@ def test_snapshot_cache_holds_more_than_eight_sessions(monkeypatch, tmp_path):
     _write_gated_corpus(monkeypatch, tmp_path)
 
     SC.session_id = "sess-A"
-    mod._remember_capability_snapshot(available_tools=set(), available_toolsets=set())
+    mod._remember_capability_snapshot("sess-A", _GATED_VISIBLE)
     for i in range(20):
         SC.session_id = f"other-{i}"
-        mod._remember_capability_snapshot(available_tools=set(), available_toolsets=set())
+        mod._remember_capability_snapshot(f"other-{i}", _GATED_VISIBLE)
 
     result = mod._on_pre_llm_call(
         session_id="sess-A", user_message="quasarneedle9z filler"
@@ -302,10 +300,10 @@ def test_named_session_evicted_snapshot_skips_injection(monkeypatch, tmp_path):
     _write_gated_corpus(monkeypatch, tmp_path)
 
     SC.session_id = "sess-A"
-    mod._remember_capability_snapshot(available_tools=set(), available_toolsets=set())
+    mod._remember_capability_snapshot("sess-A", _GATED_VISIBLE)
     for i in range(getattr(mod, "_MAX_SNAPSHOT_SESSIONS", 256) + 1):
         SC.session_id = f"other-{i}"
-        mod._remember_capability_snapshot(available_tools=set(), available_toolsets=set())
+        mod._remember_capability_snapshot(f"other-{i}", _GATED_VISIBLE)
 
     assert "sess-A" not in mod._session_capability_snaps
     result = mod._on_pre_llm_call(
@@ -319,23 +317,20 @@ def test_snapshot_captured_when_compaction_disabled(monkeypatch, tmp_path):
     record the capability snapshot, or every named session would skip."""
     _load_fresh()
     mod = _load_plugin_init(monkeypatch, tmp_path)
-    SC = _FakeSessionContext.install(monkeypatch)
-    stubs = _write_gated_corpus(monkeypatch, tmp_path)
-    full = "<available_skills>\n  cat: Desc\n    - plain-skill: always visible filler\n</available_skills>"
-    stubs["pb"].build_skills_system_prompt = lambda *a, **k: full
-
-    class Ctx:
-        def register_hook(self, name, func):
-            pass
+    _write_gated_corpus(monkeypatch, tmp_path)
+    full = (
+        "<available_skills>\n"
+        "  cat: Desc\n"
+        "    - plain-skill: always visible filler\n"
+        "    - extra-skill: unrelated filler vocabulary\n"
+        "    - extra2-skill: more unrelated words\n"
+        "</available_skills>"
+    )
 
     monkeypatch.setattr(mod, "COMPACT_SYSTEM_PROMPT", False)
-    mod.register(Ctx())
-
-    SC.session_id = "sess-A"
-    out = stubs["pb"].build_skills_system_prompt(
-        available_tools=set(), available_toolsets=set()
-    )
-    assert out == full, "compaction disabled: prompt must be returned unchanged"
+    req = {"messages": [{"role": "system", "content": full}]}
+    out = mod._on_llm_request(request=req, session_id="sess-A")
+    assert out is None, "compaction disabled: request must be returned unchanged"
     result = mod._on_pre_llm_call(
         session_id="sess-A", user_message="quasarneedle9z filler"
     )
@@ -385,9 +380,13 @@ def test_interleaved_named_sessions_no_leakage(monkeypatch, tmp_path):
     _point_discovery_at(monkeypatch, stubs, root)
 
     SC.session_id = "sess-A"
-    mod._remember_capability_snapshot(available_tools={"tool_a"}, available_toolsets=set())
+    mod._remember_capability_snapshot(
+        "sess-A", frozenset({"alpha-skill", "x-skill", "y-skill"})
+    )
     SC.session_id = "sess-B"
-    mod._remember_capability_snapshot(available_tools={"tool_b"}, available_toolsets=set())
+    mod._remember_capability_snapshot(
+        "sess-B", frozenset({"beta-skill", "x-skill", "y-skill"})
+    )
 
     leak_count = 0
     for cycle in range(20):

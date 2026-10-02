@@ -196,29 +196,41 @@ def test_skill_disabled_via_config_dropped(monkeypatch, tmp_path):
     assert "a" not in _ids(br.get_index(), "zorblat")
 
 
-def test_clear_skills_system_prompt_cache_clears_index(monkeypatch, tmp_path):
-    """skill_manage patches a nested SKILL.md, then clears Hermes' prompt cache.
+def test_nested_skill_md_content_edit_invalidates_via_manifest(monkeypatch, tmp_path):
+    """A content-only edit of a nested SKILL.md must rebuild without a hook.
 
-    A content-only edit of a nested SKILL.md changes no directory mtime, so
-    only the wrapped clear_skills_system_prompt_cache can invalidate it.
+    Recursive ``_corpus_manifest`` stats SKILL.md files (not just directory
+    mtimes), so a nested rewrite is visible on the next get_index().
     """
     br = _load_fresh()
     root = tmp_path / "skills"
     _seed(root)
     _write_skill(root, "cat/deep", "deep-skill", "original words")
-    stubs = _install_hermes_stubs(monkeypatch, tmp_path, root)
-    mod = _load_plugin_init()
-    mod.register(types.SimpleNamespace(register_hook=lambda *a, **kw: None))
+    _install_hermes_stubs(monkeypatch, tmp_path, root)
 
     assert "deep" in _ids(br.get_index(), "original")
     _write_skill(root, "cat/deep", "deep-skill", "frobnicate spreadsheets")
-    # Hermes callers import the function at call time (function-local import).
-    from agent.prompt_builder import clear_skills_system_prompt_cache
-    clear_skills_system_prompt_cache(clear_snapshot=True)
-
-    assert stubs["pb"].clear_calls == [True]   # original still runs
     assert "deep" in _ids(br.get_index(), "frobnicate")
     assert "frobnicate" in br.get_skill_info("deep")["description"]
+
+
+def test_on_skill_lifecycle_clears_index_except_loaded(monkeypatch, tmp_path):
+    """on_skill_lifecycle observer drops the BM25 cache for mutations, not loads."""
+    br = _load_fresh()
+    root = tmp_path / "skills"
+    _seed(root)
+    _install_hermes_stubs(monkeypatch, tmp_path, root)
+    mod = _load_plugin_init()
+    calls = []
+    monkeypatch.setattr(mod, "clear_index_cache", lambda: calls.append("clear"))
+    monkeypatch.setattr(br, "clear_index_cache", lambda: calls.append("clear"))
+
+    mod._on_skill_lifecycle(action="loaded", skill_name="a")
+    assert calls == []
+    mod._on_skill_lifecycle(action="patched", skill_name="a")
+    assert calls == ["clear"]
+    mod._on_skill_lifecycle(action="created", skill_name="b")
+    assert calls == ["clear", "clear"]
 
 
 def test_empty_corpus_cached_and_warned_once(monkeypatch, tmp_path, caplog):

@@ -1,10 +1,10 @@
-"""Skill Retrieval Plugin — pre_llm_call hook + system prompt compaction.
+"""Skill Retrieval Plugin — pre_llm_call hook + llm_request compaction.
 
 Two-phase progressive disclosure for Hermes Agent skills:
 
-1. **System prompt compaction** (at session start): Monkey-patches
-   `build_skills_system_prompt` to return names-only — all skill names
-   visible but descriptions stripped (~2K tokens instead of ~11.5K).
+1. **System prompt compaction** (llm_request middleware): Rewrites the
+   ``<available_skills>`` block in the outgoing provider request to
+   names-only (~2K tokens instead of ~11.5K). No core monkey-patches.
 
 2. **Per-turn retrieval** (pre_llm_call hook): BM25 retrieves top-K
    relevant skills based on the user message and injects their full
@@ -20,23 +20,46 @@ Configuration:
   original Hermes skills prompt untouched.
 """
 
+from __future__ import annotations
+
+import importlib.util
 import logging
 import os
+import re
 import sys
 import time
 from collections import OrderedDict
 from pathlib import Path
 
-# Ensure scripts/ is importable
-_scripts_dir = Path(__file__).parent / "scripts"
-if str(_scripts_dir) not in sys.path:
-    sys.path.insert(0, str(_scripts_dir))
-
-from bm25_retriever import clear_index_cache, get_index, get_skill_info
-
 logger = logging.getLogger(__name__)
 
+try:
+    from .scripts.bm25_retriever import clear_index_cache, get_index, get_skill_info
+except ImportError:  # direct-script / spec_from_file_location (no package context)
+    _retriever_path = Path(__file__).resolve().parent / "scripts" / "bm25_retriever.py"
+    _br = sys.modules.get("bm25_retriever")
+
+    def _same_retriever(mod) -> bool:
+        raw = getattr(mod, "__file__", "") or ""
+        if not raw:
+            return False
+        try:
+            return Path(raw).resolve() == _retriever_path.resolve()
+        except OSError:
+            return False
+
+    if _br is None or not getattr(_br, "get_index", None) or not _same_retriever(_br):
+        _spec = importlib.util.spec_from_file_location("bm25_retriever", _retriever_path)
+        _br = importlib.util.module_from_spec(_spec)
+        sys.modules["bm25_retriever"] = _br
+        _spec.loader.exec_module(_br)
+    clear_index_cache = _br.clear_index_cache
+    get_index = _br.get_index
+    get_skill_info = _br.get_skill_info
+
 _DEFAULT_TOP_K = 6
+_COMPACT_SENTINEL = "<!-- skill-retrieval:compact -->"
+_SKILLS_BLOCK_RE = re.compile(r"<available_skills>(.*?)</available_skills>", re.DOTALL)
 
 
 def _parse_top_k(raw: str | None, default: int = _DEFAULT_TOP_K) -> int:
@@ -74,70 +97,66 @@ def _parse_bool_env(raw: str | None, *, default: bool = True) -> bool:
 TOP_K = _parse_top_k(os.environ.get("SKILL_RETRIEVAL_TOP_K"))
 COMPACT_SYSTEM_PROMPT = _parse_bool_env(os.environ.get("SKILL_RETRIEVAL_COMPACT"))
 
-# Capability snapshots captured from the patched build_skills_system_prompt
-# (its kwargs) so the retrieval hook can rebuild the BM25 corpus with the same
-# available_tools / available_toolsets.
+# Capability snapshots captured from the llm_request middleware: the skill
+# names currently visible in Hermes' <available_skills> block, keyed by
+# session_id from the middleware kwargs.
 #
-# Named sessions are keyed by the session-env identity (see
-# _remember_capability_snapshot). A session's capabilities are fixed, and
-# Hermes builds its system prompt once then restores it from the DB on later
-# turns, so named snapshots never expire — they are only evicted by the LRU
-# bound. The anonymous key ("") is shared by every identity-less build, so it
+# Named sessions never expire — they are only evicted by the LRU bound.
+# The anonymous key ("") is shared by every identity-less request, so it
 # keeps a STALENESS WINDOW: a snapshot older than the window belongs to another
 # turn and must NOT be applied (hook falls back to the fail-open get_index()).
 _SNAPSHOT_MAX_AGE_S = 30.0
 _MAX_SNAPSHOT_SESSIONS = 256
-_session_capability_snaps: "OrderedDict[str, tuple[float, frozenset | None, frozenset | None]]" = OrderedDict()
+_session_capability_snaps: "OrderedDict[str, tuple[float, frozenset]]" = OrderedDict()
+_session_platforms: "OrderedDict[str, str]" = OrderedDict()
+_llm_request_warned = False
 
 
-def _freeze_capability_set(value) -> frozenset | None:
+def _resolve_session_id(session_id) -> str:
+    """Normalize a session id; empty falls back to the task-local Hermes identity."""
+    sid = session_id or ""
+    if not isinstance(sid, str):
+        sid = str(sid) if sid else ""
+    if sid:
+        return sid
     try:
-        return None if value is None else frozenset(value)
-    except TypeError:
-        return None  # unhashable/odd input — treat as unknown, never raise
+        get_session_env = getattr(
+            sys.modules.get("gateway.session_context"), "get_session_env", None,
+        )
+        if callable(get_session_env):
+            sid = get_session_env("HERMES_SESSION_ID") or ""
+    except Exception:
+        sid = ""
+    if not isinstance(sid, str):
+        sid = str(sid) if sid else ""
+    return sid
 
 
-def _remember_capability_snapshot(*args, **kwargs) -> None:
-    """Store available_tools / available_toolsets from a compact_build call.
+def _remember_capability_snapshot(
+    session_id: str | None = None,
+    visible_names: frozenset | None = None,
+    platform: str | None = None,
+    **_kwargs,
+) -> None:
+    """Store visible skill names from an llm_request rewrite.
 
-    Fail-soft: must never break Hermes' system-prompt construction.
+    Fail-soft: must never break Hermes' request path.
     """
     try:
-        has_kw_tools = "available_tools" in kwargs
-        has_kw_toolsets = "available_toolsets" in kwargs
-        if not has_kw_tools and not has_kw_toolsets and not args:
+        if visible_names is None:
             return
-        tools = kwargs["available_tools"] if has_kw_tools else (args[0] if len(args) > 0 else None)
-        toolsets = kwargs["available_toolsets"] if has_kw_toolsets else (args[1] if len(args) > 1 else None)
-        # Identity: explicit session_id kwarg wins (future-proofing). Otherwise
-        # bind to the task-local Hermes session identity via
-        # gateway.session_context.get_session_env("HERMES_SESSION_ID") —
-        # build_skills_system_prompt() has no session_id parameter, so the
-        # session env is the only identity source available at build time
-        # (issue #8 close-out contract). Anonymous (no identity) falls to "".
-        session_id = kwargs.get("session_id") or ""
-        if not isinstance(session_id, str):
-            session_id = str(session_id) if session_id else ""
-        if not session_id:
-            try:
-                get_session_env = getattr(
-                    sys.modules.get("gateway.session_context"), "get_session_env", None,
-                )
-                if callable(get_session_env):
-                    session_id = get_session_env("HERMES_SESSION_ID") or ""
-            except Exception:
-                session_id = ""
-            if not isinstance(session_id, str):
-                session_id = str(session_id) if session_id else ""
-        _session_capability_snaps[session_id] = (
-            time.monotonic(),
-            _freeze_capability_set(tools),
-            _freeze_capability_set(toolsets),
-        )
-        # Bounded LRU: the current session is most recent, evict the least recent.
-        _session_capability_snaps.move_to_end(session_id)
+        names = visible_names if isinstance(visible_names, frozenset) else frozenset(visible_names)
+        sid = _resolve_session_id(session_id)
+        _session_capability_snaps[sid] = (time.monotonic(), names)
+        _session_capability_snaps.move_to_end(sid)
+        if platform:
+            _session_platforms[sid] = str(platform)
+            _session_platforms.move_to_end(sid)
         while len(_session_capability_snaps) > _MAX_SNAPSHOT_SESSIONS:
-            _session_capability_snaps.popitem(last=False)
+            evicted, _ = _session_capability_snaps.popitem(last=False)
+            _session_platforms.pop(evicted, None)
+        while len(_session_platforms) > _MAX_SNAPSHOT_SESSIONS:
+            _session_platforms.popitem(last=False)
     except Exception:
         logger.debug("capability snapshot capture failed", exc_info=True)
 
@@ -148,166 +167,298 @@ def _capability_kwargs_for_session(session_id: str | None) -> dict | None:
     snap = _session_capability_snaps.get(sid)
     if snap is None:
         return None
-    captured_at, tools, toolsets = snap
+    captured_at, names = snap
     if not sid and time.monotonic() - captured_at > _SNAPSHOT_MAX_AGE_S:
         # Stale anonymous snapshot — belongs to another turn. Fail open.
         _session_capability_snaps.pop(sid, None)
+        _session_platforms.pop(sid, None)
         return None
     _session_capability_snaps.move_to_end(sid)
-    return {
-        "available_tools": set(tools) if tools is not None else None,
-        "available_toolsets": set(toolsets) if toolsets is not None else None,
+    kwargs: dict = {
+        "visible_names": set(names) if names is not None else None,
     }
+    plat = _session_platforms.get(sid)
+    if plat:
+        kwargs["platform_hint"] = plat
+    return kwargs
 
 
-# ─── Phase 1: System prompt compaction ───────────────────────────────────────
+# ─── Phase 1: names-only compaction (pure + llm_request middleware) ──────────
 
-def _compact_skills_prompt(compact: bool = True):
-    """Monkey-patch build_skills_system_prompt to return names-only.
+def _rendered_label(body: str) -> str:
+    """Identity before the description separator in a rendered skills line.
 
-    The original function builds a full skill index with descriptions.
-    We wrap it: call the original, then strip all descriptions, keeping
-    only skill names organized by category. The wrapper always records the
-    capability snapshot; with ``compact=False`` it returns the original
-    prompt unchanged (SKILL_RETRIEVAL_COMPACT=0).
-
-    Since the Sep 2026 decomposition, only ``agent.prompt_builder`` is
-    patched — every caller (including the ``run_agent`` PLUGIN-COMPAT
-    facade) resolves the function through it. The retrieval hook
-    (Phase 2) is unaffected.
+    Core renders ``{name}: {desc}`` and ``{category}: {cat_desc}``
+    (``prompt_builder._render_skills_index``). Qualified names such as
+    ``vendor:demo`` and category labels such as ``org:acme`` contain colons.
+    The separator is the first colon followed by a space. A trailing colon
+    with no description (``org:acme:``) is not that separator.
     """
-    try:
-        from agent import prompt_builder
-    except ImportError:
-        try:
-            import hermes_agent.agent.prompt_builder as prompt_builder
-        except ImportError:
-            logger.warning("Cannot locate prompt_builder — compaction skipped")
+    sep = body.find(": ")
+    if sep != -1:
+        return body[:sep].strip()
+    if body.endswith(":"):
+        return body[:-1].strip()
+    return body.strip()
+
+
+def _is_legacy_names_only(skills_block: str) -> bool:
+    """True for a pre-sentinel names-only block.
+
+    Resumed sessions froze that byte string. Inserting the sentinel would
+    miss the prompt cache. Any line containing ``": "`` (a skill description
+    or a category description) is the current renderer and still compacts.
+    A demoted ``[names only]:`` category line is the pre-sentinel compactor's
+    own output and is skipped before that test.
+    """
+    saw_skill = False
+    for line in skills_block.split("\n"):
+        stripped = line.strip()
+        if not stripped or stripped == _COMPACT_SENTINEL:
+            continue
+        if "[names only]:" in stripped:
+            continue
+        if ": " in stripped:
             return False
-
-    # Sep 2026 decomposition (PR #102117; this call site ships from v0.21.1,
-    # hence requires_hermes ">=0.21.1" — v0.21.0 still called run_agent's
-    # import-time binding): callers resolve build_skills_system_prompt via
-    # agent.prompt_builder directly
-    # (agent/system_prompt.py uses _pb.build_skills_system_prompt), and the
-    # run_agent PLUGIN-COMPAT shim resolves the attribute through
-    # agent.prompt_builder at call time too. Patching prompt_builder alone
-    # therefore covers every resolution path. The old run_agent attribute
-    # patch is gone: it triggered `hermes doctor`'s plugin-compat AST scan
-    # (removed-on-2026-09-14 warning) and would get the plugin disabled
-    # after that date. Do NOT re-add run_agent patching.
-
-    original = prompt_builder.build_skills_system_prompt
-    if getattr(original, "_skill_retrieval_patched", False):
-        return True  # Already patched
-
-    def compact_build(*args, **kwargs):
-        _remember_capability_snapshot(*args, **kwargs)
-        # Call original to get the full prompt
-        full_prompt = original(*args, **kwargs)
-        if not compact or not full_prompt:
-            return full_prompt
-
-        # Parse the <available_skills> block and strip descriptions
-        import re
-        # Extract everything between <available_skills> and </available_skills>
-        match = re.search(r"<available_skills>(.*?)</available_skills>", full_prompt, re.DOTALL)
-        if not match:
-            return full_prompt  # Can't parse — return original
-
-        skills_block = match.group(1)
-        # Build names-only version: keep category headers and skill names, drop descriptions
-        lines = skills_block.strip().split("\n")
-        compact_lines = []
-        in_skill_entry = False
-        entry_indent = 0  # indentation level of the current skill entry
-        for line in lines:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            indent = len(line) - len(line.lstrip())
-            # Skill entries (e.g. "    - name: description")
-            if stripped.startswith("-"):
-                name = stripped[1:].strip()
-                if ":" in name:
-                    name = name.split(":")[0].strip()
-                compact_lines.append(f"    - {name}")
-                in_skill_entry = True
-                entry_indent = indent
-            # Wrapped continuation of a skill description — drop it.
-            # A continuation line is MORE indented than the skill entry.
-            # Category headers are LESS indented and must clear the flag.
-            elif in_skill_entry and indent > entry_indent:
-                continue
-            # Demoted categories (e.g. "  devops [names only]: a, b") are
-            # already names-only — keep the line, its names are the skills.
-            elif "[names only]:" in stripped:
-                compact_lines.append(f"  {stripped}")
-                in_skill_entry = False
-            # Category headers (e.g. "  creative:" or "  creative: Some description")
-            elif stripped.endswith(":") or ":" in stripped:
-                # Keep category name, drop its description
-                cat_name = stripped.split(":")[0].strip()
-                compact_lines.append(f"  {cat_name}:")
-                in_skill_entry = False
-            else:
-                compact_lines.append(line)
-
-        compact_block = "\n".join(compact_lines)
-
-        # Replace the available_skills block in the full prompt
-        result = full_prompt[:match.start()] + "<available_skills>\n" + compact_block + "\n</available_skills>" + full_prompt[match.end():]
-
-        # Add a note about the retrieval hook
-        result += (
-            f"\n\nSkill descriptions are injected per-turn by the skill-retrieval "
-            f"plugin (BM25 top-{TOP_K}), appended after the user's message. If none "
-            f"appear there, use skill_view(name) to load any skill by name."
-        )
-        return result
-
-    compact_build._skill_retrieval_patched = True
-    prompt_builder.build_skills_system_prompt = compact_build
-
-    if compact:
-        logger.info("System prompt compaction enabled (names-only skill index)")
-    return True
+        if stripped.startswith("-"):
+            saw_skill = True
+    return saw_skill
 
 
-def _hook_skills_cache_clear():
-    """Wrap clear_skills_system_prompt_cache so it also drops the BM25 index.
+def compact_available_skills_block(skills_block: str, compact: bool) -> str:
+    """Deterministic names-only rewrite of an ``<available_skills>`` inner block.
 
-    Hermes calls it after skill_manage create/patch/delete, hub installs and
-    skill toggles. Every caller (tools/skill_manager_tool.py,
-    agent/learning_mutations.py, hermes_cli/skills_hub.py, ...) does a
-    function-local ``from agent.prompt_builder import
-    clear_skills_system_prompt_cache`` at call time, so replacing the module
-    attribute reaches them all. The original always runs first; a failure
-    clearing the plugin cache never propagates into Hermes.
+    Pure: no I/O, no global mutation. Rewriting an already-rewritten block
+    (sentinel present) is a no-op. ``compact=False`` returns ``skills_block``
+    unchanged.
     """
+    if not compact:
+        return skills_block
+    if _COMPACT_SENTINEL in skills_block or _is_legacy_names_only(skills_block):
+        return skills_block
+
+    lines = skills_block.strip().split("\n")
+    compact_lines = []
+    in_skill_entry = False
+    entry_indent = 0
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped == _COMPACT_SENTINEL:
+            continue
+        indent = len(line) - len(line.lstrip())
+        # Skill entries (e.g. "    - name: description")
+        if stripped.startswith("-"):
+            name = _rendered_label(stripped[1:].strip())
+            compact_lines.append(f"    - {name}")
+            in_skill_entry = True
+            entry_indent = indent
+        # Wrapped continuation of a skill description — drop it.
+        elif in_skill_entry and indent > entry_indent:
+            continue
+        # Demoted categories (e.g. "  devops [names only]: a, b")
+        elif "[names only]:" in stripped:
+            compact_lines.append(f"  {stripped}")
+            in_skill_entry = False
+        # Category headers
+        elif stripped.endswith(":") or ":" in stripped:
+            cat_name = _rendered_label(stripped)
+            compact_lines.append(f"  {cat_name}:")
+            in_skill_entry = False
+        else:
+            compact_lines.append(line)
+
+    compact_block = "\n".join(compact_lines)
+    return f"{_COMPACT_SENTINEL}\n{compact_block}"
+
+
+def _extract_visible_skill_names(skills_block: str) -> frozenset[str]:
+    """Skill names currently listed in an ``<available_skills>`` inner block."""
+    names: list[str] = []
+    for line in skills_block.split("\n"):
+        stripped = line.strip()
+        if not stripped or stripped == _COMPACT_SENTINEL:
+            continue
+        if stripped.startswith("-"):
+            name = _rendered_label(stripped[1:].strip())
+            if name:
+                names.append(name)
+        elif "[names only]:" in stripped:
+            after = stripped.split("[names only]:", 1)[1]
+            for part in after.split(","):
+                n = part.strip()
+                if n:
+                    names.append(n)
+    return frozenset(names)
+
+
+def _compaction_note() -> str:
+    return (
+        f"\n\nSkill descriptions are injected per-turn by the skill-retrieval "
+        f"plugin (BM25 top-{TOP_K}), appended after the user's message. If none "
+        f"appear there, use skill_view(name) to load any skill by name."
+    )
+
+
+def _rewrite_system_text(text: str, *, compact: bool) -> tuple[str | None, frozenset[str] | None]:
+    """Rewrite one system-prompt string. Returns (new_text_or_None, names_or_None).
+
+    ``new_text`` is None when the text should be left unchanged (no skills
+    block, already compacted, or compaction disabled). Names are still
+    returned whenever a skills block is found so the capability snapshot
+    can be captured without rewriting.
+    """
+    if not isinstance(text, str) or not text:
+        return None, None
+    match = _SKILLS_BLOCK_RE.search(text)
+    if not match:
+        return None, None
+    skills_block = match.group(1)
+    names = _extract_visible_skill_names(skills_block)
+    if not compact or _COMPACT_SENTINEL in skills_block or _is_legacy_names_only(skills_block):
+        return None, names
+    compact_inner = compact_available_skills_block(skills_block, compact=True)
+    new_text = (
+        text[: match.start()]
+        + "<available_skills>\n"
+        + compact_inner
+        + "\n</available_skills>"
+        + text[match.end() :]
+    )
+    note = _compaction_note()
+    if "Skill descriptions are injected per-turn" not in new_text:
+        new_text += note
+    return new_text, names
+
+
+def _copy_message(msg):
+    if not isinstance(msg, dict):
+        return msg
+    out = dict(msg)
+    content = out.get("content")
+    if isinstance(content, list):
+        out["content"] = [dict(p) if isinstance(p, dict) else p for p in content]
+    return out
+
+
+def _copy_system_blocks(system):
+    if isinstance(system, list):
+        return [dict(b) if isinstance(b, dict) else b for b in system]
+    return system
+
+
+def _apply_text_rewrite(text, compact: bool, names_out: list) -> str | None:
+    new_text, names = _rewrite_system_text(text, compact=compact)
+    if names is not None:
+        names_out.append(names)
+    return new_text
+
+
+def _rewrite_request(request: dict, *, compact: bool) -> tuple[dict | None, frozenset[str] | None]:
+    """Return (rewritten_request_or_None, visible_names_or_None).
+
+    Never mutates ``request``. Never touches ``request["tools"]``.
+    """
+    names_found: list[frozenset[str]] = []
+    changed = False
+    out = dict(request)
+
+    instructions = out.get("instructions")
+    if isinstance(instructions, str):
+        new = _apply_text_rewrite(instructions, compact, names_found)
+        if new is not None:
+            out["instructions"] = new
+            changed = True
+
+    messages = out.get("messages")
+    if isinstance(messages, list) and messages:
+        first = messages[0]
+        if isinstance(first, dict) and first.get("role") in {"system", "developer"}:
+            copied = [_copy_message(m) for m in messages]
+            msg0 = copied[0]
+            content = msg0.get("content")
+            if isinstance(content, str):
+                new = _apply_text_rewrite(content, compact, names_found)
+                if new is not None:
+                    msg0["content"] = new
+                    changed = True
+            elif isinstance(content, list):
+                new_parts = []
+                part_changed = False
+                for part in content:
+                    if isinstance(part, dict) and isinstance(part.get("text"), str):
+                        new_part = dict(part)
+                        new_text = _apply_text_rewrite(new_part["text"], compact, names_found)
+                        if new_text is not None:
+                            new_part["text"] = new_text
+                            part_changed = True
+                        new_parts.append(new_part)
+                    else:
+                        new_parts.append(part)
+                if part_changed:
+                    msg0["content"] = new_parts
+                    changed = True
+            out["messages"] = copied
+
+    system = out.get("system")
+    if isinstance(system, str):
+        new = _apply_text_rewrite(system, compact, names_found)
+        if new is not None:
+            out["system"] = new
+            changed = True
+    elif isinstance(system, list):
+        copied_sys = _copy_system_blocks(system)
+        sys_changed = False
+        for i, block in enumerate(copied_sys):
+            if isinstance(block, dict) and isinstance(block.get("text"), str):
+                new_text = _apply_text_rewrite(block["text"], compact, names_found)
+                if new_text is not None:
+                    copied_sys[i] = dict(block)
+                    copied_sys[i]["text"] = new_text
+                    sys_changed = True
+        if sys_changed:
+            out["system"] = copied_sys
+            changed = True
+
+    names = names_found[0] if names_found else None
+    if not changed:
+        return None, names
+    return out, names
+
+
+def _on_llm_request(
+    request=None,
+    original_request=None,
+    session_id: str = "",
+    platform: str = "",
+    **kwargs,
+) -> dict | None:
+    """llm_request middleware — names-only skills rewrite + capability capture."""
+    global _llm_request_warned
     try:
-        from agent import prompt_builder
-    except ImportError:
-        logger.debug("Cannot locate prompt_builder — cache-clear hook skipped")
-        return False
-    original = getattr(prompt_builder, "clear_skills_system_prompt_cache", None)
-    if original is None:
-        return False
-    if getattr(original, "_skill_retrieval_patched", False):
-        return True  # Already patched
+        if not isinstance(request, dict):
+            return None
+        rewritten, names = _rewrite_request(request, compact=COMPACT_SYSTEM_PROMPT)
+        if names is not None:
+            _remember_capability_snapshot(session_id, names, platform or None)
+        if rewritten is None:
+            return None
+        return {"request": rewritten}
+    except Exception:
+        if not _llm_request_warned:
+            _llm_request_warned = True
+            logger.warning("llm_request skills rewrite failed", exc_info=True)
+        return None
 
-    def clear_with_index(*args, **kwargs):
-        try:
-            return original(*args, **kwargs)
-        finally:
-            try:
-                clear_index_cache()
-            except Exception:
-                logger.debug("BM25 index cache clear failed", exc_info=True)
 
-    clear_with_index._skill_retrieval_patched = True
-    prompt_builder.clear_skills_system_prompt_cache = clear_with_index
-    return True
+def _on_skill_lifecycle(action: str = "", **kwargs) -> None:
+    """Observer: drop the BM25 index on any skill mutation (not mere loads)."""
+    try:
+        if action != "loaded":
+            clear_index_cache()
+    except Exception:
+        logger.debug("on_skill_lifecycle cache clear failed", exc_info=True)
 
 
 # ─── Phase 2: Per-turn retrieval hook ───────────────────────────────────────
@@ -320,9 +471,13 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
     """
     try:
         cap_kwargs = _capability_kwargs_for_session(session_id)
-        if cap_kwargs is None and session_id:
-            # Named session without a snapshot (never built, or evicted): the
-            # fail-open corpus could suggest skills Hermes hides. Skip the turn.
+        # pre_llm_call runs before llm_request, so turn 1 has no snapshot yet.
+        # Single-turn sessions would otherwise compact the prompt and never
+        # retrieve. Fail open (visible_names=None; disabled-set filtering
+        # still applies) when this is the first turn and nothing was captured.
+        # A later named turn whose snapshot was evicted or never captured skips.
+        first_turn_without_snapshot = bool(kwargs.get("is_first_turn")) and cap_kwargs is None
+        if cap_kwargs is None and session_id and not first_turn_without_snapshot:
             logger.debug("No capability snapshot for session %s — skipping", session_id)
             return None
         index = get_index(**cap_kwargs) if cap_kwargs is not None else get_index()
@@ -333,7 +488,6 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
         if not results:
             return None
 
-        # Build the injection block
         lines = [
             "## Retrieved Skills (top-K relevant to your query)",
             "Load any of these with skill_view(name) if relevant:",
@@ -348,7 +502,6 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
             if info:
                 name = info["name"]
                 desc = info["description"]
-                # Truncate long descriptions
                 if len(desc) > 200:
                     desc = desc[:197] + "..."
                 lines.append(f"- **{name}** ({skill_id}): {desc}")
@@ -363,25 +516,20 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
 
 
 def register(ctx):
-    """Register the pre_llm_call hook and optionally compact the skills system prompt."""
-    # Phase 1: Compact system prompt (names-only). The wrapper is installed
-    # even with compaction disabled, because it also records the capability
-    # snapshot the hook needs. Failures are logged inside
-    # _compact_skills_prompt — never abort registration of the retrieval hook.
+    """Register public surfaces: pre_llm_call, llm_request, on_skill_lifecycle."""
     if not COMPACT_SYSTEM_PROMPT:
         logger.info("System prompt compaction disabled by SKILL_RETRIEVAL_COMPACT")
-    try:
-        _compact_skills_prompt(compact=COMPACT_SYSTEM_PROMPT)
-    except Exception as e:
-        logger.warning("System prompt compaction failed: %s", e, exc_info=True)
 
-    # Invalidate the BM25 index whenever Hermes drops its skills prompt cache.
     try:
-        _hook_skills_cache_clear()
+        ctx.register_middleware("llm_request", _on_llm_request)
     except Exception as e:
-        logger.warning("Skill cache-clear hook failed: %s", e, exc_info=True)
+        logger.warning("llm_request middleware registration failed: %s", e, exc_info=True)
 
-    # Phase 2: Per-turn retrieval
+    try:
+        ctx.register_hook("on_skill_lifecycle", _on_skill_lifecycle)
+    except Exception as e:
+        logger.warning("on_skill_lifecycle hook registration failed: %s", e, exc_info=True)
+
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)
     logger.info(
         "Skill retrieval plugin registered (top_k=%d, compact=%s)",

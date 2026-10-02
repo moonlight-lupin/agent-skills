@@ -44,6 +44,12 @@ def hermes_home_override(monkeypatch, tmp_path):
     hc.get_config_path = lambda: hc.get_hermes_home() / "config.yaml"
     hc.get_skills_dir = lambda: hc.get_hermes_home() / "skills"
     monkeypatch.setitem(sys.modules, "hermes_constants", hc)
+    # The standalone loader path needs "agent" to be UNIMPORTABLE, not just
+    # absent: `from agent.prompt_builder import ...` resolves against
+    # sys.modules['agent.prompt_builder'] directly, bypassing the None
+    # sentinel on "agent". Neutralize the whole import family for this file.
+    monkeypatch.setitem(sys.modules, "agent.prompt_builder", None)
+    monkeypatch.setitem(sys.modules, "agent.skill_utils", None)
     importlib.reload(br)
     yield override, home_b
     monkeypatch.undo()

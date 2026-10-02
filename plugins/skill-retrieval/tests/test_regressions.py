@@ -195,52 +195,24 @@ def _load_plugin_module():
 
 
 def _compact_block(plugin_mod, full_prompt):
-    """Call the internal compaction logic directly.
-
-    We replicate the monkey-patch path by calling the patched
-    ``build_skills_system_prompt`` through a stub ``prompt_builder``.
-    """
+    """Run names-only compaction through the public pure function + note."""
     import re
 
-    # Build a stub prompt_builder module
-    stub_pb = types.ModuleType("_stub_prompt_builder")
-    original_called = []
-
-    def original(*args, **kwargs):
-        original_called.append(True)
-        return full_prompt
-
-    stub_pb.build_skills_system_prompt = original
-    sys.modules["_stub_prompt_builder"] = stub_pb
-
-    # Patch plugin's import target
-    # We need to inject our stub. The plugin imports `from agent import prompt_builder`
-    # or `import hermes_agent.agent.prompt_builder`. We create a fake `agent` package
-    # with a `prompt_builder` submodule.
-    agent_mod = types.ModuleType("agent")
-    agent_pb = types.ModuleType("agent.prompt_builder")
-    agent_pb.build_skills_system_prompt = original
-    agent_mod.prompt_builder = agent_pb
-    sys.modules["agent"] = agent_mod
-    sys.modules["agent.prompt_builder"] = agent_pb
-
-    # Also stub run_agent
-    run_agent_mod = types.ModuleType("run_agent")
-    run_agent_mod.build_skills_system_prompt = original
-    sys.modules["run_agent"] = run_agent_mod
-
-    # Now call _compact_skills_prompt (it will find agent.prompt_builder)
-    result = plugin_mod._compact_skills_prompt()
-
-    # The patched function is agent_pb.build_skills_system_prompt (now compact_build)
-    compact_fn = agent_pb.build_skills_system_prompt
-    output = compact_fn()
-
-    # Clean up stubs
-    for name in ["agent", "agent.prompt_builder", "run_agent", "_stub_prompt_builder"]:
-        sys.modules.pop(name, None)
-
-    return output, result
+    match = re.search(r"<available_skills>(.*?)</available_skills>", full_prompt, re.DOTALL)
+    if not match:
+        return full_prompt, True
+    compact_inner = plugin_mod.compact_available_skills_block(match.group(1), True)
+    output = (
+        full_prompt[: match.start()]
+        + "<available_skills>\n"
+        + compact_inner
+        + "\n</available_skills>"
+        + full_prompt[match.end() :]
+    )
+    note = plugin_mod._compaction_note()
+    if "Skill descriptions are injected per-turn" not in output:
+        output += note
+    return output, True
 
 
 def test_compact_wrapped_description_one_line():
@@ -333,17 +305,18 @@ def test_compact_keeps_names_only_category_line():
 
 
 def test_compact_no_available_skills_block_returns_unchanged():
-    """A prompt with no <available_skills> block must be returned unchanged (minus the trailing note)."""
+    """A prompt with no <available_skills> block must be left untouched."""
     mod = _load_plugin_module()
     prompt = "This is a system prompt with no skills block.\nJust text.\n"
-    output, ok = _compact_block(mod, prompt)
-    assert ok is True
-    # The original text must survive (the compaction adds a note but can't find a block to strip)
-    assert "This is a system prompt" in output
+    result = mod._on_llm_request(
+        request={"messages": [{"role": "system", "content": prompt}]},
+        session_id="",
+    )
+    assert result is None
 
 
 def test_compact_idempotence():
-    """Patching twice must not double-append the trailing note."""
+    """Rewriting an already-rewritten request must not double-append the trailing note."""
     mod = _load_plugin_module()
     prompt = (
         "<available_skills>\n"
@@ -351,19 +324,20 @@ def test_compact_idempotence():
         "    - foo: Bar\n"
         "</available_skills>"
     )
-    output1, ok1 = _compact_block(mod, prompt)
-    assert ok1 is True
-
-    # Count trailing notes
+    first = mod._on_llm_request(
+        request={"messages": [{"role": "system", "content": prompt}]},
+        session_id="",
+    )
+    assert first is not None
+    output1 = first["request"]["messages"][0]["content"]
     note_text = "Skill descriptions are injected per-turn"
     count1 = output1.count(note_text)
-    assert count1 == 1, f"First patch produced {count1} notes, expected 1"
+    assert count1 == 1, f"First rewrite produced {count1} notes, expected 1"
 
-    # Patch again — the _skill_retrieval_patched guard should prevent double-patching
-    output2, ok2 = _compact_block(mod, prompt)
-    assert ok2 is True
-    count2 = output2.count(note_text)
-    assert count2 == 1, f"Second patch produced {count2} notes, expected 1 (idempotent)"
+    second = mod._on_llm_request(request=first["request"], session_id="")
+    assert second is None
+    count2 = first["request"]["messages"][0]["content"].count(note_text)
+    assert count2 == 1, f"Second rewrite produced {count2} notes, expected 1 (idempotent)"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -498,18 +472,10 @@ def test_on_pre_llm_call_hit(monkeypatch):
         br._skills_by_id = {}
 
 
-def test_compact_skills_prompt_patches_prompt_builder(monkeypatch):
-    """_compact_skills_prompt patches prompt_builder; run_agent is NOT touched.
-
-    Since the Sep 2026 decomposition, run_agent is a PLUGIN-COMPAT facade
-    that resolves attributes through agent.prompt_builder at call time, so
-    patching prompt_builder alone covers every caller. The plugin must not
-    write run_agent attributes at all (its AST would trip the plugin-compat
-    scan and get the plugin disabled after 2026-09-14).
-    """
+def test_register_does_not_patch_prompt_builder(monkeypatch):
+    """register() must not assign any prompt_builder attribute (catalog rule 9)."""
     mod = _load_plugin_module()
 
-    # Create stub modules
     agent_mod = types.ModuleType("agent")
     agent_pb = types.ModuleType("agent.prompt_builder")
 
@@ -517,63 +483,37 @@ def test_compact_skills_prompt_patches_prompt_builder(monkeypatch):
         return "<available_skills>\n  test:\n    - foo: Bar\n</available_skills>"
 
     agent_pb.build_skills_system_prompt = original
+    agent_pb.clear_skills_system_prompt_cache = lambda **kw: None
     agent_mod.prompt_builder = agent_pb
-
-    run_agent_mod = types.ModuleType("run_agent")
-    run_agent_mod.build_skills_system_prompt = original
-
     sys.modules["agent"] = agent_mod
     sys.modules["agent.prompt_builder"] = agent_pb
-    sys.modules["run_agent"] = run_agent_mod
+
+    class Ctx:
+        def register_hook(self, name, func):
+            pass
+
+        def register_middleware(self, name, func):
+            pass
 
     try:
-        result = mod._compact_skills_prompt()
-        assert result is True
-
-        # prompt_builder patched; run_agent left alone
-        assert getattr(agent_pb.build_skills_system_prompt, "_skill_retrieval_patched", False)
-        assert getattr(run_agent_mod.build_skills_system_prompt, "_skill_retrieval_patched", False) is False
-        assert run_agent_mod.build_skills_system_prompt is original
+        mod.register(Ctx())
+        assert agent_pb.build_skills_system_prompt is original
+        assert not getattr(agent_pb.build_skills_system_prompt, "_skill_retrieval_patched", False)
     finally:
         sys.modules.pop("agent", None)
         sys.modules.pop("agent.prompt_builder", None)
-        sys.modules.pop("run_agent", None)
 
 
-def test_compact_skills_prompt_missing_run_agent_degrades():
-    """Missing run_agent degrades to patching prompt_builder alone, still returns True."""
+def test_compact_available_skills_block_is_pure():
+    """compact_available_skills_block is deterministic and sentinel-idempotent."""
     mod = _load_plugin_module()
-
-    agent_mod = types.ModuleType("agent")
-    agent_pb = types.ModuleType("agent.prompt_builder")
-
-    def original(*a, **kw):
-        return "<available_skills>\n  test:\n    - foo: Bar\n</available_skills>"
-
-    agent_pb.build_skills_system_prompt = original
-    agent_mod.prompt_builder = agent_pb
-
-    sys.modules["agent"] = agent_mod
-    sys.modules["agent.prompt_builder"] = agent_pb
-    # Deliberately NOT adding run_agent
-    sys.modules.pop("run_agent", None)
-    sys.modules.pop("hermes_agent.run_agent", None)
-
-    # Also need to prevent hermes_agent.run_agent import
-    hermes_agent_mod = types.ModuleType("hermes_agent")
-    sys.modules["hermes_agent"] = hermes_agent_mod
-    # Make hermes_agent.run_agent import fail
-    import importlib.machinery
-    # Remove any existing hermes_agent.run_agent
-    sys.modules.pop("hermes_agent.run_agent", None)
-
-    try:
-        result = mod._compact_skills_prompt()
-        assert result is True
-        assert getattr(agent_pb.build_skills_system_prompt, "_skill_retrieval_patched", False)
-    finally:
-        for name in ["agent", "agent.prompt_builder", "hermes_agent", "hermes_agent.run_agent"]:
-            sys.modules.pop(name, None)
+    inner = "  test:\n    - foo: Bar description\n"
+    once = mod.compact_available_skills_block(inner, True)
+    twice = mod.compact_available_skills_block(once, True)
+    assert once == twice
+    assert mod._COMPACT_SENTINEL in once
+    assert "Bar description" not in once
+    assert mod.compact_available_skills_block(inner, False) == inner
 
 
 # ─── Singleton: get_index / get_skill_info ──────────────────────────────────

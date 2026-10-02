@@ -39,6 +39,8 @@ export SKILL_RETRIEVAL_TOP_K=8
 export SKILL_RETRIEVAL_COMPACT=0  # retrieval-only mode; the skills prompt is left unchanged (the builder is still wrapped to record tool capabilities)
 ```
 
+In `codex_app_server` mode the prompt goes to Codex as `developerInstructions` and bypasses `llm_request`, so that mode gets no compaction and no snapshot, while turn-1 fail-open still retrieves.
+
 ## Uninstall
 
 1. Disable the plugin (`hermes plugins disable skill-retrieval`), then remove it from the Hermes plugins folder:
