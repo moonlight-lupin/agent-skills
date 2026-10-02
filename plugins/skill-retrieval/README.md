@@ -43,15 +43,11 @@ In `codex_app_server` mode the prompt goes to Codex as `developerInstructions` a
 
 ## Uninstall
 
-1. Disable the plugin (`hermes plugins disable skill-retrieval`), then remove it from the Hermes plugins folder:
-   ```bash
-   # If symlinked:
-   rm ~/.hermes/plugins/skill-retrieval
-   # If copied:
-   rm -rf ~/.hermes/plugins/skill-retrieval
-   ```
+1. Disable the plugin (`hermes plugins disable skill-retrieval`), then delete the plugin folder from `~/.hermes/plugins/` with your file manager or shell.
 2. Restart the Hermes session
-3. The system prompt reverts on restart (the patch is in-process only, not persistent)
+3. The system prompt reverts on restart
+
+Both overrides were in-process only, so removal is otherwise instant.
 
 ## License
 
