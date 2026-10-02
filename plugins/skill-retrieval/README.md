@@ -12,6 +12,11 @@ See [SKILL.md](SKILL.md) for full architecture, token measurements, how it works
 # From the agent_skills repo root
 ln -s "$(pwd)/plugins/skill-retrieval" ~/.hermes/plugins/skill-retrieval
 
+# Named profile: the plugin reads its own directory relative to the plugin
+# folder, and keys/paths resolve under $HERMES_HOME (set per profile) — no
+# cross-profile fallback. Copy the plugin into the profile's plugins/ dir and
+# duplicate any needed keys into that profile's .env.
+
 # Dependencies (Hermes Python env)
 # pyyaml is the only dependency — usually already present in a Hermes env
 pip install pyyaml
@@ -33,11 +38,18 @@ Then restart the Hermes session so the plugin's `register()` runs.
 | System prompt compaction | enabled | `SKILL_RETRIEVAL_COMPACT=0` disables compaction but keeps retrieval injection |
 | BM25 k1 | `1.5` | edit `scripts/bm25_retriever.py` |
 | BM25 b | `0.75` | edit `scripts/bm25_retriever.py` |
+| Jev rerank | off | `SKILL_RETRIEVAL_RERANK=jev` enables; key `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted) from `$HERMES_HOME/.env` |
+| Rerank A/B log | `~/.hermes/data/jev-trial/rerank_ab_log.jsonl` | `SKILL_RETRIEVAL_RERANK_LOG` env var |
 
 ```bash
 export SKILL_RETRIEVAL_TOP_K=8
 export SKILL_RETRIEVAL_COMPACT=0  # retrieval-only mode; the skills prompt is left unchanged (the builder is still wrapped to record tool capabilities)
+export SKILL_RETRIEVAL_RERANK=jev  # optional: rerank the top-K with the Jev system-one model
 ```
+
+### Jev rerank
+
+Optional, off by default. When enabled, the BM25 top-N shortlist is reranked by the Jev system-one judgment model (`api.typesafe.ai/v1/systemone`, model `jev-latest`). It is fail-soft: a 3.0 s timeout with no retries, and any error falls back to the BM25 order. The key is read from `$HERMES_HOME/.env` only (no cross-profile fallback). Every query is logged to the A/B log path; `scripts/rerank_ab_report.py` summarizes the log for trial review.
 
 In `codex_app_server` mode the prompt goes to Codex as `developerInstructions` and bypasses `llm_request`, so that mode gets no compaction and no snapshot, while turn-1 fail-open still retrieves.
 

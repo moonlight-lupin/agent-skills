@@ -8,7 +8,7 @@ description: >-
   skills is a concern, or when skill discovery quality matters.
 license: MIT
 metadata:
-  version: 0.3.1
+  version: 0.5.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [bm25, skill-retrieval, system-prompt, token-optimization, plugin]
@@ -119,11 +119,28 @@ pip install pyyaml
 | System prompt compaction | enabled | Set `SKILL_RETRIEVAL_COMPACT=0` to disable compaction while keeping BM25 retrieval injection |
 | BM25 `k1` | `1.5` | Constant in `scripts/bm25_retriever.py` |
 | BM25 `b` | `0.75` | Constant in `scripts/bm25_retriever.py` |
+| Jev rerank | off | Set `SKILL_RETRIEVAL_RERANK=jev` to enable; key in `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted), read from `$HERMES_HOME/.env` |
+| Rerank log path | `~/.hermes/data/jev-trial/rerank_ab_log.jsonl` | Env var `SKILL_RETRIEVAL_RERANK_LOG` |
 
 ```bash
 export SKILL_RETRIEVAL_TOP_K=8
 export SKILL_RETRIEVAL_COMPACT=0
+export SKILL_RETRIEVAL_RERANK=jev
 ```
+
+### Jev rerank (optional, off by default)
+
+When `SKILL_RETRIEVAL_RERANK=jev`, the BM25 top-N shortlist is reranked by the
+Jev system-one judgment model (`POST https://api.typesafe.ai/v1/systemone`,
+model `jev-latest`). Behavior:
+
+- **Fail-soft** — 3.0 s timeout, no retries; on any error the request logs a
+  warning and BM25's original order stands. Retrieval never blocks on Jev.
+- **Key lookup is HERMES_HOME-scoped** — only `$HERMES_HOME/.env` when set,
+  else `~/.hermes/.env`. No cross-profile fallback.
+- **A/B log** — every query records `{reranked, ms, order_before, order_after}`
+  to the log path above; `scripts/rerank_ab_report.py` summarizes it for
+  trial review.
 
 ## Verify it's working
 
@@ -145,8 +162,11 @@ silently empty. After restart, check the Hermes logs.
 ## How it works
 
 - **Tokenizer** — lowercases text, strips punctuation, splits on whitespace.
-- **Corpus** — each skill becomes `"name: description"` from SKILL.md YAML
-  frontmatter. Disabled skills from `~/.hermes/config.yaml` are skipped.
+- **Corpus** — each skill becomes `"name: description"` plus its frontmatter
+  `triggers:` list and `metadata.hermes.tags` (when present) from SKILL.md YAML.
+  Trigger phrases and tags participate in retrieval scoring but only the
+  description is injected into the prompt. Disabled skills from
+  `~/.hermes/config.yaml` are skipped.
 - **Index** — BM25 Okapi TF saturation + Lucene IDF
   `log(1 + (N-df+0.5)/(df+0.5))` (always positive, so small corpora and common
   terms still score), stored as an inverted index:

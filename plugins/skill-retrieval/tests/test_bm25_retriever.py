@@ -479,3 +479,36 @@ def test_register_can_disable_prompt_compaction(monkeypatch):
         session_id="",
     )
     assert result is None
+
+
+def test_frontmatter_keywords_extracts_triggers_and_tags():
+    fm = {
+        "triggers": ["release notes", 7, None, "changelog"],
+        "metadata": {"hermes": {"tags": ["docs", 3, "release"]}},
+    }
+    triggers, tags = br._frontmatter_keywords(fm)
+    assert triggers == ["release notes", "changelog"]
+    assert tags == ["docs", "release"]
+
+
+def test_frontmatter_keywords_never_raises_on_bad_shapes():
+    for fm in ({}, {"triggers": "not-a-list"}, {"metadata": {"hermes": 4}}, None):
+        triggers, tags = br._frontmatter_keywords(fm)
+        assert triggers == [] and tags == []
+
+
+def test_record_skill_includes_triggers_and_tags_in_corpus_text():
+    skills, seen = [], set()
+    br._record_skill(skills, seen, {
+        "frontmatter_name": "rel-notes",
+        "description": "Summarize release notes",
+        "_triggers": ["release notes", "changelog"],
+        "_tags": ["docs"],
+    })
+    assert "triggers: release notes changelog" in skills[0]["text"]
+    assert "tags: docs" in skills[0]["text"]
+    # No triggers/tags -> bare "name: desc" corpus text
+    skills2, seen2 = [], set()
+    br._record_skill(skills2, seen2, {
+        "frontmatter_name": "plain", "description": "d"})
+    assert skills2[0]["text"] == "plain: d"

@@ -194,6 +194,24 @@ def _skill_id_from_entry(entry: dict, prefix: str = "") -> str:
     return f"{prefix}{skill_name}"
 
 
+def _frontmatter_keywords(frontmatter: dict) -> tuple[list[str], list[str]]:
+    """Extract (triggers, tags) lists from parsed SKILL.md frontmatter.
+
+    Only str-list shapes are accepted; anything else yields ([], []).
+    Never raises — one malformed skill must not abort the corpus build.
+    """
+    try:
+        trig = frontmatter.get("triggers")
+        triggers = [str(t) for t in trig if isinstance(t, str)] if isinstance(trig, list) else []
+        meta = frontmatter.get("metadata")
+        hermes = meta.get("hermes") if isinstance(meta, dict) else None
+        tags_fm = hermes.get("tags") if isinstance(hermes, dict) else None
+        tags = [str(t) for t in tags_fm if isinstance(t, str)] if isinstance(tags_fm, list) else []
+    except Exception:  # defensive: frontmatter shapes vary across sources
+        return [], []
+    return triggers, tags
+
+
 def _record_skill(skills: list[dict], seen_names: set[str], entry: dict, *, prefix: str = "") -> None:
     """Append a parsed Hermes skill entry while preserving first-seen precedence."""
     name = str(entry.get("frontmatter_name") or entry.get("skill_name") or "").strip()
@@ -201,13 +219,24 @@ def _record_skill(skills: list[dict], seen_names: set[str], entry: dict, *, pref
         return
     seen_names.add(name)
     desc = str(entry.get("description") or "")
+    # Trigger phrases and tags broaden BM25 recall beyond the description:
+    # the indexed document is the retrieval surface (name: desc + lists),
+    # while only the description is injected. A skill that declares triggers
+    # can fire on queries the short description cannot cover.
+    triggers = entry.pop("_triggers", None)
+    tags = entry.pop("_tags", None)
+    text = f"{name}: {desc}"
+    if triggers:
+        text += " triggers: " + " ".join(triggers)
+    if tags:
+        text += " tags: " + " ".join(tags)
     skills.append({
         "skill_id": _skill_id_from_entry(entry, prefix=prefix),
         "leaf_name": str(entry.get("skill_name") or name),
         "name": name,
         "frontmatter_name": str(entry.get("frontmatter_name") or name),
         "description": desc,
-        "text": f"{name}: {desc}",
+        "text": text,
         "plugin_origin": entry.get("plugin_origin") is True,
     })
 
@@ -498,6 +527,7 @@ def load_active_skills(
                 entry["skill_name"] = qname
                 prefix = ""
             entry["plugin_origin"] = plugin_origin
+            entry["_triggers"], entry["_tags"] = _frontmatter_keywords(frontmatter)
             if (
                 entry["frontmatter_name"] in disabled
                 or entry["skill_name"] in disabled
@@ -590,6 +620,7 @@ def load_active_skills(
             "frontmatter_name": qualified,
             "description": desc,
         }
+        entry["_triggers"], entry["_tags"] = _frontmatter_keywords(frontmatter)
         # Registry ids are ``plugin:skill`` and are absent from <available_skills>.
         _record_skill(skills, seen_names, entry)
 
