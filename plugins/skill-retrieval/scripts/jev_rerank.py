@@ -65,18 +65,29 @@ def _parse_rerank_env(raw: str | None) -> str:
     return "off"
 
 
+def _env_paths() -> "list[Path]":
+    """Candidate .env locations: $HERMES_HOME/.env first, then ~/.hermes/.env."""
+    home = os.environ.get("HERMES_HOME")
+    paths = []
+    if home:
+        paths.append(Path(home) / ".env")
+    paths.append(Path.home() / ".hermes" / ".env")
+    return paths
+
+
 def _env_or_envfile(name: str) -> str:
     """os.environ first, then ~/.hermes/.env (same file the key lives in)."""
     raw = os.environ.get(name)
     if raw is not None:
         return raw
-    try:
-        for line in open(os.path.expanduser("~/.hermes/.env")):
-            m = re.match(rf"^{name}=(.*)$", line.strip())
-            if m:
-                return m.group(1)
-    except OSError:
-        pass
+    for env_path in _env_paths():
+        try:
+            for line in open(env_path):
+                m = re.match(rf"^{name}=(.*)$", line.strip())
+                if m:
+                    return m.group(1)
+        except OSError:
+            continue
     return ""
 
 
@@ -111,20 +122,25 @@ def neutralize_query(query) -> str:
 
 def _env_log_path() -> Path:
     raw = os.environ.get("SKILL_RETRIEVAL_RERANK_LOG", "")
-    return Path(raw) if raw else Path.home() / ".hermes/data/jev-trial/rerank_ab_log.jsonl"
+    if raw:
+        return Path(raw)
+    base = os.environ.get("HERMES_HOME") or (Path.home() / ".hermes")
+    return Path(base) / "data" / "jev-trial" / "rerank_ab_log.jsonl"
 
 
 def _load_key() -> str | None:
-    """Read TYPESAFE_API_KEY (or legacy TYPESAFE_KEY) from ~/.hermes/.env.
+    """Read TYPESAFE_API_KEY (or legacy TYPESAFE_KEY) from the Hermes .env.
 
-    Returns None when absent."""
-    try:
-        for line in open(os.path.expanduser("~/.hermes/.env")):
-            m = re.match(r"^(?:TYPESAFE_API_KEY|TYPESAFE_KEY)=(\S+)", line.strip())
-            if m:
-                return m.group(1)
-    except OSError:
-        pass
+    Honors $HERMES_HOME; falls back to ~/.hermes. Returns None when absent.
+    """
+    for env_path in _env_paths():
+        try:
+            for line in open(env_path):
+                m = re.match(r"^(?:TYPESAFE_API_KEY|TYPESAFE_KEY)=(\S+)", line.strip())
+                if m:
+                    return m.group(1)
+        except OSError:
+            continue
     return None
 
 

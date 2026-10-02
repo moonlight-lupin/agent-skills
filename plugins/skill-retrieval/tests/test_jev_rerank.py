@@ -43,9 +43,11 @@ def _fresh_mod():
 # Env gate
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_rerank_disabled_by_default(monkeypatch):
-    """No env var set → rerank disabled. Current behaviour is untouched."""
+def test_rerank_disabled_by_default(monkeypatch, tmp_path):
+    """No env var set and no .env flag → rerank disabled."""
     monkeypatch.delenv("SKILL_RETRIEVAL_RERANK", raising=False)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))  # hermetic: no real .env
+    monkeypatch.setenv("HOME", str(tmp_path))
     mod = _fresh_mod()
     assert mod.RERANK_MODE == "off"
 
@@ -201,12 +203,12 @@ def test_empty_shortlist_no_call(monkeypatch, tmp_path):
     assert not made
 
 
-def test_rerank_disabled_short_circuits(monkeypatch):
+def test_rerank_disabled_short_circuits(monkeypatch, tmp_path):
     """RERANK_MODE off → rerank() returns the BM25 order and never touches env/key."""
-    mod = _fresh_mod()
     monkeypatch.delenv("SKILL_RETRIEVAL_RERANK", raising=False)
-    import importlib as il
-    il.reload(mod)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))  # hermetic: no real .env
+    monkeypatch.setenv("HOME", str(tmp_path))
+    mod = _fresh_mod()
     assert mod.RERANK_MODE == "off"
     shortlist = [("a", 2.0), ("b", 1.0)]
 
