@@ -7,4 +7,4 @@ paths:
 curator:
   timezone: Asia/Singapore
   max_write_pages: 20  # 0 or negative disables the cap
-  memory_source: auto
+  memory_source: sessions

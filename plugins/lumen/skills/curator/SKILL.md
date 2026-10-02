@@ -3,7 +3,7 @@ name: curator
 description: "Use when ingesting memory into the wiki, running wiki_curator.py (run/report/validate/lint/search), or linting wiki structure."
 license: MIT
 metadata:
-  version: 0.1.2
+  version: 0.2.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [wiki, curator, knowledge-base, okf]
@@ -49,10 +49,10 @@ paths:
 curator:
   timezone: Asia/Singapore
   max_write_pages: 20        # 0 or negative disables the cap
-  memory_source: auto        # auto | json-file | mnemosyne | none
+  memory_source: sessions    # sessions | auto | json-file | mnemosyne | none
 ```
 
-`auto` tries Mnemosyne when `hermes` is on `PATH` and falls back to the json-file adapter if the export fails; without `hermes` it uses json-file. `none` disables ingest (file-only lint/search still work).
+`auto` prefers `sessions` when a readable Hermes `state.db` exists (the conversation history is the ground truth; Mnemosyne holds derived notes), then Mnemosyne when `hermes` is on `PATH`, falling back to the json-file adapter if the export fails. `none` disables ingest (file-only lint/search still work).
 
 ## Adapter layer
 
@@ -60,6 +60,7 @@ curator:
 
 | Adapter | Source | Notes |
 |---|---|---|
+| `sessions` | Hermes `state.db` (conversation history) | Read-only SQLite; user messages paired with the first assistant reply; gateway-origin JSON envelopes stripped. Default source. |
 | `json-file` | `<wiki>/.knowledge/memory.json` | Tolerant record shapes (`records` map or list). Missing file → `[]`. |
 | `mnemosyne` | `hermes mnemosyne export --output <tmp>` | Parses `working_memory` + `episodic_memory`. Subprocess failure → `[]`. |
 | `none` | empty | Explicit opt-out. |

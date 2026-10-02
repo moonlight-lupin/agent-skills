@@ -113,8 +113,9 @@ Install by copying or symlinking `plugins/skill-retrieval/` into `~/.hermes/plug
 
 ### lumen
 
-A Hermes plugin that turns an agent's memory exports into a maintained markdown wiki (Karpathy-style LLM wiki). Two skills: `lumen:wiki` (the methodology: OKF frontmatter, three-layer page layout, ingest/query/lint workflows) and `lumen:curator` (the `wiki_curator.py` script plus a read-only memory-source adapter layer — Mnemosyne via the `hermes` CLI export, plain JSON files, or none).
+A Hermes plugin that turns an agent's conversation history and memory into a maintained markdown wiki (Karpathy-style LLM wiki). Two skills: `lumen:wiki` (the methodology: OKF frontmatter, three-layer page layout, ingest/query/lint workflows) and `lumen:curator` (the `wiki_curator.py` script plus a read-only memory-source adapter layer — the Hermes conversation history via read-only SQLite, Mnemosyne via the `hermes` CLI export, plain JSON files, or none).
 
+- **Sessions-first by default** — the default memory source is the agent's own conversation history (read-only SQLite over `state.db`); `auto` prefers sessions, then Mnemosyne, then JSON files. The conversation record is treated as ground truth; memory stores hold derived notes.
 - **Cap-bounded curation** — batch ingest, update, and validate runs are capped per run, with per-page backups and atomic replace.
 - **Source attribution contract** — every generated line is `[source: id]` attributed; operator-authored text outside generated sections is preserved on update (verified through 7 review rounds with independent confirm reviewers).
 - **Stdlib + PyYAML only** — no network calls except the `hermes` CLI for memory export; adapters read exports, never provider internals.

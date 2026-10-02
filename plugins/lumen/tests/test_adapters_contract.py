@@ -240,6 +240,8 @@ class TestAdapterSelection:
                 return []
         monkeypatch.setattr(
             adapters_mod.MnemosyneAdapter, "is_available", lambda self: False)
+        monkeypatch.setattr(
+            adapters_mod.SessionsAdapter, "is_available", lambda self: False)
         ad = adapters_mod.get_adapter(
             {"curator": {"memory_source": "auto"}},
             wiki_path=tmp_path / "nowhere")
@@ -247,9 +249,25 @@ class TestAdapterSelection:
         cutoff, now = _cutoff()
         assert ad.load_items(cutoff, now) == []
 
-    def test_auto_prefers_mnemosyne_when_available(
+    def test_auto_prefers_sessions_when_state_database_available(
             self, adapters_mod, monkeypatch):
-        """auto picks the mnemosyne adapter when its CLI is present."""
+        """auto picks the sessions adapter when a readable state database exists.
+
+        Ordered 2026-10-02 (orchestrator decision, user directive): the
+        conversation history is the ground-truth memory source; Mnemosyne
+        holds derived notes on top of it.
+        """
+        monkeypatch.setattr(
+            adapters_mod.SessionsAdapter, "is_available", lambda self: True)
+        ad = adapters_mod.get_adapter(
+            {"curator": {"memory_source": "auto"}}, wiki_path=None)
+        assert ad.name == "sessions"
+
+    def test_auto_prefers_mnemosyne_when_no_sessions(
+            self, adapters_mod, monkeypatch):
+        """auto falls to mnemosyne: no state database, CLI present."""
+        monkeypatch.setattr(
+            adapters_mod.SessionsAdapter, "is_available", lambda self: False)
         monkeypatch.setattr(
             adapters_mod.MnemosyneAdapter, "is_available", lambda self: True)
         ad = adapters_mod.get_adapter(

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -555,8 +556,188 @@ class NoneAdapter(MemorySourceAdapter):
         return []
 
 
-ADAPTERS: list[type[MemorySourceAdapter]] = [JsonFileAdapter, MnemosyneAdapter, NoneAdapter]
-_KNOWN_SOURCES = {"auto", "json-file", "mnemosyne", "none"}
+
+
+def _state_database_paths() -> "list[Path]":
+    """Candidate state.db locations, read-only use.
+
+    Honors $HERMES_HOME only — no cross-profile fallback. Without it,
+    ~/.hermes/ (data/state.db, then state.db) is the candidate list.
+    """
+
+    home = os.environ.get("HERMES_HOME")
+    if home:
+        base = [Path(home)]
+    else:
+        base = [Path.home() / ".hermes"]
+    return [p / "data" / "state.db" for p in base] + [p / "state.db" for p in base]
+
+
+def _warn_sessions_failed(reason: str, consequence: str = _ZERO_RECORDS) -> None:
+    print(f"warning: sessions adapter failed ({reason}); {consequence}", file=sys.stderr)
+
+
+class SessionsAdapter(MemorySourceAdapter):
+    """Read user + paired assistant messages from the Hermes state.db.
+
+    The conversation history is the ground-truth record of what actually
+    happened; Mnemosyne holds curated or derived notes on top of it. Read-only
+    (``mode=ro``), tolerant of schema drift: a missing table or column yields
+    zero records, never an exception.
+    """
+
+    name = "sessions"
+
+    def is_available(self) -> bool:
+        return any(p.is_file() for p in _state_database_paths())
+
+    def _connect(self):
+        for path in _state_database_paths():
+            if not path.is_file() or path.stat().st_size == 0:
+                continue
+            try:
+                conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+                has_tables = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1"
+                ).fetchone()
+                if has_tables:
+                    return conn
+                conn.close()
+            except sqlite3.Error:
+                continue
+        return None
+
+    def load_items(self, cutoff: datetime, now: datetime) -> list:
+        conn = self._connect()
+        if conn is None:
+            _warn_sessions_failed("state.db not found or unreadable")
+            return []
+        try:
+            return self._load_items_conn(conn, cutoff, now)
+        except sqlite3.Error as exc:
+            _warn_sessions_failed(type(exc).__name__)
+            return []
+        finally:
+            conn.close()
+
+    # ── internals ─────────────────────────────────────────────────────
+
+    def _fetch_messages(self, conn) -> list[dict]:
+        """Ordered (session, time, id) user/assistant message dicts.
+
+        Tolerates older schemas: falls back when ``active``/``hidden``
+        columns or the join column names differ.
+        """
+
+        try:
+            rows = conn.execute(
+                "SELECT m.session_id, m.role, m.timestamp, m.content, "
+                "COALESCE(s.title, s.last_activity_description, ''), 1 "
+                "FROM messages m JOIN sessions s ON s.id = m.session_id "
+                "WHERE m.role IN ('user','assistant') AND m.active = 1 "
+                "AND m.content != '' AND s.hidden = 0 "
+                "ORDER BY m.session_id, m.timestamp, m.id"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            try:
+                rows = conn.execute(
+                    "SELECT m.session_id, m.role, m.timestamp, m.content, s.title, 1 "
+                    "FROM messages m JOIN sessions s ON s.id = m.session_id "
+                    "WHERE m.role IN ('user','assistant') AND m.content != '' "
+                    "ORDER BY m.session_id, m.timestamp, m.id"
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
+        return [
+            {
+                "session_id": r[0],
+                "role": r[1],
+                "ts": r[2],
+                "content": _safe_str(r[3]),
+                "title": r[4],
+            }
+            for r in rows
+            if _safe_str(r[3])
+        ]
+
+    def _item_timestamp(self, raw_ts: Any, now: datetime) -> datetime:
+        if isinstance(raw_ts, (int, float)) and raw_ts > 0:
+            return datetime.fromtimestamp(raw_ts, tz=now.tzinfo or timezone.utc)
+        parsed = _parse_datetime(raw_ts, now.tzinfo or timezone.utc)
+        return parsed if parsed is not None else now
+
+    def _make_item(self, user_msg: Mapping[str, Any], reply: str, now: datetime, session_title: str) -> Any:
+        SourceItem = _source_item_cls()
+        timestamp = self._item_timestamp(user_msg["ts"], now)
+        content = user_msg["content"]
+        # Strip gateway-origin envelopes: the JSON preamble is routing
+        # metadata, not user content.
+        if content.startswith("Gateway message origin") and "\n" in content:
+            content = content.split("\n", 1)[1].strip()
+        title = session_title or content[:80]
+        text = content[:900]
+        if reply:
+            text = f"{text}\n\n[assistant reply] {reply[:300]}"
+        return SourceItem(
+            source_id="sess_"
+            + _sanitize_source_id(str(user_msg["session_id"]), 100)
+            + "_"
+            + _digest_source_id(f"{user_msg['ts']}:{content[:160]}"),
+            source_kind="session",
+            title=title[:160],
+            text=text[:1200],
+            timestamp=timestamp,
+            tags=["session"],
+            people=[],
+            entities=_heuristic_entities(_heuristic_scan_text({}, title, text))[:3],
+            projects=[],
+            raw=dict(user_msg, reply=reply),
+        )
+
+    def _load_items_conn(self, conn, cutoff: datetime, now: datetime) -> list:
+        messages = self._fetch_messages(conn)
+        if not messages:
+            return []
+        titles: dict[str, str] = {}
+        for msg in messages:
+            titles.setdefault(str(msg["session_id"]), msg["title"])
+
+        items = []
+        pending_user = None
+        pending_reply = ""
+        pairs: list[tuple[Mapping[str, Any], str]] = []
+
+        def flush() -> None:
+            nonlocal pending_user, pending_reply
+            if pending_user is not None:
+                pairs.append((pending_user, pending_reply))
+            pending_user = None
+            pending_reply = ""
+
+        for msg in messages + [None]:
+            if msg is not None and msg["role"] == "user":
+                flush()
+                pending_user = msg
+                pending_reply = ""
+            elif msg is not None and msg["role"] == "assistant" and pending_user is not None:
+                if not pending_reply:
+                    pending_reply = msg["content"]
+            else:
+                flush()
+        for user_msg, reply in pairs:
+            timestamp = self._item_timestamp(user_msg["ts"], now)
+            if timestamp < cutoff:
+                continue
+            items.append(
+                self._make_item(
+                    user_msg, reply, now, titles.get(str(user_msg["session_id"]), "")
+                )
+            )
+        return items
+
+
+ADAPTERS: list[type[MemorySourceAdapter]] = [JsonFileAdapter, MnemosyneAdapter, SessionsAdapter, NoneAdapter]
+_KNOWN_SOURCES = {"auto", "json-file", "mnemosyne", "sessions", "none"}
 
 
 def _memory_source_name(config: Mapping[str, Any] | None) -> str:
@@ -603,6 +784,8 @@ class AutoMnemosyneAdapter(MnemosyneAdapter):
 
 
 def _auto_adapter(wiki_path: str | os.PathLike[str] | None) -> MemorySourceAdapter:
+    if SessionsAdapter().is_available():
+        return SessionsAdapter()
     if MnemosyneAdapter().is_available():
         return AutoMnemosyneAdapter(wiki_path=wiki_path)
     return JsonFileAdapter(wiki_path=wiki_path)
@@ -625,4 +808,6 @@ def get_adapter(
         return JsonFileAdapter(wiki_path=wiki_path)
     if source == "mnemosyne":
         return MnemosyneAdapter()
+    if source == "sessions":
+        return SessionsAdapter()
     return _auto_adapter(wiki_path)

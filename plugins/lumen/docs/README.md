@@ -34,18 +34,18 @@ paths:
 curator:
   timezone: Asia/Singapore
   max_write_pages: 20
-  memory_source: auto        # auto | json-file | mnemosyne | none
+  memory_source: sessions    # sessions | auto | json-file | mnemosyne | none
 ```
 
 Wiki path order: `--wiki` → `paths.wiki_path` → `$WIKI_PATH` → `~/wiki`.
 
-`auto` tries Mnemosyne when `hermes` is on `PATH`; if the export fails (for example the Mnemosyne plugin is not installed) it falls back to json-file with a warning. Without `hermes` it uses json-file directly (`<wiki>/.knowledge/memory.json`, missing file → empty ingest). Explicit `memory_source: mnemosyne` never falls back.
+`sessions` is the default: it reads the Hermes conversation history (`state.db`) as read-only SQLite and pairs each user message with the first assistant reply. `auto` prefers `sessions` when a readable `state.db` exists, then Mnemosyne when `hermes` is on `PATH`; if the export fails (for example the Mnemosyne plugin is not installed) it falls back to json-file with a warning. Without any of these it uses json-file directly (`<wiki>/.knowledge/memory.json`, missing file → empty ingest). Explicit `memory_source: mnemosyne` never falls back.
 
 `index.md` and `overview.md`: the curator only rewrites the block between `<!-- lumen:auto:start -->` and `<!-- lumen:auto:end -->`. Content outside the markers is yours; a file without markers gets a marked block appended.
 
 ## Adapter extension point (generic-json)
 
-Shipped adapters: `json-file`, `mnemosyne`, `none`. They are read-only.
+Shipped adapters: `sessions`, `json-file`, `mnemosyne`, `none`. They are read-only.
 
 Other memory providers can feed the curator by emitting the json-file shape:
 

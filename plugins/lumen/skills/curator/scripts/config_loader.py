@@ -30,8 +30,8 @@ DEFAULT_CONFIG_PATH = PLUGIN_ROOT / "shared" / "config" / "lumen.yaml"
 
 DEFAULT_TIMEZONE = "Asia/Singapore"
 DEFAULT_MAX_WRITE_PAGES = 20
-DEFAULT_MEMORY_SOURCE = "auto"
-VALID_MEMORY_SOURCES = frozenset({"auto", "json-file", "mnemosyne", "none"})
+DEFAULT_MEMORY_SOURCE = "sessions"
+VALID_MEMORY_SOURCES = frozenset({"auto", "json-file", "mnemosyne", "sessions", "none"})
 
 
 class ConfigError(Exception):
@@ -166,7 +166,7 @@ def _merge_defaults(
         if memory_source not in VALID_MEMORY_SOURCES:
             _emit_config_issue(
                 source_path,
-                "curator.memory_source must be one of auto, json-file, mnemosyne, none",
+                "curator.memory_source must be one of sessions, auto, json-file, mnemosyne, none",
                 explicit,
             )
             memory_source = DEFAULT_MEMORY_SOURCE

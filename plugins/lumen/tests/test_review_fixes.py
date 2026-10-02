@@ -145,6 +145,8 @@ def _fake_hermes(bin_dir: Path, exit_code: int = 2) -> None:
 @pytest.mark.skipif(os.name == "nt", reason="POSIX shell fake")
 class TestAutoFallback:
     def test_auto_falls_back_to_json_when_export_fails(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(adapters.SessionsAdapter, "is_available", lambda self: False)
+        monkeypatch.setattr(adapters.MnemosyneAdapter, "is_available", lambda self: True)
         _fake_hermes(tmp_path / "bin")
         monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}")
         wiki = tmp_path / "wiki"
@@ -168,6 +170,7 @@ class TestAutoFallback:
     def test_auto_uses_mnemosyne_records_when_export_succeeds(self, tmp_path, monkeypatch):
         now = datetime.now(timezone.utc)
         envelope = {"working_memory": [{"id": "w1", "content": "Dana from Acme", "timestamp": now.isoformat()}]}
+        monkeypatch.setattr(adapters.SessionsAdapter, "is_available", lambda self: False)
         monkeypatch.setattr(adapters.MnemosyneAdapter, "is_available", lambda self: True)
         monkeypatch.setattr(adapters, "run_mnemosyne_export", lambda *a, **k: envelope)
         wiki = tmp_path / "wiki"

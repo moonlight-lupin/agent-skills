@@ -1531,7 +1531,7 @@ class TestWikiCli:
         assert "paths is not a mapping" in err
         assert "using defaults" in err
         assert isinstance(data.get("paths"), dict)
-        assert data["curator"]["memory_source"] == "auto"
+        assert data["curator"]["memory_source"] == "sessions"
 
     def test_default_config_yaml_error_warns_and_defaults(self, tmp_path, capsys, monkeypatch):
         import config_loader

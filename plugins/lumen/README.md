@@ -42,7 +42,7 @@ Edit `shared/config/lumen.yaml` or pass `--config`:
 | `paths.wiki_path` | `$WIKI_PATH` or `~/wiki` | Wiki root |
 | `curator.timezone` | `Asia/Singapore` | Timestamps on generated pages |
 | `curator.max_write_pages` | `20` | Cap on source items ingested per `run` |
-| `curator.memory_source` | `auto` | `auto` \| `json-file` \| `mnemosyne` \| `none` (`auto` tries Mnemosyne and falls back to json-file if the export fails) |
+| `curator.memory_source` | `sessions` | `sessions` \| `auto` \| `json-file` \| `mnemosyne` \| `none` — sessions reads the conversation history (read-only SQLite); `auto` prefers sessions, then Mnemosyne, then json-file if the export fails |
 
 ## License
 
