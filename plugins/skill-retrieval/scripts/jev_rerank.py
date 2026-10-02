@@ -20,8 +20,8 @@ Injection defense: imperative sentence patterns in the user query are
 neutralised before the query becomes Jev state. Measured in the
 2026-09-29 hard-case trial: Jev followed injected text at conf 0.43.
 
-The API key is read from ~/.hermes/.env (TYPESAFE_API_KEY=...; legacy
-TYPESAFE_KEY= still accepted) and is never
+The API key is read from the profile's .env ($HERMES_HOME/.env,
+else ~/.hermes/.env) — TYPESAFE_API_KEY=..., legacy TYPESAFE_KEY= accepted and is never
 logged, never returned, never included in any record.
 """
 
@@ -66,13 +66,16 @@ def _parse_rerank_env(raw: str | None) -> str:
 
 
 def _env_paths() -> "list[Path]":
-    """Candidate .env locations: $HERMES_HOME/.env first, then ~/.hermes/.env."""
+    """The profile's .env only: $HERMES_HOME/.env when set, else ~/.hermes/.env.
+
+    No cross-profile fallback: a profile must not read another profile's
+    .env (it may hold unrelated secrets). Each profile carries its own copy
+    of every key its scripts need.
+    """
     home = os.environ.get("HERMES_HOME")
-    paths = []
     if home:
-        paths.append(Path(home) / ".env")
-    paths.append(Path.home() / ".hermes" / ".env")
-    return paths
+        return [Path(home) / ".env"]
+    return [Path.home() / ".hermes" / ".env"]
 
 
 def _env_or_envfile(name: str) -> str:

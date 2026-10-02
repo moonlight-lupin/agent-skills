@@ -4,7 +4,7 @@
 Usage:
   python3 rerank_ab_report.py [LOG_PATH]
 
-LOG_PATH defaults to ~/.hermes/data/jev-trial/rerank_ab_log.jsonl
+LOG_PATH defaults to $HERMES_HOME/data/jev-trial/rerank_ab_log.jsonl (else ~/.hermes/data/...)
 (one JSON line per turn, written by jev_rerank.py).
 
 Outputs the metrics agreed for the bounded trial review (~2026-10-05):
@@ -17,11 +17,13 @@ Controlled English output. No data leaves the machine.
 """
 
 import json
+import os
 import sys
 from collections import Counter
 from pathlib import Path
 
-DEFAULT_LOG = Path.home() / ".hermes/data/jev-trial/rerank_ab_log.jsonl"
+_base = os.environ.get("HERMES_HOME") or (Path.home() / ".hermes")
+DEFAULT_LOG = Path(_base) / "data" / "jev-trial" / "rerank_ab_log.jsonl"
 BAND_LOW, BAND_HIGH = 0.35, 0.65
 
 
