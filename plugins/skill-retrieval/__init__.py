@@ -57,6 +57,26 @@ except ImportError:  # direct-script / spec_from_file_location (no package conte
     get_index = _br.get_index
     get_skill_info = _br.get_skill_info
 
+try:
+    from .scripts.jev_rerank import RERANK_MODE, rerank as _jev_rerank
+except ImportError:  # direct-script import (no package context) or module missing
+    try:
+        _jev_path = Path(__file__).resolve().parent / "scripts" / "jev_rerank.py"
+        _jmod = sys.modules.get("jev_rerank")
+        if _jmod is None or not getattr(_jmod, "rerank", None):
+            _jspec = importlib.util.spec_from_file_location("jev_rerank", _jev_path)
+            _jmod = importlib.util.module_from_spec(_jspec)
+            sys.modules["jev_rerank"] = _jmod
+            _jspec.loader.exec_module(_jmod)
+        RERANK_MODE = _jmod.RERANK_MODE
+        _jev_rerank = _jmod.rerank
+    except Exception:
+        RERANK_MODE = "off"
+
+        def _jev_rerank(query, shortlist=None, rerank_candidates=12):
+            return {"order": [s[0] for s in (shortlist or [])], "skipped": True,
+                    "fallback_reason": "module_unavailable"}
+
 _DEFAULT_TOP_K = 6
 _COMPACT_SENTINEL = "<!-- skill-retrieval:compact -->"
 _SKILLS_BLOCK_RE = re.compile(r"<available_skills>(.*?)</available_skills>", re.DOTALL)
@@ -488,6 +508,46 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
         if not results:
             return None
 
+        # Optional Jev semantic rerank stage (SKILL_RETRIEVAL_RERANK=jev).
+        # Advisory: BM25 order is kept on any Jev failure; nothing is ever
+        # dropped — the shortlist is only re-ordered.
+        rerank_note = ""
+        if RERANK_MODE == "jev" and len(results) >= 2:
+            shortlist = []
+            for skill_id, score in results:
+                info = (
+                    get_skill_info(skill_id, **cap_kwargs)
+                    if cap_kwargs is not None
+                    else get_skill_info(skill_id)
+                )
+                desc = info["description"] if info else ""
+                shortlist.append((skill_id, score, desc))
+            rr = _jev_rerank(user_message, shortlist)
+            if not rr.get("skipped"):
+                # Rebuild (skill_id, score) pairs in the reranked order; keep
+                # the BM25 score for any candidate missing from the result.
+                score_by_id = dict(results)
+                reranked_results = [
+                    (sid, score_by_id[sid])
+                    for sid in rr["order"]
+                    if sid in score_by_id
+                ]
+                if len(reranked_results) == len(results):
+                    results = reranked_results
+                    rerank_note = (
+                        f"\n<!-- jev rerank: applied, "
+                        f"{rr.get('input_tokens', '?')} tok, "
+                        f"{rr.get('latency_ms', 0):.0f} ms -->"
+                    )
+                else:
+                    logger.warning(
+                        "Jev rerank returned incomplete order — keeping BM25"
+                    )
+            else:
+                logger.info(
+                    "Jev rerank skipped: %s", rr.get("fallback_reason", "unknown")
+                )
+
         lines = [
             "## Retrieved Skills (top-K relevant to your query)",
             "Load any of these with skill_view(name) if relevant:",
@@ -506,6 +566,8 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
                     desc = desc[:197] + "..."
                 lines.append(f"- **{name}** ({skill_id}): {desc}")
 
+        if rerank_note:
+            lines.append(rerank_note.lstrip("\n"))
         context = "\n".join(lines)
         logger.debug("Injected %d skills for session %s", len(results), session_id)
         return {"context": context}
