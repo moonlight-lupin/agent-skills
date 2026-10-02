@@ -73,6 +73,16 @@ def _install_three_arg_hermes(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "agent", agent_pkg)
     monkeypatch.setitem(sys.modules, "agent.prompt_builder", pb)
     monkeypatch.setitem(sys.modules, "agent.skill_utils", su)
+
+    # Neutralize the live plugin registry + plugin directory scan, as the
+    # sibling suites do: this VM's ambient env can reach the real fallback
+    # scan, which would otherwise leak installed plugin skills (e.g.
+    # chief-of-staff:*) into the corpus and break the fixture.
+    plugins_stub = types.ModuleType("hermes_cli.plugins")
+    plugins_stub.discover_plugins = lambda: None
+    plugins_stub.get_plugin_manager = lambda: None
+    monkeypatch.setitem(sys.modules, "hermes_cli.plugins", plugins_stub)
+    monkeypatch.setattr(br, "get_plugins_dir", lambda: tmp_path / "plugins-missing")
     return pb, recorded
 
 
