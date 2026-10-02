@@ -65,7 +65,22 @@ def _parse_rerank_env(raw: str | None) -> str:
     return "off"
 
 
-RERANK_MODE = _parse_rerank_env(os.environ.get("SKILL_RETRIEVAL_RERANK"))
+def _env_or_envfile(name: str) -> str:
+    """os.environ first, then ~/.hermes/.env (same file the key lives in)."""
+    raw = os.environ.get(name)
+    if raw is not None:
+        return raw
+    try:
+        for line in open(os.path.expanduser("~/.hermes/.env")):
+            m = re.match(rf"^{name}=(.*)$", line.strip())
+            if m:
+                return m.group(1)
+    except OSError:
+        pass
+    return ""
+
+
+RERANK_MODE = _parse_rerank_env(_env_or_envfile("SKILL_RETRIEVAL_RERANK"))
 
 #: BM25 shortlist size fed to the reranker (TOP_K is carved out of this).
 RERANK_CANDIDATES = 12
