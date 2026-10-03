@@ -259,6 +259,37 @@ def test_three_tuple_shortlist_accepted(monkeypatch, tmp_path):
     assert captured["descriptions"] == {"a": "Alpha desc", "b": "Beta desc"}
 
 
+def test_rerank_candidates_caps_outbound_descriptions(monkeypatch, tmp_path):
+    """rerank_candidates bounds what leaves the machine (review finding R1).
+
+    Hazard: RERANK_CANDIDATES was a dead parameter — a caller with
+    TOP_K=20 sent all 20 descriptions to the API though the docs promise
+    top-12. The cap must truncate the outbound shortlist and keep the
+    remainder in BM25 order at the tail of the injection.
+    """
+    log_path = tmp_path / "rerank_ab_log.jsonl"
+    monkeypatch.setenv("SKILL_RETRIEVAL_RERANK", "jev")
+    monkeypatch.setenv("SKILL_RETRIEVAL_RERANK_LOG", str(log_path))
+    mod = _fresh_mod()
+    monkeypatch.setattr(mod, "_load_key", lambda: "k")
+
+    sent = {}
+    probs = {f"s{i}": 0.5 for i in range(12)}  # flat: band order = BM25
+
+    def fake_call(shortlist, query, key):
+        sent["ids"] = [sid for sid, _ in shortlist]
+        return probs, {"input_tokens": 1, "latency_ms": 1}, None
+
+    monkeypatch.setattr(mod, "_jev_rerank_call", fake_call)
+    shortlist = [(f"s{i}", float(20 - i)) for i in range(20)]
+    result = mod.rerank("q", shortlist)  # default cap 12
+    # Only 12 descriptions went out
+    assert sent["ids"] == [f"s{i}" for i in range(12)]
+    # Head keeps BM25-relative order (flat probs → band anchoring); tail appended
+    assert result["order"] == [f"s{i}" for i in range(20)]
+    assert result["skipped"] is False
+
+
 def test_key_never_in_result_or_log(monkeypatch, tmp_path):
     log_path = tmp_path / "rerank_ab_log.jsonl"
     monkeypatch.setenv("SKILL_RETRIEVAL_RERANK", "jev")

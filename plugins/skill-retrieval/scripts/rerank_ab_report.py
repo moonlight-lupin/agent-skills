@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jev rerank A/B analysis — reads the per-turn JSONL log from the trial.
+"""Jev rerank A/B analysis — reads the per-turn JSONL log.
 
 Usage:
   python3 rerank_ab_report.py [LOG_PATH]
@@ -7,7 +7,7 @@ Usage:
 LOG_PATH defaults to $HERMES_HOME/data/jev-trial/rerank_ab_log.jsonl (else ~/.hermes/data/...)
 (one JSON line per turn, written by jev_rerank.py).
 
-Outputs the metrics agreed for the bounded trial review (~2026-10-05):
+Outputs A/B metrics for operator review:
   - rank1 flip rate (Jev #1 vs BM25 #1)
   - positional displacement (mean |rank change|, max)
   - band distribution (decisive-high / band / decisive-low shares)

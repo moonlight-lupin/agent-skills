@@ -1,4 +1,4 @@
-"""Jev semantic rerank stage for the skill-retrieval plugin (trial).
+"""Jev semantic rerank stage for the skill-retrieval plugin (opt-in).
 
 Advisory-layer pattern (system-one-decision-models skill): BM25 stays the
 deterministic recall stage and the source of truth. When
@@ -9,20 +9,21 @@ the exact BM25 order — the plugin never blocks or loses injection quality
 because of the advisory layer.
 
 Per-turn A/B logging records both orders side by side to a JSONL file so
-the trial review can compute rank flips, displacement, fallback rate,
-latency and cost on real traffic. The log never blocks the turn.
+operators can compute rank flips, displacement, fallback rate, latency and
+cost on real traffic. The log never blocks the turn and is capped by size
+(see ``_write_log``).
 
-Request shape follows the proven contract in ~/.hermes/scripts/yahoo_triage.py
-(POST https://api.typesafe.ai/v1/systemone, model jev-latest, noul questions
-with true/false criteria dict, one question keyed per candidate id).
+Request shape (POST https://api.typesafe.ai/v1/systemone, model jev-latest,
+noul questions with true/false criteria dict, one question keyed per
+candidate id).
 
 Injection defense: imperative sentence patterns in the user query are
-neutralised before the query becomes Jev state. Measured in the
-2026-09-29 hard-case trial: Jev followed injected text at conf 0.43.
+neutralised before the query becomes Jev state.
 
-The API key is read from the profile's .env ($HERMES_HOME/.env,
-else ~/.hermes/.env) — TYPESAFE_API_KEY=..., legacy TYPESAFE_KEY= accepted and is never
-logged, never returned, never included in any record.
+Configuration comes from os.environ only (Hermes loads the active profile's
+.env into os.environ at startup): TYPESAFE_API_KEY, legacy TYPESAFE_KEY
+accepted. The key is never logged, never returned, never included in any
+record.
 """
 
 import json
@@ -65,42 +66,23 @@ def _parse_rerank_env(raw: str | None) -> str:
     return "off"
 
 
-def _env_paths() -> "list[Path]":
-    """The profile's .env only: $HERMES_HOME/.env when set, else ~/.hermes/.env.
+def _env(name: str) -> str:
+    """os.environ only — never a file read.
 
-    No cross-profile fallback: a profile must not read another profile's
-    .env (it may hold unrelated secrets). Each profile carries its own copy
-    of every key its scripts need.
+    Hermes loads the active profile's .env into os.environ at startup, so
+    environ is the profile-correct source. Reading ~/.hermes/.env directly
+    would read the DEFAULT profile's secrets under a non-default profile.
     """
-    home = os.environ.get("HERMES_HOME")
-    if home:
-        return [Path(home) / ".env"]
-    return [Path.home() / ".hermes" / ".env"]
+    return os.environ.get(name, "")
 
 
-def _env_or_envfile(name: str) -> str:
-    """os.environ first, then ~/.hermes/.env (same file the key lives in)."""
-    raw = os.environ.get(name)
-    if raw is not None:
-        return raw
-    for env_path in _env_paths():
-        try:
-            for line in open(env_path):
-                m = re.match(rf"^{name}=(.*)$", line.strip())
-                if m:
-                    return m.group(1)
-        except OSError:
-            continue
-    return ""
-
-
-RERANK_MODE = _parse_rerank_env(_env_or_envfile("SKILL_RETRIEVAL_RERANK"))
+RERANK_MODE = _parse_rerank_env(_env("SKILL_RETRIEVAL_RERANK"))
 
 #: BM25 shortlist size fed to the reranker (TOP_K is carved out of this).
 RERANK_CANDIDATES = 12
 # Decisive bands outside which Jev's order is trusted; inside the band the
 # candidate keeps its BM25-relative position (calibration describes groups,
-# not single answers — measured in the 2026-09-29 trial).
+# not single answers).
 BAND_LOW = 0.35
 BAND_HIGH = 0.65
 # Decision-low: below this the candidate sinks (but is never dropped while
@@ -127,24 +109,28 @@ def _env_log_path() -> Path:
     raw = os.environ.get("SKILL_RETRIEVAL_RERANK_LOG", "")
     if raw:
         return Path(raw)
-    base = os.environ.get("HERMES_HOME") or (Path.home() / ".hermes")
+    try:
+        from hermes_constants import get_hermes_home
+        base = get_hermes_home()
+    except ImportError:
+        env_home = os.environ.get("HERMES_HOME", "").strip()
+        base = Path(env_home).expanduser() if env_home else Path.home() / ".hermes"
     return Path(base) / "data" / "jev-trial" / "rerank_ab_log.jsonl"
 
 
 def _load_key() -> str | None:
-    """Read TYPESAFE_API_KEY (or legacy TYPESAFE_KEY) from the Hermes .env.
+    """Read TYPESAFE_API_KEY (or legacy TYPESAFE_KEY) from os.environ only.
 
-    Honors $HERMES_HOME; falls back to ~/.hermes. Returns None when absent.
+    Hermes loads the active profile's .env into os.environ at startup, so
+    environ is the profile-correct source. Reading a .env file directly would
+    read the DEFAULT profile's secrets under a non-default profile. Returns
+    None when absent.
     """
-    for env_path in _env_paths():
-        try:
-            for line in open(env_path):
-                m = re.match(r"^(?:TYPESAFE_API_KEY|TYPESAFE_KEY)=(\S+)", line.strip())
-                if m:
-                    return m.group(1)
-        except OSError:
-            continue
-    return None
+    primary = os.environ.get("TYPESAFE_API_KEY", "").strip()
+    if primary:
+        return primary
+    legacy = os.environ.get("TYPESAFE_KEY", "").strip()
+    return legacy or None
 
 
 def build_request(query: str, shortlist: "list[tuple[str, str]]") -> "tuple[dict, dict]":
@@ -240,11 +226,27 @@ def _score_rerank_key(item: "tuple[str, float, float, int]") -> "tuple":
     return (2, prob, bm25_rank)
 
 
+#: A/B log size cap (bytes). When the log exceeds this, it is rotated to
+#: ``<name>.1`` (overwriting the previous rotation) so it cannot grow
+#: without bound. 5 MB is millions of lines at this record size.
+LOG_MAX_BYTES = 5_000_000
+
+
 def _write_log(record: dict) -> None:
-    """Append one JSONL line; any failure is swallowed (fail-soft)."""
+    """Append one JSONL line; any failure is swallowed (fail-soft).
+
+    The log is size-capped: past LOG_MAX_BYTES it rotates to ``<name>.1``,
+    keeping exactly one older generation, so an unattended install never
+    accumulates an unbounded file.
+    """
     try:
         path = _env_log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if path.exists() and path.stat().st_size > LOG_MAX_BYTES:
+                path.replace(path.with_suffix(path.suffix + ".1"))
+        except Exception:
+            pass  # rotation is best-effort; the append below still runs
         with open(path, "a") as fh:
             fh.write(json.dumps(record, ensure_ascii=True) + "\n")
     except Exception as exc:
@@ -257,6 +259,11 @@ def rerank(query, shortlist=None, rerank_candidates: int = RERANK_CANDIDATES) ->
     ``shortlist``: [(skill_id, bm25_score)] in BM25 order (or with desc as
     a third position element [(skill_id, score, description)]).
 
+    ``rerank_candidates`` caps how many candidates are sent to Jev (and
+    therefore how many descriptions leave the machine) regardless of how
+    large the caller's shortlist is — the documented outbound bound. The
+    remaining candidates keep their BM25 order at the tail.
+
     Returns dict:
       order: final skill ids in injected order
       skipped: True when Jev did not run (disabled, no key, error, empty)
@@ -268,13 +275,20 @@ def rerank(query, shortlist=None, rerank_candidates: int = RERANK_CANDIDATES) ->
         return {"order": [s[0] for s in shortlist], "skipped": True,
                 "fallback_reason": "disabled" if RERANK_MODE != "jev" else "empty_shortlist"}
 
+    if rerank_candidates is not None and rerank_candidates > 0:
+        capped = shortlist[:rerank_candidates]
+    else:
+        capped = shortlist
+    tail = shortlist[len(capped):]  # beyond the cap: BM25 order, never sent
+
     key = _load_key()
     probs, usage, error = (None, None, "missing_key")
     if key:
         # Description text for Jev state comes from the shortlist tuples when
         # present; the caller may pass (skill_id, score, description) triples.
+        # Only the capped head is sent — the tail never leaves the machine.
         enriched = []
-        for entry in shortlist:
+        for entry in capped:
             if len(entry) >= 3:
                 enriched.append((entry[0], entry[2]))
             else:
@@ -305,15 +319,22 @@ def rerank(query, shortlist=None, rerank_candidates: int = RERANK_CANDIDATES) ->
         return {"order": bm25_order, "skipped": True, "fallback_reason": error,
                 "key_loaded": key is not None}
 
-    # Sorted by Jev probability desc with band anchoring.
-    decorated = []
-    for entry in shortlist:
-        sid = entry[0]
-        # Score may be (skill_id, score) or (skill_id, score, description).
-        bm25_score = entry[1] if isinstance(entry[1], (int, float)) else 0.0
-        p = probs.get(sid, BAND_LOW)  # missing prob → treated as band
-        decorated.append((sid, bm25_score, p, bm25_rank[sid]))
-    final = [sid for sid, *_ in sorted(decorated, key=_score_rerank_key)]
+    # The capped head is reordered by Jev probability desc with band
+    # anchoring; the tail keeps its BM25 order and is appended last —
+    # candidates never sent to Jev must not displace ones it judged.
+    def _head_key(entry):
+        sid, bm25_score, p, bm25_rank = entry
+        return _score_rerank_key((sid, bm25_score, p, bm25_rank))
+
+    capped_ids = [c[0] for c in capped]
+    head = [
+        (entry[0], entry[1] if isinstance(entry[1], (int, float)) else 0.0,
+         probs.get(entry[0], BAND_LOW), bm25_rank[entry[0]])
+        for entry in capped
+    ]
+    head_sorted = [sid for sid, *_ in sorted(head, key=_head_key)]
+    tail_ids = [s[0] for s in shortlist if s[0] not in set(capped_ids)]
+    final = head_sorted + tail_ids
 
     record.update({
         "jev_order": final,

@@ -1,5 +1,5 @@
 name: skill-retrieval
-version: 0.5.0
+version: 0.6.0
 description: "BM25 skill retrieval. Rewrites the outgoing request's skills index to names-only and injects retrieved skills per turn."
 author: moonlight-lupin
 license: MIT

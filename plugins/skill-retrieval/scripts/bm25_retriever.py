@@ -460,6 +460,30 @@ def load_active_skills(
     if _runtime_paths_are_overridden():
         return _load_active_skills_legacy(visible_names=visible_names)
 
+    # A mid-scan failure in a read-only helper (e.g. a signature change in
+    # _parse_skill_file/_build_snapshot_entry on a Hermes upgrade) must not
+    # leave a silently empty corpus — an empty corpus plus the llm_request
+    # rewrite would strip every skill description from the prompt with
+    # nothing injected back. Fall back to the standalone loader instead.
+    try:
+        return _load_active_skills_hermes(
+            available_tools, available_toolsets, visible_names,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Hermes discovery helpers raised mid-scan: %s — falling back "
+            "to the standalone loader so the corpus is not silently empty",
+            exc,
+        )
+        return _load_active_skills_legacy(visible_names=visible_names)
+
+
+def _load_active_skills_hermes(
+    available_tools: "set[str] | None",
+    available_toolsets: "set[str] | None",
+    visible_names: "set[str] | frozenset[str] | None",
+) -> list[dict]:
+    """Hermes-helper skill scan (raises; caller falls back to legacy)."""
     try:
         from agent.prompt_builder import (
             _build_snapshot_entry,
@@ -487,6 +511,10 @@ def load_active_skills(
     # inspecting its declared parameters. Fall back to assuming the
     # 4-arg form when inspection fails, because the shim must not mask
     # a real TypeError from a future signature change.
+    # If any read-only helper changed signature (TypeError), fall back to the
+    # standalone loader rather than returning a silently empty corpus — an
+    # empty corpus plus the llm_request rewrite would strip every skill
+    # description from the prompt with nothing injected back.
     _show_params = None
     try:
         _show_params = inspect.signature(_skill_should_show).parameters
@@ -512,6 +540,11 @@ def load_active_skills(
         skill_file: Path, root: Path, *, prefix: str = "", qualify_name: bool = False,
         plugin_origin: bool = False,
     ) -> None:
+        # Parse errors are per-file (a malformed SKILL.md must not abort the
+        # scan). But helper-signature failures (TypeError/AttributeError) are
+        # systemic: swallowing them per file yields an empty corpus while the
+        # llm_request rewrite still strips all descriptions. Re-raise those so
+        # load_active_skills' outer guard can fall back to the legacy loader.
         try:
             is_compatible, frontmatter, desc = _parse_skill_file(skill_file)
             if not is_compatible:
@@ -545,6 +578,15 @@ def load_active_skills(
             if not _skill_doc_is_visible(entry, visible_names):
                 return
             _record_skill(skills, seen_names, entry, prefix=prefix)
+        except (TypeError, AttributeError) as exc:
+            # Signature change in a core helper is systemic, not per-file:
+            # re-raise so the outer guard switches to the standalone loader.
+            logger.warning(
+                "Core helper signature issue (%s) while reading %s — "
+                "aborting Hermes-helper scan for standalone fallback",
+                exc, skill_file,
+            )
+            raise
         except Exception as exc:
             logger.debug("Error reading skill %s: %s", skill_file, exc)
 

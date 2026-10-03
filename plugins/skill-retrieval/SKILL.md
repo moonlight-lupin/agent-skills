@@ -8,7 +8,7 @@ description: >-
   skills is a concern, or when skill discovery quality matters.
 license: MIT
 metadata:
-  version: 0.5.0
+  version: 0.6.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [bm25, skill-retrieval, system-prompt, token-optimization, plugin]
@@ -34,10 +34,11 @@ descriptions per turn.
 
 Two-phase progressive disclosure:
 
-1. **Phase 1 — System prompt compaction** (session start): Monkey-patches
-   `build_skills_system_prompt` so the `<available_skills>` block lists skill
-   names only (descriptions stripped). All skills remain discoverable by name
-   (~2K tokens instead of ~11.5K).
+1. **Phase 1 — System prompt compaction** (an `llm_request` middleware):
+   Rewrites the outgoing request's `<available_skills>` block so it lists
+   skill names only (descriptions stripped). All skills remain discoverable
+   by name (~2K tokens instead of ~11.5K). The system prompt Hermes builds
+   is never modified — prompt caching is unaffected.
 
 2. **Phase 2 — Per-turn BM25 retrieval** (`pre_llm_call` hook): Tokenizes the
    user message, ranks active skill descriptions with BM25 Okapi, and injects
@@ -47,11 +48,10 @@ Two-phase progressive disclosure:
 ## Architecture
 
 ```
-Session start
+Each turn (llm_request middleware)
     │
     ▼
-Phase 1: patch build_skills_system_prompt
-    └── <available_skills> → names only (~2K tokens)
+Phase 1: rewrite <available_skills> → names only (~2K tokens, request only)
 
 Each turn (pre_llm_call)
     │
@@ -102,8 +102,8 @@ until it is enabled (this adds `skill-retrieval` to `plugins.enabled` in
 hermes plugins enable skill-retrieval
 ```
 
-Restart the agent session so `register()` runs — it patches the system prompt
-and registers the `pre_llm_call` hook.
+Restart the agent session so `register()` runs — it registers the
+`llm_request` middleware and the `pre_llm_call` hook.
 
 Dependencies (install into the Hermes Python env if missing):
 
@@ -119,8 +119,8 @@ pip install pyyaml
 | System prompt compaction | enabled | Set `SKILL_RETRIEVAL_COMPACT=0` to disable compaction while keeping BM25 retrieval injection |
 | BM25 `k1` | `1.5` | Constant in `scripts/bm25_retriever.py` |
 | BM25 `b` | `0.75` | Constant in `scripts/bm25_retriever.py` |
-| Jev rerank | off | Set `SKILL_RETRIEVAL_RERANK=jev` to enable; key in `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted), read from `$HERMES_HOME/.env` |
-| Rerank log path | `~/.hermes/data/jev-trial/rerank_ab_log.jsonl` | Env var `SKILL_RETRIEVAL_RERANK_LOG` |
+| Jev rerank | off | Set `SKILL_RETRIEVAL_RERANK=jev` to enable; key in `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted), read from `os.environ` |
+| Rerank log path | `$HERMES_HOME/data/jev-trial/rerank_ab_log.jsonl` (rotates past 5 MB) | Env var `SKILL_RETRIEVAL_RERANK_LOG` |
 
 ```bash
 export SKILL_RETRIEVAL_TOP_K=8
@@ -136,11 +136,17 @@ model `jev-latest`). Behavior:
 
 - **Fail-soft** — 3.0 s timeout, no retries; on any error the request logs a
   warning and BM25's original order stands. Retrieval never blocks on Jev.
-- **Key lookup is HERMES_HOME-scoped** — only `$HERMES_HOME/.env` when set,
-  else `~/.hermes/.env`. No cross-profile fallback.
-- **A/B log** — every query records `{reranked, ms, order_before, order_after}`
-  to the log path above; `scripts/rerank_ab_report.py` summarizes it for
-  trial review.
+- **Env-only config** — all settings come from `os.environ` (never a file
+  read): `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted). Hermes loads
+  the active profile's `.env` into environ at startup, so no cross-profile
+  file is ever read.
+- **A/B log** — every query records the timestamp, session id, a 200-char
+  query excerpt, both orders, probabilities, tokens and latency to the log
+  path above; the log rotates past 5 MB; `scripts/rerank_ab_report.py`
+  summarizes it locally.
+- **Outbound cap** — at most `RERANK_CANDIDATES` (default 12) descriptions
+  are sent per call, even when the caller's shortlist is longer; the
+  remainder keeps BM25 order at the tail and never leaves the machine.
 
 ## Verify it's working
 
@@ -199,8 +205,9 @@ silently empty. After restart, check the Hermes logs.
   with a skill's description may rank poorly even when the intent matches.
 - Descriptions longer than 200 characters are truncated in the injected block;
   use `skill_view(name)` for the full skill body.
-- Compaction requires Hermes's `agent.prompt_builder` module; if it cannot be
-  imported, Phase 1 is skipped.
+- Compaction uses Hermes's read-only `agent.prompt_builder` helpers; if they
+  cannot be imported, Phase 1 is skipped and retrieval falls back to the
+  standalone loader.
 - A named session is only injected once its system prompt has been built in
   this process (that build records the session's tool capabilities). A session
   restored after a restart without a rebuild gets no injection rather than
@@ -216,6 +223,11 @@ silently empty. After restart, check the Hermes logs.
   though it usually lands within the first few results. Ranking depends entirely
   on your own corpus and how its descriptions are worded, so `TOP_K` below ~5 is
   not recommended.
+- **Compaction** rewrites the request's `<available_skills>` block using
+  read-only imports from `agent.prompt_builder` and `agent.skill_utils`
+  (all ten disclosed in the README); if those change signature, any
+  mid-scan exception falls back to the standalone loader, so the corpus
+  is never silently empty.
 - The stdlib index computes in float64 (the previous scipy version used
   float32). Equal-scoring skills may order differently than before. This is
   harmless — the scores are genuine ties (~1e-6 difference) — but it is a real

@@ -107,7 +107,8 @@ A Hermes plugin that scales skill usage to large libraries. As a skill catalog g
 - **Stdlib only** — no numpy/scipy; the index builds in milliseconds and retrieval is sub-millisecond for 128+ skills.
 - **Profile-aware discovery** — paths resolve through Hermes' own helpers (`get_hermes_home`, `get_skills_dir`), so named profiles, `skills.external_dirs`, trusted project-local skills, disabled lists, and platform/condition gates all match what the agent itself sees. The index cache is keyed per Hermes home, so multiplexed profiles never share an index.
 - **Windows-safe** — skill ids normalize to forward slashes; `$HERMES_HOME`-aware path resolution.
-- **Graceful degradation** — if Hermes core modules are unavailable, it falls back to a standalone loader; malformed configs never abort the index build.
+- **Optional Jev rerank** — reranks the BM25 top-K with the Jev system-one judgment model (`api.typesafe.ai`) when `SKILL_RETRIEVAL_RERANK` is enabled and `TYPESAFE_API_KEY` is present (the legacy `TYPESAFE_KEY` name is accepted, from `os.environ`). Fail-soft: on timeout or error it logs and falls back to pure BM25. An A/B log (`rerank_ab_report.py`) records per-query decisions for trial review; it rotates past 5 MB; runs on a cron, no runtime dependency.
+- **Graceful degradation** — if Hermes core modules are unavailable, it falls back to a standalone loader; malformed configs never abort the index build. A/B logging and rerank never abort retrieval.
 
 Install by copying or symlinking `plugins/skill-retrieval/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/skill-retrieval/tests/`.
 
