@@ -4,6 +4,12 @@
 > provides specific deal parameters after a deep-research report on a
 > property/real estate investment question.
 
+## Contents
+
+- When to Use
+- Pro-Forma Construction Steps
+- Pitfalls
+
 ## When to Use
 
 After the deep-research report is delivered, the user may provide specific

@@ -13,6 +13,19 @@ An ADR should be durable enough that a future reader can answer:
 4. What consequences did we knowingly accept?
 5. When or why should this decision be revisited?
 
+## Contents
+
+- File name and title
+- Status
+- Date
+- Context
+- Options Considered
+- Decision
+- Consequences
+- Review
+- Complete example
+- Writing checklist
+
 ## File name and title
 
 Use one file per decision:

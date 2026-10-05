@@ -4,6 +4,20 @@ A lightweight intermediate representation for research evidence, inspired by
 the sn-deep-research architecture (OpenSenseNova/SenseNova-Skills) but adapted
 for single-agent use without the full 9-role pipeline.
 
+## Contents
+
+- When to Use
+- Schema
+- Claim Rules
+- Source Quality Ranking and Weighting
+- Writing Context vs Claims
+- Worked Example (from July 2026 side-by-side test)
+- Side-by-Side Test Results (July 2026)
+- Second Validation: Multi-Dimensional Topic (July 2026)
+- Third Validation: Source Quality Ranking Stress Test (July 2026)
+- What NOT to Adopt from sn-deep-research
+- Source
+
 ## When to Use
 
 - Reports with 5+ sources

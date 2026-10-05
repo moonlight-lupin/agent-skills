@@ -4,6 +4,16 @@ A Claude skill for building presentations where **Markdown is the single source
 of truth**. It pairs a guided authoring workflow with a rich component library
 and native export to PDF, PPTX, and HTML — all from one `.md` file.
 
+## Contents
+
+- What it does
+- Why Markdown source
+- Layout
+- Requirements
+- Credits
+- Maintainer tests
+- License
+
 ## What it does
 
 - **Guided workflow** — routes between a new deck, a quick deck (infers the

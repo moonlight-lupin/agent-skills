@@ -6,6 +6,17 @@ via OpenRouter). Use when reviewing a new pipeline or debugging poor
 retrieval quality. Distilled from a real audit of the cyberpunk-red-gm
 portable RAG.
 
+## Contents
+
+- How to use
+- 1. Citation Survival (🔴 Highest Impact)
+- 2. Table Handling (🟠 High Impact)
+- 3. Embedding Quality (🟡 Medium Impact)
+- 4. Similarity Math (🟡 Medium Impact)
+- 5. Endpoint Verification (⏳ Confirm)
+- 6. Post-Reindex Verification
+- Audit severity key
+
 ## How to use
 
 Run through each section in order. The issues are ranked by impact:

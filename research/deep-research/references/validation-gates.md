@@ -8,6 +8,14 @@ The script is stdlib-only, deterministic, MIT like the plugin. It checks
 structure, not judgment. Concepts were ported from external skill reviews;
 the implementation is original.
 
+## Contents
+
+- When to run
+- Loop
+- Evidence store (Step 3b.1)
+- Known scoring limitations
+- Tests
+
 ## When to run
 
 Every report with 5+ sources passes all three gates before delivery.

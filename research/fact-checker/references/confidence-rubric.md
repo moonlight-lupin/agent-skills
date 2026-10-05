@@ -2,6 +2,15 @@
 
 Use this rubric to convert collected evidence into a calibrated verification verdict. The labels describe the evidence found, not absolute truth.
 
+## Contents
+
+- ✅ Verified
+- ⚠️ Likely true
+- ⚖️ Disputed
+- ❓ Unverified
+- 📅 Outdated
+- Confidence mapping
+
 ## ✅ Verified
 
 ### Definition

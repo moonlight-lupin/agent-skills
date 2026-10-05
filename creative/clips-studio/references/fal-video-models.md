@@ -17,6 +17,18 @@ query a live pricing API for video). **The fal dashboard is the authoritative ch
 verified against fal's pricing pages on **9 Aug 2026**; *(verify)* marks anything not confirmed live
 this build.
 
+## Contents
+
+- FLUX 3 (Black Forest Labs) — DEFAULT for draft + full
+- Seedance 2.5 (ByteDance) — available option (not default)
+- Seedance 2.0 (ByteDance) — available option (not default)
+- Text-to-video — `generate` (a clip from a prompt, no source image)
+- Image-to-video — `animate` (bring a still to life: product, people, a space, motion)
+- Image-to-video — `camera` (extrapolated camera motion over a still)
+- Common inputs (and how `falvid.py` maps the flags)
+- Cost reality check
+- Deferred / not wired here
+
 ## FLUX 3 (Black Forest Labs) — DEFAULT for draft + full
 
 Native audio included free. Up to 20 seconds. Draft Enhance re-renders a draft at full quality

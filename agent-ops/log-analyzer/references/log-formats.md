@@ -5,6 +5,16 @@ level, an optional component, and a message. It also performs best-effort scans
 of unstructured lines that contain obvious level words such as `ERROR` or
 `WARN`.
 
+## Contents
+
+- Recognized Levels
+- Full Timestamp with Bracketed Component
+- ISO 8601 Timestamp with Colon Component
+- Time-Only Lines
+- Unstructured Fallback
+- Multiline Stack Traces
+- Adding Custom Patterns
+
 ## Recognized Levels
 
 The parser recognizes these levels, case-insensitively when falling back to

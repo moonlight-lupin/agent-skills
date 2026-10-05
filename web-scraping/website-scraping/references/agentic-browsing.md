@@ -20,6 +20,13 @@ for you. The current best-in-class is Microsoft's **Webwright**
 > The full runnable artifact set lives in
 > [`../examples/agentic-browsing-quotes-demo/`](../examples/agentic-browsing-quotes-demo/).
 
+## Contents
+
+- What Webwright is
+- When to reach for it — and when NOT to
+- Two ways to run it — pick by where you are
+- How it slots into this skill's workflow
+
 ## What Webwright is
 
 A browser *agent* framework — tagline *"Turn Your Coding Models to Be State-of-the-art

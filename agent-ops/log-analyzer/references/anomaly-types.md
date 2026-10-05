@@ -3,6 +3,17 @@
 This reference explains each anomaly emitted by `scripts/analyze_logs.py scan`,
 how it is detected, and how to interpret it.
 
+## Contents
+
+- Error Clusters
+- Rate Limit Hits
+- Timeouts
+- Tool Failures
+- Crashes
+- Component Breakdown
+- Error Timeline
+- `has_anomalies`
+
 ## Error Clusters
 
 **Detection criteria:**

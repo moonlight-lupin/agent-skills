@@ -1,5 +1,13 @@
 # Full Mapping Tables
 
+## Contents
+
+- Hook Event Mapping (Complete)
+- Hook Type Mapping
+- Agent Frontmatter Mapping
+- Manifest Field Mapping
+- MCP Config Format Mapping
+
 ## Hook Event Mapping (Complete)
 
 | Claude Event | Hermes Hook | Convertibility | Notes |

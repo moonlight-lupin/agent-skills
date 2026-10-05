@@ -18,6 +18,15 @@ config file created with `python scripts/summarize.py init`.
 If no configured source path exists, the CLI runs in template mode and prints a
 placeholder digest for an agent or operator to fill manually.
 
+## Contents
+
+- Session store
+- Cron output directory
+- Memory store
+- Log file
+- Decision records
+- Config file
+
 ## Session store
 
 Expected format: SQLite database.

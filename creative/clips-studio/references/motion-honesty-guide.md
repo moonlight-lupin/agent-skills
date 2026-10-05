@@ -11,6 +11,18 @@ place, product or person — `animate` a real photo instead. The rules below ass
 a purely fictional/abstract brand-mood clip the honesty bar is lower, but never imply it shows
 something real.
 
+## Contents
+
+- The one rule
+- Animating people (`animate`)
+- Hands & fine object interaction — the believability ceiling
+- Screens, TVs & projected content
+- Camera moves invent geometry (`camera`) — the big one
+- Extending a frame (outpaint to change aspect)
+- Never
+- When this skill is the wrong tool
+- Label & review
+
 ## The one rule
 
 > **Show motion and atmosphere; never invent space, features, or facts about the subject.**

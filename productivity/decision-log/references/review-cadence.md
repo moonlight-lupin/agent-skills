@@ -4,6 +4,14 @@ A decision record is useful only if stale decisions are revisited. The review
 section gives each active decision either a date-based review schedule or a
 concrete trigger condition.
 
+## Contents
+
+- Cadence options
+- Calendar-month calculation
+- How due review detection works
+- Choosing the right cadence
+- Review meeting prompt
+
 ## Cadence options
 
 ### monthly

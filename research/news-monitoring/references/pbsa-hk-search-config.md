@@ -1,5 +1,14 @@
 # PBSA Hong Kong — Search Configuration & Source Map
 
+## Contents
+
+- Topic Definition
+- Search Methods (Order of Preference)
+- Search Queries
+- Key Sources (Ranked by Relevance)
+- Key Themes to Watch (Current as of May 2026)
+- Delivery Configuration
+
 ## Topic Definition
 
 **PBSA (Purpose Built Student Accommodation)** in **Hong Kong** with broader context. Covers:

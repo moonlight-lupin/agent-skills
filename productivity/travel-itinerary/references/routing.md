@@ -6,6 +6,16 @@ decides when to add routing between nodes. Use a mapping/geocoding tool
 available, leave coordinates empty and use addresses or location codes in map
 links. The hierarchy below is mandatory.
 
+## Contents
+
+- Coordinate hierarchy
+- Airports, stations, and codes
+- Google Maps URL patterns
+- Distance and duration estimates
+- When to add routes by default
+- Cross-timezone and overnight journeys
+- Geocoding sanity checks
+
 ## Coordinate hierarchy
 
 Do not geocode every possible location by default. Geocode selectively so the

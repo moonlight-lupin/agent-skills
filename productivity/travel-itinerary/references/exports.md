@@ -3,6 +3,18 @@
 This file defines the output formats. Pick the variant that matches the
 audience (see `references/privacy.md` for what to include vs hide per audience).
 
+## Contents
+
+- File naming
+- Output location
+- Internal full — Markdown template
+- Team-share — Markdown template
+- Executive summary — Markdown template
+- Travel-admin — Markdown template
+- Chat-ready — plain text
+- Calendar `.ics` export
+- Export workflow
+
 ## File naming
 
 ```text

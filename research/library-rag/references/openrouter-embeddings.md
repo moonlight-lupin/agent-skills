@@ -6,6 +6,18 @@
 > The rest of this document describes the **legacy OpenRouter / bge-m3 path**,
 > kept for users who still configure OpenRouter as a fallback.
 
+## Contents
+
+- Current default: NVIDIA NIM
+- Endpoint
+- Request Format
+- Response Format
+- Model: bge-m3 (legacy)
+- Free Alternative (historical note — not the current default)
+- Cost Estimates (June 2026, OpenRouter / bge-m3)
+- sqlite-vec Storage
+- API Key
+
 ## Current default: NVIDIA NIM
 
 ```

@@ -1,5 +1,13 @@
 # Debugging Patterns for youtube-topic-research
 
+## Contents
+
+- DDG CLI Quirks
+- Transcript Cleaning (for heuristic fallback)
+- VTT Parsing (for yt-dlp fallback)
+- Heuristic Fallback for Qualification/Review
+- Common Test Commands
+
 ## DDG CLI Quirks
 
 ### `ddgs videos -o -` doesn't work

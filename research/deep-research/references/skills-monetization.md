@@ -2,6 +2,19 @@
 
 > Sourced from deep research (01 Jul 2026, 13 sources, 3 rounds). Full dossier: `~/research/2026-07-01-skills-monetization-dossier.md`
 
+## Contents
+
+- Marketplaces
+- What Sells (top 5 categories)
+- Pricing
+- IP Protection (ranked for skills)
+- Technical Gatekeeping
+- Six Distribution-to-Revenue Patterns
+- Enterprise Buyer's 5-Question Filter
+- Market Sizing
+- Open-Core Licensing Strategy
+- Key Legal Points
+
 ## Marketplaces
 
 | Platform | Type | Fee/Split | Notes |

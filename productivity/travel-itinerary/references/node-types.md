@@ -28,6 +28,22 @@ source_refs: []
 
 Type enum: `travel | stay | meeting | poi | restaurant | transfer | event | admin | free_time | note`.
 
+## Contents
+
+- Status lifecycle
+- Visibility lifecycle
+- `travel`
+- `stay`
+- `meeting`
+- `poi`
+- `restaurant`
+- `transfer`
+- `event`
+- `admin`
+- `free_time`
+- `note`
+- Anti-examples
+
 ## Status lifecycle
 
 The `status` field tracks the booking state of a node, not the trip's progress.

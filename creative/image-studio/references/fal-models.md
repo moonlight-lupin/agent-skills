@@ -17,6 +17,16 @@ resolution*. Read the **unit** carefully — it differs by model:
 All figures below are the **unit prices verified against the live pricing API on 23 Jun 2026**;
 *(verify)* marks IDs not confirmed live this build.
 
+## Contents
+
+- Stage 2 — cheap prototyping (text-to-image)
+- Stage 2/3 — editing (image-to-image, instruction edits)
+- Stage 3 — quality render (text-to-image)
+- Stage 3 — upscaling (usually optional)
+- Background removal (utility — `falgen.py removebg`)
+- Account balance
+- Deferred — video (NOT in v1)
+
 ## Stage 2 — cheap prototyping (text-to-image)
 
 | Model | Endpoint id | Unit price | Notes |

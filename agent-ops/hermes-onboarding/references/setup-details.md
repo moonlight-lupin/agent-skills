@@ -2,6 +2,20 @@
 
 Reference material for the hermes-onboarding skill. Loaded at Step 0.
 
+## Contents
+
+- Detection
+- Soul.md template
+- Gateway systemd unit
+- Dashboard systemd unit
+- SearXNG deployment
+- SearXNG engine settings
+- Web tool routing (SOUL.md template)
+- Skill guardrails (7 Matt Pocock principles)
+- Verbosity
+- CDP browser systemd service
+- Post-update health check
+
 ## Detection
 
 ```bash

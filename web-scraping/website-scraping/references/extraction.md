@@ -2,6 +2,17 @@
 
 Field-level patterns that recur across most scraping jobs, with concrete code.
 
+## Contents
+
+- JSON-LD extraction
+- Article-text extraction with readability-lxml
+- Finding JSON-in-page blobs
+- Deduplication
+- Double-render workaround
+- Polling for value change after click
+- Field-level parsing recipes
+- Schema robustness — missing fields are normal
+
 ## JSON-LD extraction
 
 The cleanest source of structured data on the modern web. Most e-commerce, hotel, real-estate, job, news, recipe, and event sites emit JSON-LD because Google rewards it with rich SERP results.

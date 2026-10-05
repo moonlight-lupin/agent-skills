@@ -3,6 +3,15 @@
 This file defines what data is sensitive, how to redact it, and which variants
 include or hide what.
 
+## Contents
+
+- Sensitive fields
+- Redaction patterns
+- Visibility rules
+- Variant inclusion matrix
+- OCR and source-quality gate
+- Defaults when audience is not specified
+
 ## Sensitive fields
 
 Treat the following as sensitive by default:

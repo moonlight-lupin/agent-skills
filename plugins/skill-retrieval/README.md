@@ -6,6 +6,15 @@ This is a **Hermes Agent** plugin. It is not a Claude Code plugin and will not l
 
 See [SKILL.md](SKILL.md) for full architecture, token measurements, how it works, performance, limitations, and how to verify a healthy install.
 
+## Contents
+
+- Installation
+- Configuration
+- Read-only core references
+- Uninstall
+- Data handling (Jev rerank)
+- License
+
 ## Installation
 
 ```bash

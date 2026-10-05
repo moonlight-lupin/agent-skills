@@ -2,6 +2,13 @@
 
 Match your countermeasure to the actual challenge you observe. Most scrapers over-engineer this and either burn time on defences they don't need or pile fragile workarounds on top of each other.
 
+## Contents
+
+- Detect what you're up against first
+- The escalation ladder
+- Things that look like good ideas but aren't
+- When to stop
+
 ## Detect what you're up against first
 
 Open the URL in three ways and compare:

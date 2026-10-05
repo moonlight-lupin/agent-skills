@@ -1,5 +1,13 @@
 # YouTube IP Blocking Workarounds
 
+## Contents
+
+- The Problem
+- Workarounds (Ranked by Practicality)
+- Skill Integration
+- Testing IP Blocking
+- Recommendation for This Setup
+
 ## The Problem
 
 YouTube blocks requests from known cloud provider IP ranges (AWS, GCP, Azure, DigitalOcean, Linode, etc.). This affects:

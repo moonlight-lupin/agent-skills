@@ -6,6 +6,15 @@ selectors, and element similarity matching. Browser fetchers (StealthyFetcher,
 DynamicFetcher) and spiders require `scrapling[all]` + `scrapling install` —
 not installed on the VM due to RAM constraints.
 
+## Contents
+
+- When to reach for Scrapling vs our default tools
+- Concept 1 — `--ai-targeted` prompt injection protection
+- Concept 2 — Adaptive element relocation
+- Concept 3 — CLI escalation ladder
+- Installation details
+- MCP server
+
 ## When to reach for Scrapling vs our default tools
 
 | Situation | Use | Why |

@@ -2,6 +2,13 @@
 
 A simpler case than JSON-LD or framework blobs: the data you need is plain text or HTML inside a `<div>` with a predictable ID, server-rendered (no JS needed to populate it). Common on older ASP.NET / PHP / Django sites that render content directly into the page.
 
+## Contents
+
+- When this pattern applies
+- Extraction approach
+- Key pitfalls
+- Real-world example: STEMI.tv sermon subtitles
+
 ## When this pattern applies
 
 - Subtitle/caption pages where text is embedded in `<div id="subtitle-0">`, `<div id="subtitle-1">`

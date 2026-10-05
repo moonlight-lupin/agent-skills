@@ -4,6 +4,15 @@ The scheduled summary digest is intentionally compact. It should tell a reader
 what happened across sessions and scheduled activity, what needs attention, and
 where to inspect next — without becoming a transcript or scheduler dashboard.
 
+## Contents
+
+- Top-level structure
+- Section contract
+- Output variants
+- Customization options
+- Daily example
+- Weekly example
+
 ## Top-level structure
 
 ```markdown

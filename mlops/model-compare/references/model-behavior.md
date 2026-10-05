@@ -4,6 +4,25 @@ Observed model behavior from 16 head-to-head comparisons run on 2026-07-07.
 These are empirical findings from specific test runs, not benchmarks —
 individual results may vary. Use as calibration data, not definitive rankings.
 
+## Contents
+
+- Models Tested
+- GLM 5.2 (ollama-cloud) — Detailed Profile
+- MiniMax M3 (ollama-cloud) — Detailed Profile
+- tencent/hy3:free (openrouter) — Detailed Profile
+- OpenRouter Free-Tier Rate Limiting
+- Kimi K3 (openrouter) — Detailed Profile\n\n**Overall: 9.5/10 on test A, 8.5/10 on test C. Top performer on efficiency.**\n\nTested 2026-07-17. 2.8T param MoE, 1M context, $3/M input / $15/M output.\n\n### Strengths\n- **Efficient tool calling**: Converged in 3 turns (35.6s) on test A —\n  searched docs.python.org directly, extracted, answered. No wasted turns.\n- **Correct answers**: Identified Python 3.14 + PEP 750 (t-strings) + PEP 649/749\n  (deferred annotations) from official docs.\n- **Token efficiency**: 3,341 tokens in / 562 tokens out — 2.7× fewer tokens\n  than GLM-5.2 on the same test.\n- **Test C (reverse proxy)**: Converged in 3 turns (38.4s), 2,600 tok in /\n  744 tok out. Recommended Caddy with automatic HTTPS as key feature.\n  Again most efficient — 4× fewer tokens than GLM-5.2.\n\n### Weaknesses\n- **Answer depth**: On test C, the answer was correct but thinner than\n  Cursor Grok 4.5 High (no comparison table, fewer citations). Wins on\n  efficiency, not on answer richness.\n\n### Best for\nTool-calling tasks where efficiency matters. Strong first choice for\nresearch lookups. When answer quality/structure matters more than token\n  cost, Cursor Grok 4.5 High may produce better-formatted results.
+- GLM 5.2 (ollama-cloud) — Test A Update (2026-07-17)
+- Meta Muse Spark 1.1 (openrouter) — Geofenced
+- CLI Model Integration Pattern (2026-07-17)
+- GPT-5.5 via Codex CLI — Detailed Profile\n\n**Overall: 9.0/10 on test A, 8.5/10 on test C. Thorough but expensive.**\n\nTested 2026-07-17 via Codex CLI v0.135.0. Note: gpt-5.6-sol not supported\nby this Codex version — used gpt-5.5 as fallback.\n\n### Strengths\n- **Thorough research**: On test C, cited 5+ sources with links (caddyserver.com,\n  NPM GitHub, Traefik docs, homelab comparison). Compared NPM, Traefik, Caddy\n  with clear tradeoffs.\n- **Correct answers**: Both tests A and C correct. Noted patch version (3.14.6)\n  that other models missed on test A. Picked free-threaded mode as #1 feature\n  on test A (valid but less commonly cited).\n\n### Weaknesses\n- **Massive token overhead**: 37,450 tokens on test A, 50,799 on test C.\n  This is Codex CLI overhead (verbose tool-calling format), not the model itself.\n  ~10× more tokens than Kimi K3 for similar quality.\n- **Model version lag**: Codex CLI v0.135 doesn't support gpt-5.6-sol.\n  Must use gpt-5.5 as fallback until Codex is upgraded.\n\n### Best for\nDeep research where token cost doesn't matter and citations are important.\nUse when you have Codex subscription and want thorough, well-sourced answers.\n\n## Cursor Grok 4.5 High via Cursor CLI — Detailed Profile\n\n**Overall: 9.0/10 on test C (tool calling). Best answer structure.**\n\nTested 2026-07-17 via Cursor CLI (`agent` binary). Required `--force` flag\nfor web access in headless mode.\n\n### Strengths\n- **Best structured answer**: On test C, produced a comparison table\n  (\"when to pick something else\"), Caddyfile code example, and clear decision\n  framework. Most useful answer for someone making a real decision.\n- **Diverse sources**: Cited 5 sources (selfhosting.sh, Big Iron, How-To Geek,\n  CloudHostReview, TechFuel) — more diverse than other models.\n- **Good detail**: Mentioned `annotationlib` VALUE/FORWARDREF/STRING formats\n  (test A), 20-40MB idle RAM for Caddy (test C). Technical depth.\n- **Token efficient**: ~8,500 tok in / ~1,200 tok out — between Kimi K3 and\n  GLM-5.2. Good balance of depth and efficiency.\n\n### Weaknesses\n- **Web access flaky in headless**: Required 3 attempts to get web working.\n  `--trust` alone → blocked, `--trust --sandbox disabled` → blocked,\n  `--force` → works. Must always use `--force` for web-dependent tasks.\n- **First two attempts failed**: On test A, the first run produced no answer\n  (\"web search and fetching python.org were blocked\"). Only succeeded on\n  third attempt with `--force`.\n\n### Best for\nAnswer quality / structure. When the user needs a well-formatted, actionable\nanswer with comparison tables and code examples. Best used through Cursor CLI\nwith `--force --sandbox disabled --model "cursor-grok-4.5-high"`.
+- max_turns Calibration
+- Judge Model Notes
+- Coding & Code Review Tests (2026-07-17)
+- Kimi K3 Rate Limiting (2026-07-17)
+- compare.py Single-Model Limitation
+- Vote History Location
+
 ## Models Tested
 
 | Model | Provider | Cost | Tool calling | Notes |

@@ -2,6 +2,17 @@
 
 This catalog defines the seven technique categories used by the media-analyzer skill. The categories are technique-focused, not political-direction labels.
 
+## Contents
+
+- 1. Loaded Language
+- 2. Cherry-Picking
+- 3. Source Selection Bias
+- 4. Framing
+- 5. Omission
+- 6. Emotional Appeals
+- 7. False Balance
+- Cross-Technique Review Sequence
+
 ## 1. Loaded Language
 
 **Definition:** Emotionally charged verbs, adjectives, nouns, or modifiers replace more neutral wording and guide the reader's reaction.

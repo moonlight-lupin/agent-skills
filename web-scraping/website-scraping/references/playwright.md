@@ -2,6 +2,24 @@
 
 Browser automation when none of the lighter strategies in `recon.md` work. Playwright is the right tool here — Selenium is older and lacks Playwright's quality-of-life features; pyppeteer/puppeteer are also acceptable but Playwright has better docs and active maintenance.
 
+## Contents
+
+- Setup
+- Minimal pattern
+- Device emulation — when mobile HTML is different
+- Wait strategies — `domcontentloaded` over `networkidle`
+- Selector-based waiting
+- Accessibility-tree locators — when CSS selectors aren't stable enough
+- Headless vs headed
+- Stealth
+- Cookie / consent overlays
+- Fresh context per page
+- Injecting a page-side scraper
+- Click-and-wait patterns
+- Errors and retries
+- Concurrency
+- Resource hints
+
 ## Setup
 
 ```bash
