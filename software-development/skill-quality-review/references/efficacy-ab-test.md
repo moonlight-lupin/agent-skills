@@ -66,3 +66,26 @@ rather than a behavioral fail.
 Keep the reconstructed before-arms under the test workspace (e.g. `old/` next to `new/`) until the
 report is delivered — the user may ask to re-run a scenario. Delete after delivery; they duplicate
 live skill content and will go stale.
+
+## Quick variant — used vs no-skill A/B (default when asked "is the skill helping?")
+
+The full byte-exact before-arm protocol is for refactor comparisons (v1 vs v2). A simpler and
+usually more useful question: does the skill change the outcome at all? Run the task twice on
+fresh subagents:
+
+- **Arm A (with):** the live skill is available (normal dispatch).
+- **Arm B (without):** the same goal and context, but the skill's content is withheld — do not
+  load it, do not mention it.
+
+Same goal text verbatim for both arms; only skill availability differs. Score three things:
+
+1. **Output quality** — score against a fixed rubric (use `templates/efficacy-rubric-template.md`).
+2. **Time** — wall-clock seconds per dispatch (children report duration; the delegation result carries it).
+3. **Tokens/cost** — api_calls from the delegation result as the cheap proxy; read exact token counts
+   from the child transcript log if needed.
+
+No byte-exact reconstruction is needed: there is no before-arm, only a missing arm. This answers
+"was the skill worth having", which is the effectiveness question behind most refactor asks — run
+this variant FIRST, and escalate to the full byte-exact protocol only when comparing two versions
+of the skill. Same honesty rules: n=1 per cell is directional; report the numbers even when the
+skill loses.

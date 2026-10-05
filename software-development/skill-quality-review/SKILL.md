@@ -1,12 +1,13 @@
 ---
 name: skill-quality-review
 description: "Use when auditing or reviewing skill quality — batch checks across a library, deep per-skill grep methodology, usage stats, efficacy testing, or fix planning. Single consolidated home for the writing-for-agents review framework and the 3-surface review methodology."
+version: 1.0.0
+author: moonlight-lupin
 license: MIT
 metadata:
-  version: 1.0.0
-  author: moonlight-lupin
-  platforms: [linux, macos, windows]
-
+  hermes:
+    tags: [skills, review, audit, quality, batch]
+    related_skills: [hermes-agent-skill-authoring, skill-curation, plan]
 ---
 
 # Skill Quality Review
@@ -15,7 +16,7 @@ Audit SKILL.md quality across a set of skills. Identifies the most-used skills, 
 
 The review framework blends Matt Pocock's `writing-for-agents` (context pointers, two loads, information hierarchy, completion criteria, leading words, pruning) with `hermes-agent-skill-authoring` peer-matched structure and cross-reference parity. See `references/writing-for-agents-framework.md` for the full lever set.
 
-`references/skill-review-methodology.md` lives HERE in this skill — it covers per-skill grep-based review (3-sources-of-truth drift, pricing registry, guardrail asymmetry). This skill covers **batch automated checks**, the **deep per-skill methodology**, and **usage-based prioritisation** across all skills in a repo or local library. Authoring-time mechanical sweeps (TOC, nesting, orphans) run via the reference-hygiene checker shipped with `hermes-agent-skill-authoring`; deep methodology below.
+`references/skill-review-methodology.md` lives HERE in this skill — it covers per-skill grep-based review (3-sources-of-truth drift, pricing registry, guardrail asymmetry). This skill covers **batch automated checks**, the **deep per-skill methodology**, and **usage-based prioritisation** across all skills in a repo or local library. Authoring-time mechanical sweeps (TOC, nesting, orphans) run via `hermes-agent-skill-authoring/scripts/audit_references.py`; deep methodology below.
 
 ## Know the skill format first
 
@@ -133,11 +134,11 @@ When one SKILL.md fails the sprawl test — a single section over ~50% of the fi
 
 ### 8. Efficacy A/B test (does the refactor change behavior?)
 
-After a quality refactor, structural checks prove the file is better-shaped; they do not prove the agent behaves better. When the user asks for efficacy evidence, run a controlled A/B: reconstruct the before-arm byte-exactly, probe both arms with identical scenarios on fresh subagents, score against a fixed rubric. Full procedure, controlled-variable rules, and dispatch pitfalls: see `references/efficacy-ab-test.md` (rubric starter: `templates/efficacy-rubric-template.md`).
+After a quality refactor, structural checks prove the file is better-shaped; they do not prove the agent behaves better. When the user asks for efficacy evidence, run a controlled A/B: reconstruct the before-arm byte-exactly, probe both arms with identical scenarios on fresh subagents, score against a fixed rubric. Full procedure, controlled-variable rules, and dispatch pitfalls: see `references/efficacy-ab-test.md` (rubric starter: `templates/efficacy-rubric-template.md`). When the question is "was the skill worth having at all" rather than "did v2 beat v1", use the Quick used-vs-no-skill variant at the end of that reference — it drops the byte-exact before-arm and scores quality, time, and tokens.
 
 ### 9. Reference-hygiene sweep (mechanical, whole-tree)
 
-The reference-hygiene checker (`audit_references.py`) ships with the `hermes-agent-skill-authoring` skill; if your library does not carry it, run the manual checks in `references/batch-checks.md` § reference hygiene instead. The bulk TOC fixer `add_toc.py` lives in this skill's `scripts/` — dry-run by default, `--apply` to write; generates Contents lists from the file's own structure (## first, then ###, then bold-label bullets; code-fence aware), capped at 60 entries so label-dump files are skipped rather than doubled; writes exactly one trailing newline.
+Single source of truth: `hermes-agent-skill-authoring/scripts/audit_references.py` (canonical checker; this skill holds no fork). The bulk TOC fixer `add_toc.py` lives in this skill's `scripts/` — dry-run by default, `--apply` to write; generates Contents lists from the file's own structure (## first, then ###, then bold-label bullets; code-fence aware), capped at 60 entries so label-dump files are skipped rather than doubled; writes exactly one trailing newline.
 
 Sequence: audit (authoring's checker) → dry-run review → `add_toc.py --apply` → re-audit. Expect `no-contents-list` to drop to deliberate exceptions only. Fix any `nested`/`orphan-reference` findings by editing SKILL.md pointers, preserving frontmatter.
 ### hermes-agent repo profile (bundled v2.0.0 standards)
@@ -154,12 +155,12 @@ Applies when reviewing a skill for publication into the hermes-agent repo (`skil
 
 ### personal library profile (this library)
 
-Applies to the agent's personal skill library (`~/.hermes/skills/` on this install; adapt to your Hermes home) — the batch checks in this skill's workflow remain authoritative here. Key differences from the repo profile:
+Applies to `~/.hermes/skills/` — the batch checks in this skill's workflow remain authoritative here. Key differences from the repo profile:
 
 - **Descriptions up to 1024 chars and MUST be trigger-style ("Use when ...")** — Hermes BM25 retrieval has no stemming ("onboard" does not match "onboarding"), so capability nouns AND trigger words as literal surface forms are load-bearing. The repo's skills-ref CI enforces the 1024 ceiling on publish.
 - **Size**: 8-15k chars target, >20k split to references/.
 - **Structure**: When to Use + actionable body + Common Pitfalls + Verification Checklist minimum.
-- **Audit mode**: authoring-time mechanical sweeps (TOC coverage, one-level-deep linkage, orphans) run via the reference-hygiene checker shipped with `hermes-agent-skill-authoring`; the deep per-skill methodology is this skill's `references/skill-review-methodology.md`.
+- **Audit mode**: authoring-time mechanical sweeps (TOC coverage, one-level-deep linkage, orphans) run via `hermes-agent-skill-authoring/scripts/audit_references.py`; the deep per-skill methodology is this skill's `references/skill-review-methodology.md`.
 
 ## Check summary
 
@@ -220,7 +221,7 @@ See `references/batch-checks.md` for the script template.
 
 10. **Usage frequency from state.db, not .usage.json.** When identifying most-used skills, query `state.db` `messages.tool_calls` for `skill_view` call counts. The `.usage.json` file may not exist or may be stale. The state.db query gives actual load counts across all sessions. See Step 0 in the Workflow section.
 
-11. **Self-developed vs builtin classification.** Compare the personal skills home against the Hermes bundled-skill tree (`/usr/local/lib/hermes-agent/skills` on stock installs) (the Hermes installation path). Skills in the builtin tree are bundled. Skills with `author: Hermes Agent` in frontmatter but NOT in the builtin tree are user-created overrides — still self-developed. Everything else with `author: MH` or `author: moonlight-lupin` is self-developed. See Step 0a in the Workflow section.
+11. **Self-developed vs builtin classification.** Compare `~/.hermes/skills/` against `/usr/local/lib/hermes-agent/skills/` (the Hermes installation path). Skills in the builtin tree are bundled. Skills with `author: Hermes Agent` in frontmatter but NOT in the builtin tree are user-created overrides — still self-developed. Everything else with `author: MH` or `author: moonlight-lupin` is self-developed. See Step 0a in the Workflow section.
 
 12. **Parallel review for 12+ skills.** Dispatch 2 `delegate_task` subagents (6 skills each) rather than reviewing serially. Each reads the full SKILL.md + linked files, applies the writing-for-agents levers, and returns structured findings. See `references/writing-for-agents-framework.md` for the lever set and dispatch pattern.
 
