@@ -84,7 +84,9 @@ def add_toc(fp, rel, max_entries):
     lines = txt.splitlines()
     if len(lines) <= 100:
         return "short"
-    if TOC_MARK in txt[:400]:
+    head_zone = txt.splitlines()[:80]
+    if TOC_MARK in txt[:400] or any(l.strip() == TOC_MARK for l in head_zone) \
+            or any(re.match(r"^#{1,3}\s+(contents|table of contents)\b", l, re.I) for l in head_zone):
         return "already-toc"
     if is_vendored(rel, len(lines)):
         return "vendored"
