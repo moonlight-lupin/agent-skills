@@ -1,6 +1,6 @@
 ---
 name: claude-plugin-converter
-description: Convert Claude Code plugins into self-contained Hermes plugins — discovery analysis then full conversion
+description: "Use when converting Claude Code plugins into self-contained Hermes plugins — discovery analysis then full conversion."
 license: MIT
 metadata:
   version: 1.0.0

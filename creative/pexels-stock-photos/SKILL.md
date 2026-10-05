@@ -1,16 +1,6 @@
 ---
 name: pexels-stock-photos
-description: >
-  Search and download free real-world stock photos from the Pexels API. Use when
-  the user wants a REAL photo — "find a photo of X", "search for pictures of Y",
-  "stock image of Z", "I need a photo for this slide/article/presentation".
-  Searches the Pexels library (millions of photos) and downloads images in the chosen
-  size and orientation. Do NOT use for AI-generated art ("generate an image of",
-  "create a picture of", "make me an illustration") — those go to the host's
-  image generation tool or an AI image skill. Key distinction: "photo" = real
-  stock photography = Pexels; "generate/create/make an image" = AI art = image
-  generation tools. Also do not use for editing existing images, screenshots,
-  diagrams, or data charts.
+description: "Use when the user wants a REAL photo — 'find a photo of X', 'search for pictures of Y', 'stock image of Z', 'I need a photo for this slide/article'. Searches Pexels free stock library and downloads images. DO NOT use for AI-generated art ('generate an image of', 'create a picture of', 'make me an illustration') — those go to the image_generate tool or fal-enhanced skill. Key distinction: 'photo' = real stock photography = Pexels; 'generate/create/make an image' = AI art = image_generate/fal-enhanced."
 license: MIT
 metadata:
   version: 1.0.0

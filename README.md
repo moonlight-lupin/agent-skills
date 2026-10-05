@@ -49,6 +49,8 @@ agent_skills/
 │   ├── input-token-overheads/        ← audit per-turn input token cost: measure, rank, reduce
 │   ├── operator-brain/               ← 8-module behavioral stack: act, lead with outcome, ground claims
 │   └── hermes-onboarding/            ← 21-step customer onboarding: gateway, dashboard, memory, crons
+├── software-development/              ← skill development, review, and methodology skills
+│   └── skill-quality-review/          ← batch skill audit: 9 checks, writing-for-agents levers, efficacy testing
 ├── devops/                           ← infrastructure and system maintenance skills
 │   └── disk-cleanup/                 ← triage survey → safe/ask buckets → execute → verify delta
 └── plugins/                          ← installable Hermes Agent plugins
@@ -88,6 +90,7 @@ New skills are added as folders under the relevant domain directory.
 | [marp-deck](productivity/marp-deck/) | productivity | Marp presentations: Markdown source of truth → PDF/PPTX/HTML, with themes, SVG components, PPTX import, and render tests | — |
 | [claude-plugin-converter](agent-ops/claude-plugin-converter/) | agent-ops | Two-phase converter: analyze Claude Code plugins → generate installable Hermes plugins | skill-maintainer |
 | [skill-maintainer](agent-ops/skill-maintainer/) | agent-ops | Skill library maintenance: author, curate, upstream drift tracking, publish | — |
+| [skill-quality-review](software-development/skill-quality-review/) | software-development | Batch skill audit: 9 automated checks, writing-for-agents levers, per-skill grep methodology, efficacy A/B testing, frontmatter/description fixes | skill-maintainer |
 | [log-analyzer](agent-ops/log-analyzer/) | agent-ops | Log pattern detection: error clusters, rate limits, timeout clusters, tool failures | scheduled-summary |
 | [input-token-overheads](agent-ops/input-token-overheads/) | agent-ops | Audit per-turn input token cost: measure each source, rank by cost, act on top consumers | skill-maintainer |
 | [operator-brain](agent-ops/operator-brain/) | agent-ops | 8-module behavioral stack from Anthropic's Fable guide: act, lead with outcome, ground every claim | controlled-english-output |
@@ -159,6 +162,7 @@ Install by copying or symlinking `plugins/lumen/` into `~/.hermes/plugins/` (or 
 | marp-deck | Stable | ✓ | Node.js (marp-cli); LibreOffice only for editable PPTX export |
 | claude-plugin-converter | Beta | ✓ | None (stdlib) |
 | skill-maintainer | Beta | ✓ | None (stdlib; curl for GitHub API). Unix-first — cron, curl, `which`, shell loops. Windows via WSL/MSYS2 untested. |
+| skill-quality-review | Beta | ✓ (add_toc.py) | None (stdlib) |
 | log-analyzer | Stable | ✓ | None (stdlib) |
 | input-token-overheads | Stable | evals, scripts | PyYAML (optional) |
 | operator-brain | Stable | — | None (prompt-only) |

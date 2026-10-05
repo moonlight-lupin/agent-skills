@@ -1,6 +1,6 @@
 ---
 name: decision-log
-description: "ADR-style decision journal for agents and teams. Create numbered decision records, track superseding chains, schedule periodic reviews, and search past decisions to avoid re-litigating settled questions."
+description: "Use when an architecture/product decision should be recorded or past decisions need re-checking — an ADR-style decision journal for agents and teams. Create numbered decision records, track superseding chains, schedule periodic reviews, and search past decisions to avoid re-litigating settled questions."
 license: MIT
 metadata:
   version: 1.0.0

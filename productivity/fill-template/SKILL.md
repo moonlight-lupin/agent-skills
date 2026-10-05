@@ -1,20 +1,6 @@
 ---
 name: fill-template
-description: >
-  Bulk-fill ONE master template — a Word (.docx) letter/form or an Excel (.xlsx)
-  form — from a data table, one filled file per row (mail-merge). Also the
-  reverse: extract a reusable tokenised .docx template + data-table skeleton
-  from a filled example document, confirm the mapping, then fill. Use whenever
-  the user wants to "fill in this letter for each person", "mail merge",
-  "generate letters for this list", "turn this filled letter into a template",
-  or hands over a template plus a list. The skill reads the master, proposes a
-  TOKENISED version (varying parts become {{tokens}}), confirms the mapping,
-  then regenerates one output per data row, preserving the master's layout
-  exactly. Data is an .xlsx or .csv (one row per output); outputs are one named
-  file per record. Never invents: a token with no data is a VISIBLE flag, never
-  a silent blank. Runs fully local and generates files only — it does not send,
-  post or sign. Extract is .docx only this round (not .xlsx). Not a substitute
-  for a hand-crafted single letter.
+description: "Use when the user wants to \"fill in this letter for each person\", \"mail merge\", \"generate letters for this list\", \"turn this filled letter into a template\", or hands over a template plus a list. Bulk-fills ONE master template — a Word (.docx) letter/form or an Excel (.xlsx) form — from a data table, one filled file per row (mail-merge); or the reverse: extract a reusable tokenised .docx template + data-table skeleton from a filled example document, confirm the mapping, then fill. Reads the master, proposes a TOKENISED version (varying parts become {{tokens}}), confirms the mapping, then regenerates one output per data row, preserving the master's layout exactly. Data is an .xlsx or .csv (one row per output); outputs are one named file per record. Never invents: a token with no data is a VISIBLE flag, never a silent blank. Runs fully local and generates files only — it does not send, post or sign. Extract is .docx only this round (not .xlsx). Not a substitute for a hand-crafted single letter."
 
 license: MIT
 metadata:

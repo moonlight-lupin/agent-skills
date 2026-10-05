@@ -1,19 +1,6 @@
 ---
 name: people-enrichment
-description: >
-  Enrich and search People Data Labs (PDL) Person and Company data, writing
-  results to .xlsx. Five operations: enrich named PEOPLE into a profile,
-  employment history and LinkedIn URL; IDENTIFY an ambiguous person as several
-  scored candidates; SEARCH people by criteria (company, title, location);
-  enrich COMPANIES into firmographics (industry, size, employees, HQ, founded,
-  LinkedIn); and SEARCH companies by criteria. Use when the user has a list of
-  names or companies and wants their job, employer, work history, LinkedIn URLs
-  or company profiles looked up, or wants to find people or companies matching
-  criteria. Trigger on phrases like "enrich these contacts", "find their
-  LinkedIn", "look up these people", "who works at X", "find directors at Y",
-  "enrich these companies", or "get firmographics for". Do not scrape LinkedIn
-  directly — this uses a licensed data aggregator (PDL) instead, for legal and
-  reliability reasons.
+description: "Use when the user has a list of names or companies and wants their job, employer, work history, LinkedIn URLs or company profiles looked up, or wants to find people or companies matching criteria — trigger on phrases like \"enrich these contacts\", \"find their LinkedIn\", \"look up these people\", \"who works at X\", \"find directors at Y\", \"enrich these companies\", or \"get firmographics for\". Enrich and search People Data Labs (PDL) Person and Company data, writing results to .xlsx. Five operations: enrich named PEOPLE into a profile, employment history and LinkedIn URL; IDENTIFY an ambiguous person as several scored candidates; SEARCH people by criteria (company, title, location); enrich COMPANIES into firmographics (industry, size, employees, HQ, founded, LinkedIn); and SEARCH companies by criteria. Do not scrape LinkedIn directly — this uses a licensed data aggregator (PDL) instead, for legal and reliability reasons."
 license: MIT
 metadata:
   version: 1.0.1

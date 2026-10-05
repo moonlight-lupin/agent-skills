@@ -1,6 +1,6 @@
 ---
 name: travel-itinerary
-description: "Create, update, sanitize, route, and export structured business-trip itineraries from booking confirmations, emails, tickets, PDFs, screenshots, calendar invites, or notes. Use for day-by-day itinerary generation, privacy-safe sharing, route links, and Markdown/PDF/DOCX/Google Doc/ICS exports."
+description: "Use when the user needs a business-trip itinerary built, updated, shared, or exported — create, update, sanitize, route, and export structured business-trip itineraries from booking confirmations, emails, tickets, PDFs, screenshots, calendar invites, or notes. Covers day-by-day itinerary generation, privacy-safe sharing, route links, and Markdown/PDF/DOCX/Google Doc/ICS exports."
 license: MIT
 metadata:
   version: 1.1.0

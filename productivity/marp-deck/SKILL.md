@@ -1,6 +1,6 @@
 ---
 name: marp-deck
-description: Marp decks — slides kept as one Markdown file. Use when the user asks for Marp or a deck kept as Markdown/version-controlled text, wants a .pptx rebuilt as Markdown slides, or hands over an existing Marp .md deck to change.
+description: "Use when the user asks for Marp or a deck kept as Markdown/version-controlled text, wants a .pptx rebuilt as Markdown slides, or hands over an existing Marp .md deck to change — Marp decks with slides kept as one Markdown file."
 license: MIT
 metadata:
   version: "2.2"

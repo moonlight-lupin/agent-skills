@@ -1,6 +1,6 @@
 ---
 name: log-analyzer
-description: "Parse agent log files to identify error patterns, rate limit hits, timeout clusters, tool failures, and component-level error counts. Produces a structured anomaly report. Cron-compatible — silent if no issues, alert digest if anomalies found. Also computes per-tool failure rates from a Hermes profile state.db (scripts/state_failures.py)."
+description: "Use when parsing agent log files to identify error patterns, rate limit hits, timeout clusters, tool failures, and component-level error counts. Produces a structured anomaly report. Cron-compatible — silent if no issues, alert digest if anomalies found."
 license: MIT
 metadata:
   version: 1.1.0

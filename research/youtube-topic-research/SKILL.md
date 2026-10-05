@@ -1,10 +1,6 @@
 ---
 name: youtube-topic-research
-description: >
-  Find and summarize YouTube videos for topics where visual explanation,
-  demos, tutorials, talks, walkthroughs, or screen recordings are useful.
-  Can run standalone, or export transcript-backed video source notes into
-  notebooklm-mode vaults for grounded research.
+description: "Use when a topic is best explained by YouTube videos — find and summarize YouTube videos for topics where visual explanation, demos, tutorials, talks, walkthroughs, or screen recordings are useful. Can run standalone, or export transcript-backed video source notes into notebooklm-mode vaults for grounded research."
 license: MIT
 metadata:
   version: 2.0.0

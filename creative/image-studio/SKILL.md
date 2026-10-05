@@ -1,20 +1,6 @@
 ---
 name: image-studio
-description: >
-  Generate, edit and upscale AI images via fal.ai through a three-stage studio
-  workflow — brainstorm a strong prompt with the user, prototype cheaply and
-  iterate on feedback, then produce a finalised image. Use when the user wants
-  image generation or editing through the local fal.ai helper workflow, including
-  requests to "generate an image", "make an image/picture/illustration/graphic
-  of…", "create an AI image", "edit/change this image", "make a variation",
-  "upscale this", create a "production-ready image", "clean up / enhance a photo",
-  "make this phone shot look professional", create imagery "for the
-  deck/post/website/newsletter", or when they explicitly mention fal.ai or
-  nano-banana. Do not use for Canva template designs, branded PowerPoint decks,
-  data charts/dashboards, or flowcharts/diagrams — those are layout, data, or
-  structure tasks, not generative imagery. Video generation is out of scope. Do
-  not override platform-native image generation tools where the host environment
-  requires them.
+description: "Use when the user wants image generation or editing through the local fal.ai three-stage studio workflow — brainstorm a strong prompt, prototype cheaply and iterate on feedback, then produce a finalised image. Covers \"generate an image\", \"make an image/picture/illustration/graphic of…\", \"create an AI image\", \"edit/change this image\", \"make a variation\", \"upscale this\", a \"production-ready image\", \"clean up / enhance a photo\", \"make this phone shot look professional\", imagery \"for the deck/post/website/newsletter\", or explicit mentions of fal.ai or nano-banana. Do not use for Canva template designs, branded PowerPoint decks, data charts/dashboards, or flowcharts/diagrams. Video generation is out of scope."
 license: MIT
 metadata:
   version: 1.2.0

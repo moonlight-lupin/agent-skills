@@ -1,15 +1,6 @@
 ---
 name: task-brief
-description: >
-  Compile a task brief BEFORE starting substantial work — pin down the goal (what
-  "done" looks like), context, constraints (standing rules included automatically)
-  and tooling — confirm with the user, then execute against it. Asks at most 2-3
-  clarifying questions, only where the answer would change the output; otherwise
-  states assumptions in the brief and proceeds. Use when the user says "brief this
-  task", "scope this properly", "what do you need from me", "improve my prompt",
-  "help me get better output", or hands over a SUBSTANTIAL task — multi-step,
-  multi-document, or a deliverable someone else will read — as a thin one-line
-  request. Not for quick one-step asks — answer those directly.
+description: "Use when the user says \"brief this task\", \"scope this properly\", \"what do you need from me\", \"improve my prompt\", \"help me get better output\", or hands over a SUBSTANTIAL task — multi-step, multi-document, or a deliverable someone else will read — as a thin one-line request. Compile a task brief BEFORE starting substantial work — pin down the goal (what \"done\" looks like), context, constraints (standing rules included automatically), and tooling — confirm with the user, then execute against it. Asks at most 2-3 clarifying questions, only where the answer would change the output; otherwise states assumptions in the brief and proceeds. Not for quick one-step asks — answer those directly."
 license: MIT
 metadata:
   version: 1.1.0

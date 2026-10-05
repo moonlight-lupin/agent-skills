@@ -1,6 +1,6 @@
 ---
 name: media-analyzer
-description: "Technique-focused media analysis. Detects rhetorical tools (loaded language, cherry-picking, source selection bias, framing, omission, emotional appeals, false balance) in articles and produces a structured analysis report. Identifies specific techniques and bias-signal intensity without labeling political positions."
+description: "Use when an article or media piece needs rhetorical or technique-focused analysis — detects rhetorical tools (loaded language, cherry-picking, source selection bias, framing, omission, emotional appeals, false balance) in articles and produces a structured analysis report. Identifies specific techniques without labeling political positions."
 license: MIT
 metadata:
   version: 1.0.0

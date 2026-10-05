@@ -1,6 +1,6 @@
 ---
 name: scheduled-summary
-description: "Cron-driven cross-session digest. Aggregates session activity, cron job outputs, memory changes, and tool usage stats into a compact summary for delivery via messaging platforms. Surfaces outstanding tasks and cross-session context that's invisible on chat platforms."
+description: "Use when a recurring cross-session digest should be produced and delivered via Hermes cron — aggregates session activity, cron job outputs, memory changes, and tool usage stats into a compact summary for delivery via messaging platforms. Surfaces outstanding tasks and cross-session context that's invisible on chat platforms."
 license: MIT
 metadata:
   version: 1.0.0

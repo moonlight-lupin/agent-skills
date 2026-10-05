@@ -1,6 +1,6 @@
 ---
 name: news-monitoring
-description: "Recurring topic/news monitoring with web search, multi-language sources, digest formatting, and automated delivery via Hermes cron jobs. Covers search strategy, source selection, Chinese-language platforms, and digest templates."
+description: "Use when a topic or news stream needs recurring monitoring — cover it with web search, multi-language sources, digest formatting, and automated delivery via Hermes cron jobs. Covers search strategy, source selection, Chinese-language platforms, and digest templates."
 license: MIT
 metadata:
   version: 2.0.0

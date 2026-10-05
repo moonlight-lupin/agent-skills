@@ -1,15 +1,6 @@
 ---
 name: deep-research
-description: >
-  Autonomous multi-step deep research engine implementing an iterative
-  Think → Search → Extract → Synthesize → Stop loop. The LLM drives every
-  decision: what to search, what's relevant, what's missing, and when to stop.
-  Produces a cited, magazine-quality report with inline citations, category-
-  specific formatting, and research stats. Trigger when the user asks for
-  "deep research", "research report on", "comprehensive analysis of", "look
-  into X in depth", "write a report on X", or any question needing multi-source
-  synthesis beyond a single search. For entity vetting/dossiers use entity-research;
-  for news digests use news-monitoring; for source-grounded Q&A use notebooklm-mode.
+description: "Use when the user asks for \"deep research\", a \"research report on\", a \"comprehensive analysis of\", to \"look into X in depth\", to \"write a report on X\", or any question needing multi-source synthesis beyond a single search — an autonomous multi-step deep research engine implementing an iterative Think → Search → Extract → Synthesize → Stop loop. The LLM drives every decision: what to search, what's relevant, what's missing, and when to stop. Produces a cited, magazine-quality report with inline citations, category-specific formatting, and research stats. For entity vetting/dossiers use entity-research; for news digests use news-monitoring; for source-grounded Q&A use notebooklm-mode."
 license: MIT
 metadata:
   version: 1.8.1

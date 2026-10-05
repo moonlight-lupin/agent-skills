@@ -1,6 +1,6 @@
 ---
 name: source-tracker
-description: "Persistent citation database for multi-session research. Add URLs as they're cited, dedup variants, tag by topic, check link health, and export bibliographies in Markdown/BibTeX/CSV/JSON."
+description: "Use when research spans multiple sessions and citations must persist — add URLs as they're cited, dedup variants, tag by topic, check link health, and export bibliographies in Markdown/BibTeX/CSV/JSON."
 license: MIT
 metadata:
   version: 1.0.0

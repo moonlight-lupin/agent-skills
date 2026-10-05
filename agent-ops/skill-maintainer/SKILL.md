@@ -1,6 +1,6 @@
 ---
 name: skill-maintainer
-description: "Track upstream drift and sync adapted skill libraries"
+description: "Use when tracking upstream drift and syncing adapted skill libraries."
 license: MIT
 metadata:
   version: 1.0.1

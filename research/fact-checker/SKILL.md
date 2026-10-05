@@ -1,6 +1,6 @@
 ---
 name: fact-checker
-description: "Targeted claim verification pipeline. Given a factual assertion, search multiple independent sources, cross-check for agreement or contradiction, rate confidence (verified / likely true / disputed / unverified / outdated), and produce a cited verification report."
+description: "Use when a factual claim or assertion needs verification — a targeted claim verification pipeline: search multiple independent sources, cross-check for agreement or contradiction, rate confidence (verified / likely true / disputed / unverified / outdated), and produce a cited verification report."
 license: MIT
 metadata:
   version: 1.0.0
