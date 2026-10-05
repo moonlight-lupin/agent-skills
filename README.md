@@ -41,7 +41,9 @@ agent_skills/
 │   ├── scheduled-summary/            ← cron-driven cross-session digest for messaging platforms
 │   ├── file-organizer/               ← LLM-powered directory organizer: scan → propose → confirm → move
 │   ├── receipt-compiler/             ← phone-camera receipt photos → straightened B&W A4 expense-claim PDF
-│   └── task-brief/                   ← goal/context/constraints brief compiled + confirmed before substantial tasks
+│   ├── task-brief/                   ← goal/context/constraints brief compiled + confirmed before substantial tasks
+│   ├── pdf2epub/                     ← text-layer PDF book → structured EPUB (cover, TOC nav, illustrations, endnotes)
+│   └── pdf2epub-calibration/         ← classifier calibration rules for pdf2epub (companion)
 ├── agent-ops/                        ← agent infrastructure and maintenance skills
 │   ├── claude-plugin-converter/      ← convert Claude Code plugins → self-contained Hermes plugins
 │   ├── skill-maintainer/             ← end-to-end skill library maintenance + upstream sync
@@ -87,6 +89,8 @@ New skills are added as folders under the relevant domain directory.
 | [file-organizer](productivity/file-organizer/) | productivity | LLM-powered directory organizer: scan → propose structure → confirm → chunked moves | — |
 | [receipt-compiler](productivity/receipt-compiler/) | productivity | Phone-camera receipt photos → straightened B&W scans → A4 expense-claim PDF with confirmation gate | pdf |
 | [task-brief](productivity/task-brief/) | productivity | Goal/context/constraints/tooling brief compiled and confirmed before substantial work starts | — |
+| [pdf2epub](productivity/pdf2epub/) | productivity | Text-layer PDF book → structured EPUB: cover, printed-TOC nav, inline illustrations, linked endnotes | pymupdf, ebooklib, Pillow |
+| [pdf2epub-calibration](productivity/pdf2epub-calibration/) | productivity | Classifier calibration rules for pdf2epub: line classification thresholds, TOC probe matching, endnote-section architecture | — (companion to pdf2epub) |
 | [marp-deck](productivity/marp-deck/) | productivity | Marp presentations: Markdown source of truth → PDF/PPTX/HTML, with themes, SVG components, PPTX import, and render tests | — |
 | [claude-plugin-converter](agent-ops/claude-plugin-converter/) | agent-ops | Two-phase converter: analyze Claude Code plugins → generate installable Hermes plugins | skill-maintainer |
 | [skill-maintainer](agent-ops/skill-maintainer/) | agent-ops | Skill library maintenance: author, curate, upstream drift tracking, publish | — |
@@ -168,6 +172,8 @@ Install by copying or symlinking `plugins/lumen/` into `~/.hermes/plugins/` (or 
 | operator-brain | Stable | — | None (prompt-only) |
 | hermes-onboarding | Beta | evals | None (prompt-only) |
 | disk-cleanup | Stable | evals | None (prompt-only) |
+| pdf2epub | Stable | ✓ | pymupdf, ebooklib, Pillow |
+| pdf2epub-calibration | Stable | — | None (companion rules to pdf2epub) |
 
 > *Stable* = production-tested with real workflows. *Tests* column: ✓ = has a pytest suite; *evals* = ships routing/output-contract fixtures under `evals/` (sample request → expected routing, required output fields, forbidden patterns), validated by `tests/test_routing_fixtures.py` — no live-model execution in CI. *Dependencies* lists pip/runtime requirements beyond Python stdlib. Plugins are tested separately (`plugins/<name>/tests/`) and tracked under Plugins above.
 
