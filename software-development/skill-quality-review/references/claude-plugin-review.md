@@ -9,6 +9,8 @@ Claude Code plugins (standalone repos with `.claude-plugin/plugin.json`) use a d
 - Cross-sibling — Check 8 adaptation
 - Cross-sibling consistency — what to check
 - Script-quality checks (format-agnostic)
+- Engine semantics probes (extend Script-quality)
+- Anthropic structural checklist (name, description, size, TOC, packages)
 - Test suite
 - Repo-level metadata checks
 - Hooks quality (if present)
@@ -62,11 +64,66 @@ Claude plugin skills in the same repo share conventions. Grep across all `skills
 
 These apply regardless of skill format:
 - `python3 -m py_compile` on all `skills/*/scripts/*.py`
-- `grep -rln 'import requests\|import urllib\|import httpx' skills/*/scripts/*.py` — network call audit
+- `grep -rln 'import requests|import urllib|import httpx' skills/*/scripts/*.py` — network call audit
 - `grep -rn 'except:' skills/*/scripts/*.py` — bare except check
-- `grep -rln 'sk-|api_key.*=.*"[a-zA-Z0-9]\{20,\}' skills/*/scripts/*.py` — hardcoded secrets
+- `grep -rln 'sk-|api_key.*=.*"[a-zA-Z0-9]{20,}' skills/*/scripts/*.py` — hardcoded secrets
 - `grep -rn 'reconfigure.*utf-8' skills/*/scripts/*.py` — encoding fix presence
-- `grep -rn 'sys.exit\|SystemExit' skills/*/scripts/*.py` — CLI dispatch pattern
+- `grep -rn 'sys.exit|SystemExit' skills/*/scripts/*.py` — CLI dispatch pattern
+
+## Engine semantics probes (extend Script-quality; from the Oct 2026 pere-toolkit review)
+
+Greps and py_compile prove the scripts parse; the pere bugs were semantic. These three executable probes belong with the cross-reference-parity lever (docs ↔ code) — run them, don't grep for them. Each probe is a small scratch-dir script; a probe failure is a MAJOR finding the docs would never catch.
+
+### Probe 1: unknown keys must raise, not be ignored
+
+Engines that accept a dict of options (e.g. `compare_structures`, `fit_score`, `capital_stack(kind=...)`) and silently ignore misspelled keys return wrong numbers with no error. Probe: call the engine with one deliberately misspelled key.
+
+```python
+# for each dict/kind-parameter engine:
+result = engine(input_with_typo_key)   # e.g. {"kind": "equityy"} instead of "equity"
+# PASS if it raises (KeyError/ValueError); FAIL if it returns as if the key were absent
+```
+
+### Probe 2: scale invariance for money engines
+
+A money engine that rounds 2dp on unit-free figures (e.g. £m) breaks at small scales. Probe: feed the same input at ×1 and ×1e-6 scale; outputs must scale exactly (relative error 0 within float noise).
+
+```python
+out1 = engine(base_input)
+out2 = engine(scale(base_input, 1e-6))
+# FAIL if any output changed by more than float-precision after unscaling
+```
+
+### Probe 3: period-convention consistency
+
+A per-period IRR compared with an annual stated IRR silently misprices. Probe: a quarterly cashflow vector against its annualised equivalent — any comparison in the code (or the docs) must annualise first.
+
+```python
+q = engine(quarterly_vector)
+a = engine(annualised_vector)
+# the engine's IRR-vs-hurdle comparison must not differ between (quarterly, quarterly hurdle)
+# and (annual, annual hurdle) conventions — probe both and compare decisions, not rates
+```
+
+Document each probe's expected behaviour in the skill text next to the call line; a probe that exposes a mismatch is a docs ↔ code drift finding as well as a code bug.
+
+## Anthropic structural checklist (format-agnostic, from the platform guide)
+
+Source: https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices — carried directly into this profile so the checks run on any plugin repo (no external audit script required). Run the mechanical part via `scripts/check_references.py` in this skill, then verify the rest by read:
+
+- `name` ≤ 64 chars, lowercase + hyphens, no reserved words
+- `description` ≤ 1024 chars, no XML tags, third person, states **what it does + when to use**
+- SKILL.md body < 500 lines
+- `references/` one level deep (no nested reference directories)
+- **Contents list on any reference file over 100 lines** (Check 17; pere-toolkit had 27 long references with no TOC)
+- Forward slashes in all paths
+- No time-sensitive facts without a date ("as of ...")
+- Required packages named (imports resolve; pere needed a requirements sweep)
+- MCP tool names fully qualified (`server:tool`, not bare `tool`)
+
+### Reference-hygiene mechanics
+
+`scripts/check_references.py` in this skill implements the mechanical part: TOC-on-long-references, one-level-deep, orphan checks; exit 1 with `no-contents-list` / `nested` / `orphan-reference` findings. `scripts/add_toc.py` fixes missing TOCs (dry-run by default, `--apply` to write).
 
 ## Test suite
 

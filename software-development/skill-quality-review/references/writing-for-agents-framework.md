@@ -121,6 +121,17 @@ Grep checklist: model ID parity (docs <-> code), trigger phrases vs body scope, 
 | YELLOW (nice to fix) | No-op prose; negation where positive works; undocumented model in code; sprawl past 15k chars; missing `## Overview`; `metadata.hermes` nesting wrong; environment-state in description; missing completion criterion on secondary step; FTS5 rebuild instructions duplicated between SKILL.md and reference |
 | GREEN (minor) | Cost rate uses midpoint without comment; example path inconsistency; missing Verification Checklist; good progressive disclosure; strong leading words |
 
+### Plugin-profile recalibration (Oct 2026 pere-toolkit review)
+
+On a Claude plugin profile the table above reorders — frontmatter "gaps" (version/author/license) are false positives there, and the costly defects rank differently:
+
+| Severity | Finding |
+|---|---|
+| MAJOR | Uncallable or wrong call lines (Check 15); unworkable or non-independent instructions (Check 16); docs ↔ code drift that changes numbers |
+| MINOR | Option with no default (Check 14 ext); loose tolerance on an exact step; terminology drift (Check 8b); long reference with no TOC (Check 17); packages unnamed |
+| MINOR when large in aggregate | Boilerplate duplicated across the library (Check 7) — pere carried ~130 lines of identical house-style/review/evidence text across 47 skills; that is loaded context on every invocation, so score by TOTAL duplicated lines across the library, not per file. NIT below ~20 total lines, MINOR above. |
+| RED→MINOR (plugin profile) | Frontmatter version/author/license gaps — only name + description are required on plugins |
+
 ## Parallel review dispatch
 
 For reviewing 12+ skills, dispatch 2 parallel `delegate_task` subagents (6 skills each). Each reads the full SKILL.md + linked files, applies all 8 levers, and returns structured findings. Consolidate after both complete.

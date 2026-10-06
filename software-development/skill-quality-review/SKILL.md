@@ -3,7 +3,7 @@ name: skill-quality-review
 description: "Use when auditing or reviewing skill quality — batch checks across a library, deep per-skill grep methodology, usage stats, efficacy testing, or fix planning. Single consolidated home for the writing-for-agents review framework and the 3-surface review methodology."
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.2.0
   author: moonlight-lupin
   hermes:
     tags: [skills, review, audit, quality, batch]
@@ -16,7 +16,7 @@ Audit SKILL.md quality across a set of skills. Identifies the most-used skills, 
 
 The review framework blends Matt Pocock's `writing-for-agents` (context pointers, two loads, information hierarchy, completion criteria, leading words, pruning) with `hermes-agent-skill-authoring` peer-matched structure and cross-reference parity. See `references/writing-for-agents-framework.md` for the full lever set.
 
-`references/skill-review-methodology.md` lives HERE in this skill — it covers per-skill grep-based review (3-sources-of-truth drift, pricing registry, guardrail asymmetry). This skill covers **batch automated checks**, the **deep per-skill methodology**, and **usage-based prioritisation** across all skills in a repo or local library. Authoring-time mechanical sweeps (TOC, nesting, orphans) run via `hermes-agent-skill-authoring/scripts/audit_references.py`; deep methodology below.
+`references/skill-review-methodology.md` lives HERE in this skill — it covers per-skill grep-based review (3-sources-of-truth drift, pricing registry, guardrail asymmetry). This skill covers **batch automated checks**, the **deep per-skill methodology**, and **usage-based prioritisation** across all skills in a repo or local library. Authoring-time mechanical sweeps (TOC coverage, nesting, orphans) run via `scripts/check_references.py` in this skill — format-agnostic, works on any repo (this skill vendors it so plugin repos do not depend on a Hermes-side script). For Hermes in-repo skills, `hermes-agent-skill-authoring/scripts/audit_references.py` remains the canonical checker; see `references/hermes-library-review.md`. Deep methodology below.
 
 ## Know the skill format first
 
@@ -43,52 +43,17 @@ Before running any checks, identify the skill format — the frontmatter fields,
 
 ## Workflow
 
-### 0. Identify most-used skills (usage frequency)
+### A. Local-library steps (Hermes profile only)
 
-When reviewing a local Hermes skill library (not a remote repo), query `state.db` for actual `skill_view` load counts. This is more reliable than `.usage.json` (which may be missing or stale).
+The two sub-steps below apply only when reviewing the local Hermes skill library. Skip them entirely for remote repos and Claude plugin repos. For the full local-library procedure (state.db query, builtin-tree comparison, author-field heuristics), see `references/hermes-library-review.md`.
 
-```python
-import sqlite3, json
-from collections import Counter
-from pathlib import Path
+0. Identify most-used skills (usage frequency): query the platform's session state for actual `skill_view`/equivalent load counts when available; fall back to a `.usage.json`-style usage file when the state store does not exist or is stale.
 
-db = str(Path.home() / ".hermes" / "state.db")
-conn = sqlite3.connect(db)
-cursor = conn.cursor()
-cursor.execute("SELECT tool_calls FROM messages WHERE tool_calls LIKE '%skill_view%'")
-skill_counter = Counter()
-for row in cursor.fetchall():
-    calls = json.loads(row[0]) if row[0] else []
-    if not isinstance(calls, list): calls = [calls]
-    for call in calls:
-        func = call.get("function", call)
-        if func.get("name") != "skill_view": continue
-        args = json.loads(func.get("arguments", "{}"))
-        name = args.get("name", "")
-        if name: skill_counter[name] += 1
-# Top N
-for i, (skill, count) in enumerate(skill_counter.most_common(15), 1):
-    print(f"{i:2d}. {skill:45s} {count:3d} loads")
-```
+0a. Classify self-developed vs builtin: compare the user skills directory against the runtime's bundled installation tree, and confirm with the frontmatter author field.
 
-### 0a. Classify self-developed vs builtin
+### B. Batch review (all formats)
 
-Compare the user skills directory against the Hermes installation's bundled skills:
-
-```python
-from pathlib import Path
-builtin_root = Path("/usr/local/lib/hermes-agent/skills")
-builtin_names = {p.parent.name for p in builtin_root.rglob("SKILL.md")}
-user_root = Path.home() / ".hermes" / "skills"
-for skill in top_skills:
-    is_builtin = skill in builtin_names
-    # Check frontmatter author field for confirmation
-    ...
-```
-
-Skills with `author: Hermes Agent` or `author: Hermes Agent + Teknium` in frontmatter but NOT in the builtin tree are user-created overrides (still self-developed). Skills in the builtin tree are bundled. Everything else is self-developed.
-
-### 1. Clone (if remote) and discover skills
+#### 1. Clone (if remote) and discover skills
 
 ```python
 import pathlib
@@ -97,28 +62,28 @@ skills = sorted(repo.rglob("SKILL.md"))
 print(f"Total: {len(skills)} skills")
 ```
 
-### 2. Run all checks via execute_code
+#### 2. Run all checks
 
-Run the 9 automated checks from `references/batch-checks.md`. Each produces a structured report. Collect findings into MAJOR / MINOR / NIT severity buckets.
+Run all automated checks from `references/batch-checks.md` (Checks 1-16 plus the reference-hygiene sweep and efficacy coverage — the check-summary table lists them). Each produces a structured report. Collect findings into MAJOR / MINOR / NIT severity buckets.
 
-### 3. Present findings
+#### 3. Present findings
 
 Format as a table: finding, severity, skills affected. Include the key metrics (description char counts, trigger ratios, identity phrases leaked).
 
-### 4. Plan fixes
+#### 4. Plan fixes
 
-Use the `plan` skill to write an actionable plan to `.hermes/plans/`. One task per finding. Include exact patch old/new strings for each fix. For bulk fixes (34+ files), include a script-based approach.
+Write an actionable plan to the repo's plans folder (create one if none exists, e.g. `plans/`), one task per finding. Include exact patch old/new strings for each fix. For bulk fixes (34+ files), include a script-based approach.
 
-### 5. Execute
+#### 5. Execute
 
 - Task 1 first (touches all files — e.g. frontmatter standardisation)
 - Then remaining tasks in parallel (different files/sections)
 - Verify after each task: re-run the relevant check + repo tests
 - Commit after each task
 
-### 6. Final verification
+#### 6. Final verification
 
-Re-run all 9 checks. Confirm all findings resolved. Run repo tests.
+Re-run all checks. Confirm all findings resolved. Run repo tests.
 
 ### 7. Single-skill sprawl refactor (deep pass on ONE oversized skill)
 
@@ -134,13 +99,15 @@ When one SKILL.md fails the sprawl test — a single section over ~50% of the fi
 
 ### 8. Efficacy A/B test (does the refactor change behavior?)
 
-After a quality refactor, structural checks prove the file is better-shaped; they do not prove the agent behaves better. When the user asks for efficacy evidence, run a controlled A/B: reconstruct the before-arm byte-exactly, probe both arms with identical scenarios on fresh subagents, score against a fixed rubric. Full procedure, controlled-variable rules, and dispatch pitfalls: see `references/efficacy-ab-test.md` (rubric starter: `templates/efficacy-rubric-template.md`). When the question is "was the skill worth having at all" rather than "did v2 beat v1", use the Quick used-vs-no-skill variant at the end of that reference — it drops the byte-exact before-arm and scores quality, time, and tokens.
+After a quality refactor, structural checks prove the file is better-shaped; they do not prove the agent behaves better. When the user asks for efficacy evidence, run a controlled A/B with parallel agent dispatch: reconstruct the before-arm byte-exactly, probe both arms with identical scenarios on fresh subagents, score against a fixed rubric. Full procedure, controlled-variable rules, dispatch pitfalls, and evaluation-coverage rules (scenarios per skill, model scope): see `references/efficacy-ab-test.md` (rubric starter: `templates/efficacy-rubric-template.md`). When the question is "was the skill worth having at all" rather than "did v2 beat v1", use the Quick used-vs-no-skill variant at the end of that reference — it drops the byte-exact before-arm and scores quality, time, and tokens.
 
 ### 9. Reference-hygiene sweep (mechanical, whole-tree)
 
-Single source of truth: `hermes-agent-skill-authoring/scripts/audit_references.py` (canonical checker; this skill holds no fork). The bulk TOC fixer `add_toc.py` lives in this skill's `scripts/` — dry-run by default, `--apply` to write; generates Contents lists from the file's own structure (## first, then ###, then bold-label bullets; code-fence aware), capped at 60 entries so label-dump files are skipped rather than doubled; writes exactly one trailing newline.
+Single source of truth: `scripts/check_references.py` in this skill (format-agnostic; no dependency on any platform-side script). The bulk TOC fixer `add_toc.py` lives in this skill's `scripts/` — dry-run by default, `--apply` to write; generates Contents lists from the file's own structure (## first, then ###, then bold-label bullets; code-fence aware), capped at 60 entries so label-dump files are skipped rather than doubled; writes exactly one trailing newline.
 
-Sequence: audit (authoring's checker) → dry-run review → `add_toc.py --apply` → re-audit. Expect `no-contents-list` to drop to deliberate exceptions only. Fix any `nested`/`orphan-reference` findings by editing SKILL.md pointers, preserving frontmatter.
+For Hermes in-repo libraries, `hermes-agent-skill-authoring/scripts/audit_references.py` remains the canonical cross-check.
+
+Sequence: audit (check_references.py) → dry-run review → `add_toc.py --apply` → re-audit. Expect `no-contents-list` to drop to deliberate exceptions only. Fix any `nested`/`orphan-reference` findings by editing SKILL.md pointers, preserving frontmatter.
 ### hermes-agent repo profile (bundled v2.0.0 standards)
 
 Applies when reviewing a skill for publication into the hermes-agent repo (`skills/` or `optional-skills/`). Sources of truth: the built-in `hermes-agent-skill-authoring` v2.0.0 walkthrough and the repo AGENTS.md "Skill authoring standards (HARDLINE)" section. Checks beyond the batch set:
@@ -155,26 +122,37 @@ Applies when reviewing a skill for publication into the hermes-agent repo (`skil
 
 ### personal library profile (this library)
 
-Applies to `~/.hermes/skills/` — the batch checks in this skill's workflow remain authoritative here. Key differences from the repo profile:
+Applies to the local personal skill library — the batch checks in this skill's workflow remain authoritative here. Key differences from the repo profile:
 
-- **Descriptions up to 1024 chars and MUST be trigger-style ("Use when ...")** — Hermes BM25 retrieval has no stemming ("onboard" does not match "onboarding"), so capability nouns AND trigger words as literal surface forms are load-bearing. The repo's skills-ref CI enforces the 1024 ceiling on publish.
+- **Descriptions up to 1024 chars and MUST be trigger-style ("Use when ...")** — the platform's BM25 retrieval has no stemming ("onboard" does not match "onboarding"), so capability nouns AND trigger words as literal surface forms are load-bearing. The repo's skills-ref CI enforces the 1024 ceiling on publish.
 - **Size**: 8-15k chars target, >20k split to references/.
 - **Structure**: When to Use + actionable body + Common Pitfalls + Verification Checklist minimum.
-- **Audit mode**: authoring-time mechanical sweeps (TOC coverage, one-level-deep linkage, orphans) run via `hermes-agent-skill-authoring/scripts/audit_references.py`; the deep per-skill methodology is this skill's `references/skill-review-methodology.md`.
+- **Audit mode**: authoring-time mechanical sweeps (TOC coverage, one-level-deep linkage, orphans) run via `scripts/check_references.py` in this skill; the deep per-skill methodology is this skill's `references/skill-review-methodology.md`.
+- **Local-library classification (usage stats, builtin-vs-self-developed, curator adoption)**: see `references/hermes-library-review.md`.
 
 ## Check summary
 
 | # | Check | Severity if found |
 |---|---|---|
-| 1 | Frontmatter validation (adapt fields to format — see `references/claude-plugin-review.md`) | MAJOR |
+| 1 | Frontmatter validation (adapt fields to format — see `references/claude-plugin-review.md`) | MAJOR (format-dependent — frontmatter "gaps" are false positives on Claude plugins, where only name + description are required) |
 | 2 | Description identity leakage (intent-first, deterministic, local engine, etc.) | MAJOR |
 | 3 | Trigger ratio (< 25% = low, < 30% = borderline) | MINOR |
 | 4 | Completion criteria (steps without "Done when") | MINOR |
 | 5 | Structure gaps (adapt expected sections to format — Hermes vs Claude plugin) | MINOR |
 | 6 | Name mismatch (dir name != frontmatter name) | MINOR |
-| 7 | Boilerplate duplication (identical sections across many skills) | NIT |
-| 8 | Cross-sibling consistency (British English, date format, license type — read license from plugin.json for Claude plugins) | NIT |
+| 7 | Boilerplate duplication (identical sections across many skills) | NIT; score by total duplicated lines across the library, not per file — escalate to MINOR when large in aggregate (identical house-style text is loaded context on every invocation) |
+| 8 | Cross-sibling consistency (British English, date format, license type, domain terminology — read license from plugin.json for Claude plugins) | NIT; MINOR for terminology drift (see Check 8b) |
 | 9 | No-op prose ("be careful", "be thorough", "best practices") | NIT |
+| 10 | "Use when" description prefix missing | MAJOR |
+| 11 | `metadata.hermes` nesting wrong or missing (Hermes format only) | MINOR |
+| 12 | Literal duplicate lines | MINOR |
+| 13 | Two-loads mismatch | MAJOR |
+| 14 | Contradictory DEFAULT labels; options with no default; loose tolerances; hidden engine defaults; voodoo constants (see §Check 14) | MAJOR (contradictory defaults) / MINOR (missing default, loose tolerance) |
+| 15 | Callability — cited scripts runnable as written (see §Check 15) | MAJOR |
+| 16 | Unworkable or non-independent instructions (see §Check 16) | MAJOR |
+| 17 | Reference hygiene — TOC on long references, one level deep, orphans (see §Check 17) | MINOR |
+| 18 | Workflow scaffolding — progress checklist for 7+-step workflows; named feedback loop (see §Check 18) | MINOR |
+| 19 | Evaluation coverage — evals per skill; skills with none flagged; model scope recorded (see §Check 19) | MINOR |
 
 Full check code and fix patterns: see `references/batch-checks.md`.
 Claude plugin format adaptations: see `references/claude-plugin-review.md`.
@@ -183,25 +161,40 @@ Recurring failure patterns from real reviews (with grep checks and fix patterns)
 Domain-specific passive-voice false positives (accounting, legal, medical): see `references/domain-passive-voice.md`.
 Building product skills alongside an existing reference toolkit: see `references/independent-skills.md`.
 Deep per-skill grep review methodology (3-sources-of-truth drift, pricing registry, guardrail asymmetry): see `references/skill-review-methodology.md`.
+Hermes local-library classification (state.db usage stats, builtin-vs-self-developed, curator adoption): see `references/hermes-library-review.md`.
+Fix-phase orchestration (batch ordering, parallel agents, no-loss proof): see `references/fix-phase-pitfalls.md`.
 
 ## Fix priority
 
+For the Claude plugin profile, order fixes by how much each would have caught on a real review (pere-toolkit). Costly defects first, mechanical last, conciseness last of all:
+
+1. **Callability (Check 15)** — uncallable or wrong call lines (MAJOR)
+2. **Unworkable / non-independent instructions (Check 16)** — instructions the agent cannot follow, or a sign-off gate where the signer reviews its own output (MAJOR)
+3. **Defaults / tolerances (Check 14)** — options with no default, loose tolerances on exact steps, hidden engine defaults, voodoo constants
+4. **Docs ↔ code drift that changes numbers**
+5. **Mechanical** — TOC on long references, unnamed packages, frontmatter (mechanical fixes are cheap and safe)
+6. **Terminology (Check 8b)** — inventory, glossary, first-use alignment
+7. **Boilerplate / conciseness — LAST.** Fixing callability ADDS lines; a conciseness pass over unsettled text deletes the new call lines. Run conciseness only on settled text, and prove nothing load-bearing was lost (see Pitfall 19).
+
+For the Hermes-library profile, the frontmatter-first order below remains valid because frontmatter there carries load-bearing trigger surface:
+
 1. **Frontmatter** — version/author/license/metadata missing (MAJOR, all files)
 2. **Description identity leakage** — cut identity, keep triggers (MAJOR, per-skill)
-3. **## Files missing** — add section (MINOR, per-skill)
-4. **Completion criteria** — add "Done when" to steps (MINOR, per-skill)
-5. **Name mismatch** — align frontmatter name with directory (MINOR, per-skill)
-6. **## Common Pitfalls** — add section (optional, per-skill)
+3. **Callability (Check 15)** — uncallable or wrong call lines (MAJOR, per-skill)
+4. **## Files missing** — add section (MINOR, per-skill)
+5. **Completion criteria** — add "Done when" to steps (MINOR, per-skill)
+6. **Name mismatch** — align frontmatter name with directory (MINOR, per-skill)
+7. **## Common Pitfalls** — add section (optional, per-skill)
 
 ## Bulk fix technique
 
-For fixes that touch all skills (frontmatter, name fixes), use `execute_code` with a Python script that patches all files in one pass. For targeted fixes (description trimming, ## Files addition), use the `patch` tool per file.
+For fixes that touch all skills (frontmatter, name fixes), use a batch script (`execute_code` in Hermes) that patches all files in one pass. For targeted fixes (description trimming, ## Files addition), use a file-patching tool per file.
 
-See `references/batch-checks.md` for the script template.
+See `references/batch-checks.md` for the script template. For fix-phase dispatch discipline (batch ordering, parallel agents, proving nothing was lost), see `references/fix-phase-pitfalls.md`.
 
 ## Common Pitfalls
 
-1. **Protected skills block writes.** Bundled skills (shipped with Hermes) cannot be patched via `skill_manage`. If the skill you want to update is bundled, say so and recommend `hermes curator adopt <name>`.
+1. **Protected skills block writes.** Bundled skills (shipped with the runtime) cannot be patched in place. If the skill you want to update is bundled, say so and recommend the platform's adoption flow (in Hermes: `hermes curator adopt <name>`).
 
 2. **Hermes vs Claude plugin format false-positives.** Running Hermes-format checks (expecting `version`/`author`/`license`/`metadata` in frontmatter, `## Overview`/`## Common Pitfalls` in structure) against a Claude Code plugin will flag every skill as broken. Always detect the format first (check for `.claude-plugin/plugin.json`) and adapt checks 1, 5, and 8. See `references/claude-plugin-review.md` for the adaptation table.
 
@@ -219,9 +212,9 @@ See `references/batch-checks.md` for the script template.
 
 9. **Rebase needed if remote has advanced.** Always `git fetch` + check for new commits before pushing. Rebase local commits on top.
 
-10. **Usage frequency from state.db, not .usage.json.** When identifying most-used skills, query `state.db` `messages.tool_calls` for `skill_view` call counts. The `.usage.json` file may not exist or may be stale. The state.db query gives actual load counts across all sessions. See Step 0 in the Workflow section.
+10. **Usage frequency from local state, not .usage.json.** When identifying most-used skills in a local library, query the platform's session state (`state.db` `messages.tool_calls` in Hermes) for `skill_view` call counts — see `references/hermes-library-review.md`. The `.usage.json` file may not exist or may be stale. See Workflow §A step 0.
 
-11. **Self-developed vs builtin classification.** Compare `~/.hermes/skills/` against `/usr/local/lib/hermes-agent/skills/` (the Hermes installation path). Skills in the builtin tree are bundled. Skills with `author: Hermes Agent` in frontmatter but NOT in the builtin tree are user-created overrides — still self-developed. Everything else with `author: MH` or `author: moonlight-lupin` is self-developed. See Step 0a in the Workflow section.
+11. **Self-developed vs builtin classification.** Platform specifics (bundled tree paths, author-field heuristics, curator adoption) are in `references/hermes-library-review.md`. The test: compare the user skills directory against the runtime installation's bundled tree, and confirm with the frontmatter author field. See Workflow §A step 0a.
 
 12. **Parallel review for 12+ skills.** Dispatch 2 `delegate_task` subagents (6 skills each) rather than reviewing serially. Each reads the full SKILL.md + linked files, applies the writing-for-agents levers, and returns structured findings. See `references/writing-for-agents-framework.md` for the lever set and dispatch pattern.
 
@@ -240,19 +233,28 @@ See `references/batch-checks.md` for the script template.
 
 16. **Heading extraction without fence tracking indexes code comments.** Fenced examples carry `## ` comment lines and `- **Label**:` bullets that look like document structure. Toggle fence state on every ``` line and extract structure only outside fences — a generated Contents list built from code samples corrupts the doc silently.
 
-17. **Bulk text writers must end files with exactly one trailing newline.** A missing final newline makes git report the last line as deleted plus re-added: the commit diff reads as content loss and costs a false investigation before push. Write `"\n".join(lines) + "\n"`.
+17. **Bulk text writers must end files with exactly one trailing newline.** A missing final newline makes git report the last line as deleted plus re-added: the commit diff reads as content loss and costs a false investigation before push. Write `"\n".join(lines) + "\n"`. Applies to this skill's own files too — a structural sweep (trailing newline, fence parity, dead-pointer check over rglob) is part of final verification.
+
+18. **Fix-phase orchestration (multi-agent batches).** Eight pitfalls from a real 5-agent run over 52 skills (pere-toolkit, Oct 2026). Full detail and the batch-sequencing template: `references/fix-phase-pitfalls.md`. The load-bearing ones:
+    - **Conciseness LAST.** Callability fixes add lines; a trim over unsettled text deletes the call lines the fix phase just added. Run conciseness on settled text, then prove nothing load-bearing was lost: script-check that every code span and CLI command in the previous commit still exists in the new one.
+    - **Regex boilerplate replacement eats neighbours** — match to paragraph end, never end-of-line; diff every replaced span against HEAD.
+    - **Python writers and CRLF** — put `newline="\n"` in every open() in every agent prompt; lint for CRLF before commit.
+    - **Parallel test runs on shared resources are flaky** (LibreOffice fights) — agents report such failures, the orchestrator re-runs the suite solo before each commit.
+    - **Announce new lint rules before agents run tests**, or land them after the batch — a mid-batch rule breaks every agent's "suite green" gate.
+    - **Partition by file; the orchestrator stays out of agents' files mid-run** — mechanical cross-cutting edits (boilerplate, TOCs) go before or after an agent batch, never during.
+    - **Verify reviewer findings before fixing** — each finding needs a quoted locator and a spot-check; counts come from scripts, not reviewer estimates (two independent reviewers still produced three false findings).
 
 ## Verification Checklist
 
 - [ ] All SKILL.md files discovered (count matches expected)
-- [ ] Usage frequency queried from state.db (if local library review)
+- [ ] Usage frequency queried from local state (if local library review; see `references/hermes-library-review.md`)
 - [ ] Skills classified as self-developed vs builtin (if local library review)
-- [ ] All 9 checks run and findings collected
+- [ ] All checks run (Checks 1-16 + reference hygiene + scaffolding + eval coverage) and findings collected
 - [ ] Findings classified MAJOR / MINOR / NIT
-- [ ] Plan written to `.hermes/plans/` with exact patch strings
+- [ ] Plan written to the repo's plans folder with exact patch strings
 - [ ] Each task verified: relevant check re-run + repo tests pass
 - [ ] Each task committed with descriptive message
-- [ ] Final verification: all 9 checks pass
+- [ ] Final verification: all checks pass
 - [ ] Single-skill refactors: fence balance OK, removed content archived verbatim, reference files exist (Workflow §7)
 - [ ] Pushed (or user told "push" to push)
 

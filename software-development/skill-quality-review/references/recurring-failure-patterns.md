@@ -16,6 +16,7 @@ Patterns that appeared across multiple independent skills during a review of 6 s
 - 10. Project README masquerading as skill (2/12 skills)
 - 11. Broken pitfall numbering (1/12 skills)
 - 12. Description retrieval regression — trading capability nouns for trigger phrasing (3/3 skills, Aug 2026)
+- 13. Degrees-of-freedom defects — options with no default, loose tolerances, hidden engine defaults, voodoo constants (Oct 2026)
 
 ## 1. "Use when" description prefix missing (6/6 skills)
 
@@ -223,3 +224,16 @@ if gaps: print(f"  MISSING NUMBERS: {gaps}")
 **Fix pattern:** Descriptions should carry both halves. Example: "Use when df says disk is above 80% full or the user wants to reclaim storage space on a VM." carries trigger words ("df", "80%", "full") AND capability words ("reclaim", "storage", "space"). The 200-char truncation budget is enough for both — most descriptions are under 120 chars.
 
 **Generalization:** any description rewrite that changes the vocabulary (not just the structure) must be tested against the retrieval index. Structural reformatting (adding "Use when") is safe. Vocabulary changes (replacing "reclaim storage" with "disk usage") are not — they break BM25 matching.
+
+## 13. Degrees-of-freedom defects (5 Oct 2026 pere-toolkit review; 8 findings on 52 skills)
+
+Batch-check Check 14 extension (`references/batch-checks.md` § "Check 14 extension"). Skills whose text offered a choice where the engine required one, or hid a judgement inside a default:
+
+- **Options with no default.** "Same period last year or last quarter" (8 occurrences). Anthropic's rule: one default plus an escape hatch — never a bare "A or B" inside a step.
+- **Loose wording on exact steps.** "Aim for a few basis points" where the validator has a 5 bp tolerance; legal-notice dates "inferred"; a provision placed "by hand". If the script enforces a number, the prose must state the same number.
+- **Judgement hidden in engine defaults.** `discount_rate=0.08` on a keyword argument the SKILL.md never mentions. For every cited function, inspect its signature; a judgement default must either appear in the skill text or the step must say "pass X and state it".
+- **Voodoo constants.** Module-level numeric thresholds with no rationale (`TIERS = 75 / 50`). Fix pattern: a provenance register — a test file that fails until every default number cites its source (pere-toolkit: `tests/test_provenance.py`).
+
+**Check:** for each skill, extract choice-pair phrasing, validator tolerances, and cited-function defaults; compare with the prose. Full check code: `references/batch-checks.md` § Check 14 extension.
+
+**Fix pattern:** state the default in the step, state the tolerance in the step, document judgement defaults, and give every module threshold a rationale or provenance entry.
