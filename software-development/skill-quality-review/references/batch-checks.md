@@ -72,6 +72,8 @@ for skill_md in skills:
         print(f"  {skill_md.parent.name}: {leaked}")
 ```
 
+Fix pattern (Keep / Cut / Target) — see the end of Check 13's block above: "When fixing identity leakage (Check 2 fix pattern)".
+
 ## Check 3: Trigger ratio
 
 Trigger content should be >= 25-30% of description chars. Lower means identity is crowding out invocation.
@@ -283,6 +285,12 @@ for skill_md in skills:
         print(f"  FAIL {skill_md.parent.name}: body says don't load per-session, no disable-model-invocation flag")
 ```
 
+Fix pattern for Check 2 (Keep / Cut / Target):
+- **Keep:** opening one-liner (what it does), quoted trigger phrases, NOT-for disambiguators, reach clauses
+- **Cut:** behavioral identity ("intent-first", "deterministic", "local engine", "never invents"), "Decision-support; a qualified person reviews", "Draft for review, not advice", "Standalone -- no other toolkit required"
+- **Target:** triggers >= 30% of description chars, total <= 800 chars
+- **Verify:** `len(desc) <= 800` and no identity phrases remain
+
 ## Check 14: Contradictory DEFAULT labels (from Aug 2026 review)
 
 Multiple items in the same table or section labeled "DEFAULT" for the same task category.
@@ -301,12 +309,6 @@ for skill_md in skills:
                 break
 ```
 
-When fixing identity leakage:
-- **Keep:** opening one-liner (what it does), quoted trigger phrases, NOT-for disambiguators, reach clauses
-- **Cut:** behavioral identity ("intent-first", "deterministic", "local engine", "never invents"), "Decision-support; a qualified person reviews", "Draft for review, not advice", "Standalone -- no other toolkit required"
-- **Target:** triggers >= 30% of description chars, total <= 800 chars
-- **Verify:** `len(desc) <= 800` and no identity phrases remain
-
 ## Check 14 extension: Degrees of freedom (from Oct 2026 pere-toolkit review)
 
 Check 14 above catches contradictory DEFAULT labels. On pere-toolkit the costly defect was the opposite shape — skill text that offered a choice where the engine required one. Four sub-checks, run across SKILL.md + linked references:
@@ -320,11 +322,10 @@ choice_patterns = [
     r'(?:or|vs\.?|either)\s+(?:last\s+quarter|last\s+year|prior)',   # "same period last year or last quarter"
     r'\b(?:Excel|Word)\s+or\s+(?:Excel|Word)\b',
     r'(?:simple|discounted)\s+payback',
-    r'\bX\s+or\s+Y\b',   # generic: any two-option phrasing with no default nearby
 ]
 ```
 
-Every "A or B" phrasing within a step must have either a stated default ("default: last quarter") or an explicit escape hatch ("user's basis determines; ask"). Anthropic's guide: give one default plus an escape hatch. Findings are MINOR on Hermes profile, and on the plugin profile they sit in the fix list ahead of mechanical fixes.
+These are **candidate generators, not findings**: each hit needs a context read before it is reported. `(?:simple|discounted)\s+payback` already matches every fixed text (a stated "default to discounted payback" is a match); a hit is a finding only when the surrounding step offers the choice with no stated default and no escape hatch. Report a finding only with the quoted sentence plus the neighbouring sentence that shows the missing default (the Check 8b verify-before-flag rule applies here too).
 
 ### b) Loose wording on exact steps
 
@@ -361,7 +362,7 @@ for skill_md in skills:
 
 ### b) Execute every call-like span
 
-Extract inline code spans that look like calls (`` `name(...)` ``) and fenced `python … .py` command lines, then execute each against small made-up inputs in a scratch directory. A call line that does not run — wrong name, missing required keyword, private function, dict key cited as a function — is a MAJOR finding.
+Extract inline code spans that look like calls (`` `name(...)` ``) and fenced `python … .py` command lines. Command lines get a safe `--help` probe; call spans are parsed with `ast` and **bound** against the real function's `inspect.signature` with placeholder arguments — never executed. A call that cannot bind — wrong name, missing required keyword, unknown keyword, too many positional arguments, private function, dict key cited as a function — is a MAJOR finding. (The script header and this text agree: verification by binding, not execution.)
 
 Harness: `scripts/check_calls.py` in this skill.
 
@@ -369,9 +370,11 @@ Harness: `scripts/check_calls.py` in this skill.
 python3 <this-skill>/scripts/check_calls.py <repo-root>
 ```
 
-It classifies scripts (CLI/library), extracts call-looking spans plus command lines, probes them in a temp dir, and flags:
+It classifies scripts (CLI/library), extracts call-looking spans plus command lines, binds the spans against resolved signatures (scratch-dir `--help` probes for command lines), and flags:
 
+- call spans that cannot bind against the resolved function's signature (missing required keyword, unknown keyword, too many positional arguments)
 - call spans naming a target that does not exist anywhere in the skill or repo
+- private (`_`-prefixed) names in call spans
 - command lines resolving to no file at the cited path
 - `def main` whose `__main__` block never calls it when arguments are given (the "demo whatever you pass" bug — three pere scripts had it)
 - repo-relative CLI paths (`python skills/x/scripts/y.py`) that break once the plugin is installed
@@ -394,7 +397,7 @@ Imperatives the declared toolset simply cannot do, and sign-off gates the signer
 For each imperative sentence ("Recalc in Excel to confirm", "Run confirmations.py"), ask: can the executing agent do this with the tools this skill declares? If not, the skill must say what to do instead ("mark UNVERIFIED and hand to the user"). Grep for tool names outside the skill's declared surface:
 
 ```python
-unavailable = ['excel', 'word document', 'spreadsheet recalc', 'open the file in']
+unavailable = ['recalc in excel', 'word document', 'spreadsheet recalc', 'open the file in']
 for skill_md in skills:
     content = skill_md.read_text()
     for line in content.splitlines():
@@ -404,9 +407,11 @@ for skill_md in skills:
                 print(f"  CAPABILITY: {skill_md.parent.name}: {line.strip()[:90]}")
 ```
 
+These hits are **candidate generators, not findings**. `'recalc in excel'` targets the instruction, not the file format: a real-estate plugin's deliverables are `.xlsx` — "produce the Excel workbook" is a legitimate output spec, not an unworkable instruction. The defect is only the shape where the agent is told to VERIFY or RECALC something inside Excel, or to open a file it cannot open. Read each hit's context before reporting; if the line directs the agent to do the work inside Excel rather than hand a file to the user, it is a finding.
+
 ### b) Independence check
 
-For any human-review or sign-off gate, the signer must not be the author of the thing under review. On pere-toolkit the FDD (feasibility-and-development) skill's human-review line asked the FDD provider to sign off the review of its own report. Grep for sign-off/review vocabulary, then read the surrounding roles:
+For any human-review or sign-off gate, the signer must not be the author of the thing under review. On pere-toolkit the FDD (financial due diligence, `review-financial-due-diligence`) skill's human-review line asked the FDD provider to sign off the review of its own report. Grep for sign-off/review vocabulary, then read the surrounding roles:
 
 ```python
 signoff_words = ['sign off', 'sign-off', 'approval', 'human review', 'reviewer', 'confirmer']

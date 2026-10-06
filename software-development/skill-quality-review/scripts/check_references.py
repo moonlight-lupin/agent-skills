@@ -107,8 +107,12 @@ def main(argv):
             if is_exempt(rel, n_lines):
                 continue
             checked += 1
-            # 1) TOC on long references
-            if n_lines > 100 and not has_contents(text):
+            # 1) TOC on long references — EXEMPT deliverable templates
+            # (assets/, templates/): a "## Contents" block in a memo or pack
+            # template would be copied into every deliverable built from it.
+            srel_parts = skill_rel.replace(os.sep, "/").split("/")
+            deliverable = set(srel_parts) & {"assets", "templates"}
+            if n_lines > 100 and not deliverable and not has_contents(text):
                 findings.append((rel, "no-contents-list",
                                  f"{n_lines} lines, no Contents list"))
             # 2) one level deep
@@ -118,7 +122,7 @@ def main(argv):
             # depth 1; deeper is a finding
             if len(parts) > 1 or (len(parts) == 1 and parts[0] not in (
                     "references", "templates", "scripts", "assets", "commands",
-                    "agents", "hooks")):
+                    "agents", "hooks", "tests")):
                 findings.append((rel, "nested",
                                  f"reference file deeper than one level: {skill_rel}"))
             # 3) orphan check — is this file mentioned by its SKILL.md?
@@ -126,8 +130,14 @@ def main(argv):
             text_l = text
             mentioned = stem in skill_texts[owning_skill_md] or fn in skill_texts[owning_skill_md]
             if not mentioned:
+                # NOTE for triage: this file may be linked from a reference file
+                # (not from SKILL.md itself) — defensible under one-level-deep
+                # when every path from SKILL.md to it is deliberate.
                 findings.append((rel, "orphan-reference",
-                                 f"not referenced by {os.path.relpath(owning_skill_md, root)}"))
+                                 f"not referenced by "
+                                 f"{os.path.relpath(owning_skill_md, root)} "
+                                 f"(linked only from a reference, not from "
+                                 f"SKILL.md?)"))
 
     if do_json:
         print(json.dumps({"checked": checked, "findings": findings}, indent=1))

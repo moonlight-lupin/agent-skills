@@ -62,13 +62,13 @@ Claude plugin skills in the same repo share conventions. Grep across all `skills
 
 ## Script-quality checks (format-agnostic)
 
-These apply regardless of skill format:
+These apply regardless of skill format (plain grep, BRE escapes — or add `-E` and keep bare `|`/`{20,}`):
 - `python3 -m py_compile` on all `skills/*/scripts/*.py`
-- `grep -rln 'import requests|import urllib|import httpx' skills/*/scripts/*.py` — network call audit
+- `grep -rln 'import requests\|import urllib\|import httpx' skills/*/scripts/*.py` — network call audit
 - `grep -rn 'except:' skills/*/scripts/*.py` — bare except check
-- `grep -rln 'sk-|api_key.*=.*"[a-zA-Z0-9]{20,}' skills/*/scripts/*.py` — hardcoded secrets
+- `grep -rln 'sk-[A-Za-z0-9]\{20,\}\|api_key.*=.*"[a-zA-Z0-9]\{20,\}"' skills/*/scripts/*.py` — hardcoded secrets (a bare `sk-` matches harmless names like `sk-cached`; require a 20+-char token)
 - `grep -rn 'reconfigure.*utf-8' skills/*/scripts/*.py` — encoding fix presence
-- `grep -rn 'sys.exit|SystemExit' skills/*/scripts/*.py` — CLI dispatch pattern
+- `grep -rn 'sys.exit\|SystemExit' skills/*/scripts/*.py` — CLI dispatch pattern
 
 ## Engine semantics probes (extend Script-quality; from the Oct 2026 pere-toolkit review)
 

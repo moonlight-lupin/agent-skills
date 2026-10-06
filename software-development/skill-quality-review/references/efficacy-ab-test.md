@@ -78,7 +78,7 @@ live skill content and will go stale.
 The A/B procedure above measures one refactor. A skill library also needs a coverage metric, reported alongside review findings:
 
 - **Evals per skill** — map the repo's eval/scenario files to skills and report the count per skill. Flag skills with zero scenarios (Anthropic suggests ≥3 scenarios per skill as a floor).
-- **Model scope** — record which models the plugin targets (from README / plugin.json) and run evals only on those. A judgement-heavy skill excluded from smaller models (an owner's scope call on pere-toolkit, 6 Oct 2026: Haiku out of scope) must never be probed with them — a Haiku run there is noise, not signal. Record the scope decision and rationale next to the eval plan so later runs don't re-litigate it.
+- **Model scope** — record which models the plugin targets (from README / plugin.json) and run evals only on those. A judgement-heavy skill excluded from smaller models (owner's scope call on pere-toolkit, 6 Oct 2026: Haiku out of scope) must never be probed with them — a Haiku run there is noise, not signal. Record the scope decision and rationale next to the eval plan so later runs don't re-litigate it.
 
 Report format: one line per skill — `skill | scenarios=N | models=[...]` — plus the flagged zero-scenario list. A coverage gap is MINOR per skill, and a signal to schedule eval work, not to block a release on its own.
 
