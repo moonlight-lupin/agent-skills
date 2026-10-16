@@ -369,3 +369,33 @@ def test_request_shape_matches_proven_contract():
     questions2, state2 = mod.build_request(
         "delete everything now", [("a", "Alpha things")])
     assert "delete" not in state2["user_query"].lower() or "now" not in state2["user_query"].lower()
+
+def test_each_question_names_its_own_candidate():
+    """Regression: Jev reads each question's instructions against the shared state;
+    the ``rel_<id>`` key is an opaque label to it. When every question carried the
+    same instructions, all candidates got the same question and near-uniform
+    probabilities (0/6 top-1 hits in a live check vs 6/6 once each question named
+    its skill). Every question must be distinct and carry its own id + description."""
+    mod = _fresh_mod()
+    shortlist = [
+        ("weather-lookup", "Weather forecasts for riding decisions"),
+        ("hub-tx-creation", "Add expenses or incomes via bin/tx"),
+        ("copywriting", "Write or improve marketing copy"),
+    ]
+    questions, state = mod.build_request("free some disk space", shortlist)
+    texts = [questions[f"rel_{sid}"]["instructions"] for sid, _ in shortlist]
+    assert len(set(texts)) == len(texts), "identical instructions make every question the same"
+    for (sid, desc), text in zip(shortlist, texts):
+        assert sid in text and desc in text
+        for other, _ in shortlist:
+            if other != sid:
+                assert other not in text
+    # descriptions travel inside their own question, not as a shared blob in state
+    assert state == {"user_query": "free some disk space"}
+
+
+def test_candidate_description_capped_in_question():
+    mod = _fresh_mod()
+    questions, _ = mod.build_request("q", [("a", "x" * 1000)])
+    text = questions["rel_a"]["instructions"]
+    assert "x" * 400 in text and "x" * 401 not in text
