@@ -13,7 +13,9 @@ operators can compute rank flips, displacement, fallback rate, latency and
 cost on real traffic. The log never blocks the turn and is capped by size
 (see ``_write_log``).
 
-Request shape (POST https://api.typesafe.ai/v1/systemone, model jev-latest,
+Request shape (POST https://api.typesafe.ai/v1/systemone, model jev-latest, or
+the same contract on https://openrouter.ai/api/v1/systemone with
+SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter,
 noul questions with true/false criteria dict, one question keyed per
 candidate id).
 
@@ -21,8 +23,8 @@ Injection defense: imperative sentence patterns in the user query are
 neutralised before the query becomes Jev state.
 
 Configuration comes from os.environ only (Hermes loads the active profile's
-.env into os.environ at startup): TYPESAFE_API_KEY, legacy TYPESAFE_KEY
-accepted. The key is never logged, never returned, never included in any
+.env into os.environ at startup): TYPESAFE_API_KEY (legacy TYPESAFE_KEY
+accepted), or OPENROUTER_API_KEY with the openrouter provider. The key is never logged, never returned, never included in any
 record.
 """
 
@@ -40,6 +42,10 @@ logger = logging.getLogger(__name__)
 
 TS_URL = "https://api.typesafe.ai/v1/systemone"
 MODEL_DEFAULT = "jev-latest"
+# OpenRouter serves Jev on the same System One contract; only the URL, key and
+# model id differ. https://openrouter.ai/docs/guides/community/jev
+OPENROUTER_URL = "https://openrouter.ai/api/v1/systemone"
+OPENROUTER_MODEL_DEFAULT = "~typesafe/jev-latest"
 _SHAPES_RE_BODY = (
     r"ignore( all)?( previous| prior)? (instructions|prompts?|messages?)\b"
     r"|disregard( all)? (instructions|prompts?)\b"
@@ -117,6 +123,29 @@ def _env(name: str) -> str:
 
 RERANK_MODE = _parse_rerank_env(_env("SKILL_RETRIEVAL_RERANK"))
 
+
+def _parse_provider_env(raw: str | None) -> str:
+    """Parse SKILL_RETRIEVAL_RERANK_PROVIDER: 'typesafe' (default) or 'openrouter'."""
+    value = (raw or "").strip().lower()
+    if value in ("", "typesafe"):
+        return "typesafe"
+    if value == "openrouter":
+        return "openrouter"
+    logger.warning("Invalid SKILL_RETRIEVAL_RERANK_PROVIDER=%r — using typesafe", raw)
+    return "typesafe"
+
+
+RERANK_PROVIDER = _parse_provider_env(_env("SKILL_RETRIEVAL_RERANK_PROVIDER"))
+
+
+def _endpoint() -> "tuple[str, str]":
+    """(url, model) for the active provider; SKILL_RETRIEVAL_RERANK_MODEL overrides the model."""
+    if RERANK_PROVIDER == "openrouter":
+        url, default_model = OPENROUTER_URL, OPENROUTER_MODEL_DEFAULT
+    else:
+        url, default_model = TS_URL, MODEL_DEFAULT
+    return url, (os.environ.get("SKILL_RETRIEVAL_RERANK_MODEL") or default_model)
+
 #: BM25 shortlist size fed to the reranker (TOP_K is carved out of this).
 RERANK_CANDIDATES = 12
 # Decisive bands outside which Jev's order is trusted; inside the band the
@@ -170,13 +199,16 @@ def _env_log_path() -> Path:
 
 
 def _load_key() -> str | None:
-    """Read TYPESAFE_API_KEY (or legacy TYPESAFE_KEY) from os.environ only.
+    """Read the provider's key from os.environ only: TYPESAFE_API_KEY (legacy
+    TYPESAFE_KEY) for typesafe, OPENROUTER_API_KEY for openrouter.
 
     Hermes loads the active profile's .env into os.environ at startup, so
     environ is the profile-correct source. Reading a .env file directly would
     read the DEFAULT profile's secrets under a non-default profile. Returns
     None when absent.
     """
+    if RERANK_PROVIDER == "openrouter":
+        return os.environ.get("OPENROUTER_API_KEY", "").strip() or None
     primary = os.environ.get("TYPESAFE_API_KEY", "").strip()
     if primary:
         return primary
@@ -258,12 +290,12 @@ def _jev_rerank_call(shortlist, query, key) -> "tuple[dict | None, dict | None, 
     """
     try:
         questions, state = build_request(query, shortlist)
+        url, model = _endpoint()
         body = json.dumps(
-            {"state": state, "model": os.environ.get("SKILL_RETRIEVAL_RERANK_MODEL", MODEL_DEFAULT),
-             "questions": questions},
+            {"state": state, "model": model, "questions": questions},
         ).encode()
         req = urllib.request.Request(
-            TS_URL,
+            url,
             data=body,
             headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"},
         )

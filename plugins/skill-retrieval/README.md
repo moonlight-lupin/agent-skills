@@ -49,12 +49,15 @@ Then restart the Hermes session so the plugin's `register()` runs.
 | BM25 k1 | `1.5` | edit `scripts/bm25_retriever.py` |
 | BM25 b | `0.75` | edit `scripts/bm25_retriever.py` |
 | Jev rerank | off | `SKILL_RETRIEVAL_RERANK=jev` enables; key `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted) from `os.environ` |
+| Rerank provider | `typesafe` | `SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter` calls Jev through [OpenRouter](https://openrouter.ai/docs/guides/community/jev) with `OPENROUTER_API_KEY` |
+| Rerank model | `jev-latest` (typesafe), `~typesafe/jev-latest` (openrouter) | `SKILL_RETRIEVAL_RERANK_MODEL`, e.g. `typesafe/jev-1.14` to pin a version |
 | Rerank A/B log | `$HERMES_HOME/data/jev-trial/rerank_ab_log.jsonl` (rotates to `.1` past 5 MB) | `SKILL_RETRIEVAL_RERANK_LOG` env var |
 
 ```bash
 export SKILL_RETRIEVAL_TOP_K=8
 export SKILL_RETRIEVAL_COMPACT=0  # retrieval-only mode; the skills prompt is left unchanged (the builder is still wrapped to record tool capabilities)
 export SKILL_RETRIEVAL_RERANK=jev  # optional: rerank the top-K with the Jev system-one model
+export SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter  # optional: call Jev through OpenRouter with OPENROUTER_API_KEY instead of a TypeSafe key
 ```
 
 ### Jev rerank
@@ -113,6 +116,11 @@ When you opt in (`SKILL_RETRIEVAL_RERANK=jev` + a key present):
   `os.environ` only — Hermes loads the active profile's `.env` into
   environ at startup, so no other profile's file is ever read. The key is
   never logged, never written, never included in any record.
+- **Through OpenRouter** (`SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter`): the
+  same payload goes to `https://openrouter.ai/api/v1/systemone`, which serves
+  Jev on the same System One contract and forwards it to TypeSafe. The key is
+  `OPENROUTER_API_KEY`, also from `os.environ` only. Each provider reads only
+  its own key, so a TypeSafe key is never sent to OpenRouter and vice versa.
 - **Local log**: each reranked turn appends one JSONL line to
   `$HERMES_HOME/data/jev-trial/rerank_ab_log.jsonl` (override:
   `SKILL_RETRIEVAL_RERANK_LOG`) containing the timestamp, session id, a

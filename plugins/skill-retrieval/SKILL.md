@@ -120,6 +120,7 @@ pip install pyyaml
 | BM25 `k1` | `1.5` | Constant in `scripts/bm25_retriever.py` |
 | BM25 `b` | `0.75` | Constant in `scripts/bm25_retriever.py` |
 | Jev rerank | off | Set `SKILL_RETRIEVAL_RERANK=jev` to enable; key in `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted), read from `os.environ` |
+| Rerank provider | `typesafe` | `SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter` uses `https://openrouter.ai/api/v1/systemone` with `OPENROUTER_API_KEY` |
 | Rerank log path | `$HERMES_HOME/data/jev-trial/rerank_ab_log.jsonl` (rotates past 5 MB) | Env var `SKILL_RETRIEVAL_RERANK_LOG` |
 
 ```bash
@@ -137,7 +138,9 @@ model `jev-latest`). Behavior:
 - **Fail-soft** — 3.0 s timeout, no retries; on any error the request logs a
   warning and BM25's original order stands. Retrieval never blocks on Jev.
 - **Env-only config** — all settings come from `os.environ` (never a file
-  read): `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted). Hermes loads
+  read): `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted), or
+  `OPENROUTER_API_KEY` with `SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter`
+  (same contract, served through OpenRouter). Hermes loads
   the active profile's `.env` into environ at startup, so no cross-profile
   file is ever read.
 - **A/B log** — every query records the timestamp, session id, a 200-char
