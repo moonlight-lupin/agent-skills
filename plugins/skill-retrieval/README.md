@@ -64,7 +64,7 @@ export SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter  # optional: call Jev through 
 
 Optional, off by default. When enabled, the BM25 top-N shortlist is reranked by the Jev system-one judgment model (`api.typesafe.ai/v1/systemone`, model `jev-latest`). It is fail-soft: a 3.0 s timeout with no retries, and any error falls back to the BM25 order. The key is read from `os.environ` only (Hermes loads the active profile's `.env` into environ at startup — no cross-profile file reads). Every query is logged to the A/B log path; `scripts/rerank_ab_report.py` summarizes the log locally. See **Data handling** below for exactly what leaves the machine.
 
-**Evaluate over a period of time before deciding to keep it.** A single session cannot show whether the rerank helps: most turns have near-uniform per-candidate probabilities, so the practical benefit is hard to judge turn by turn. Enable the rerank, use it for real work for at least 1-2 weeks, then review the A/B log with `scripts/rerank_ab_report.py` — look at how often the Jev order differs from the BM25 order (`rank1_flip`), what the per-turn probability spread looks like, and whether the flips are right. If the spread is consistently tiny or the flips look arbitrary, turn it off.
+**Evaluate over a period of time before deciding to keep it.** A single session cannot show whether the rerank helps, so the practical benefit is hard to judge turn by turn. Enable the rerank, use it for real work for at least 1-2 weeks, then review the A/B log with `scripts/rerank_ab_report.py` — look at how often the Jev order differs from the BM25 order (`rank1_flip`), what the per-turn probability spread looks like, and whether the flips are right. If the spread is consistently tiny or the flips look arbitrary, turn it off.
 
 ## Read-only core references
 
@@ -103,10 +103,11 @@ When you opt in (`SKILL_RETRIEVAL_RERANK=jev` + a key present):
 
 - **Sent to `api.typesafe.ai`** (one POST per retrieval turn, model
   `jev-latest`): the user message flattened and stripped of imperative
-  patterns, capped at 2000 characters, plus the top-12 shortlisted skills'
-  descriptions, each capped at 400 characters. The BM25 scores and skill ids
-  never leave the machine beyond those descriptions. The response carries one
-  relevance probability per candidate.
+  patterns, capped at 2000 characters, plus one question per top-12
+  shortlisted skill naming that skill's id and its description — the
+  description is stripped of imperative patterns like the query and capped
+  at 400 characters. BM25 scores never leave the machine. The response
+  carries one relevance probability per candidate.
 - **Key**: `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted), read from
   `os.environ` only — Hermes loads the active profile's `.env` into
   environ at startup, so no other profile's file is ever read. The key is

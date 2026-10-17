@@ -169,27 +169,35 @@ def build_request(query: str, shortlist: "list[tuple[str, str]]") -> "tuple[dict
     """Build the Jev request payload pieces for one rerank turn.
 
     ``shortlist`` is [(skill_id, description), ...] in BM25 order.
-    Returns (questions, state) following the proven /v1/systemone contract:
+    Returns (questions, state) following the /v1/systemone contract:
     one noul per candidate, keyed ``rel_<skill_id>``, true/false criteria.
+
+    Each question names its own candidate in its instructions. Jev judges every
+    question against the shared state, and the question key is an opaque label
+    to it, so identical instructions per candidate make every question the same
+    question and the probabilities come back near-uniform (no usable ranking).
     """
     neutral_query = neutralize_query(query)
     questions: dict = {}
-    items: dict = {}
     for skill_id, description in shortlist:
-        desc = (description or "")[:400]
+        # A description is third-party text (any skill author's wording), and
+        # it now travels inside the question instructions — the channel Jev
+        # judges on — so it gets the same imperative-pattern stripping as the
+        # query. A hostile description must not be able to bias its own
+        # rerank probability from inside the question.
+        desc = neutralize_query(description or "")[:400]
         questions[f"rel_{skill_id}"] = {
             "type": "noul",
             "instructions": (
-                "Is this skill relevant to serve the user's query intent? "
-                "Judge semantic intent match, not exact word overlap."
+                f"Is the skill '{skill_id}' ({desc}) relevant to serve the user's "
+                "query intent? Judge semantic intent match, not exact word overlap."
             ),
             "criteria": {
-                "true": "skill should be surfaced for this query",
-                "false": "skill is unrelated to this query",
+                "true": "this skill should be surfaced for this query",
+                "false": "this skill is unrelated to this query",
             },
         }
-        items[skill_id] = desc
-    state = {"user_query": neutral_query, "skills": items}
+    state = {"user_query": neutral_query}
     return questions, state
 
 
