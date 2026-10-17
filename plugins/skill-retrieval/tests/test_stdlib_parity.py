@@ -41,10 +41,11 @@ def _reference_bm25(
     """
 
     def tok(text: str) -> list[str]:
-        import re
-        text = text.lower()
-        text = re.sub(r"[^\w\s]", " ", text)
-        return text.split()
+        # Delegates to the module's tokenizer: this parity test guards the BM25
+        # MATH (IDF, TF saturation, ranking), not the tokenizer. Duplicating the
+        # tokenizer here made the test fail on every tokenizer change (CJK
+        # bigrams, #22) for a reason the test does not cover.
+        return br.tokenize(text)
 
     tokenized = [tok(t) for t in corpus_texts]
     doc_lens = [len(toks) for toks in tokenized]
@@ -222,7 +223,7 @@ def _load_real_corpus():
         parsed = br._parse_skill_md(skill_md)
         if parsed is None:
             continue
-        name, desc = parsed
+        name, desc, _body = parsed
         if not name or not desc:
             continue
         rel = str(skill_md.parent.relative_to(repo_root))

@@ -98,7 +98,7 @@ def _install_hermes_stubs(monkeypatch, *, conditions_map=None):
     pb._skill_should_show = _should_show
 
     def _parse_like_hermes(skill_file):
-        name, desc = br._parse_skill_md(skill_file)
+        name, desc, _body = br._parse_skill_md(skill_file)
         return True, {"name": name}, desc
 
     pb._parse_skill_file = _parse_like_hermes

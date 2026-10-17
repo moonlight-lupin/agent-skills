@@ -172,8 +172,12 @@ silently empty. After restart, check the Hermes logs.
 
 - **Tokenizer** — lowercases text, strips punctuation, splits on whitespace.
 - **Corpus** — each skill becomes `"name: description"` plus its frontmatter
-  `triggers:` list and `metadata.hermes.tags` (when present) from SKILL.md YAML.
-  Trigger phrases and tags participate in retrieval scoring but only the
+  `triggers:` list and `metadata.hermes.tags` (when present) and a 3000-character
+  preview of the SKILL.md body after the frontmatter. CJK runs have no whitespace
+  boundaries, so the tokenizer emits bigrams for them; with the body preview in
+  the corpus a Chinese query can match skill *content*, not just the (usually
+  English) description. Trigger phrases, tags and the body participate in
+  retrieval scoring but only the
   description is injected into the prompt. Disabled skills from
   `~/.hermes/config.yaml` are skipped.
 - **Index** — BM25 Okapi TF saturation + Lucene IDF

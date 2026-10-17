@@ -47,7 +47,7 @@ def _install_discovery(monkeypatch, *, skills_dirs, disabled, plugins_root):
     pb._skill_should_show = lambda *a, **k: True
 
     def _parse(skill_file):
-        name, desc = br._parse_skill_md(skill_file)
+        name, desc, _body = br._parse_skill_md(skill_file)
         return True, {"name": name}, desc
 
     def _entry(skill_file, skill_root, frontmatter, description):

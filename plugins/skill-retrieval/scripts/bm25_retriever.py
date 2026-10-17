@@ -92,16 +92,30 @@ def tokenize(text: str) -> list[str]:
             text = str(text)
     text = text.lower()
     text = re.sub(r"[^\w\s]", " ", text)
-    return text.split()
+    tokens: list[str] = []
+    for token in text.split():
+        # CJK runs have no whitespace boundaries: a whole Chinese sentence would
+        # otherwise become ONE token and match nothing in the index. Emit
+        # bigrams so a Chinese query can hit Chinese corpus text. ASCII
+        # tokens pass through unchanged.
+        if len(token) == 1 or not any("\u4e00" <= ch <= "\u9fff" for ch in token):
+            tokens.append(token)
+            continue
+        # Bigrams only. For a 2-character token the single bigram IS the
+        # token; appending it and its bigram would emit the same string
+        # twice and double-count its TF on documents and queries.
+        for i in range(len(token) - 1):
+            tokens.append(token[i : i + 2])
+    return tokens
 
 
 # ─── Skill corpus loader ──────────────────────────────────────────────────────
 
-def _parse_skill_md(skill_md: Path) -> tuple[str, str]:
-    """Return (name, description) parsed from a SKILL.md frontmatter.
+def _parse_skill_md(skill_md: Path) -> tuple[str, str, str]:
+    """Return (name, description, body_preview) parsed from a SKILL.md frontmatter.
 
-    Returns ("", "") for valid frontmatter with missing name/description.
-    Returns ("", "") for invalid frontmatter (no fences, malformed YAML,
+    Returns ("", "", "") for valid frontmatter with missing name/description.
+    Returns ("", "", "") for invalid frontmatter (no fences, malformed YAML,
     non-mapping) and for a file that cannot be read. Never raises, so one
     unreadable skill cannot abort the whole index build.
     """
@@ -111,14 +125,14 @@ def _parse_skill_md(skill_md: Path) -> tuple[str, str]:
         text = skill_md.read_text(errors="replace")
     except OSError as exc:
         logger.warning("Cannot read %s: %s", skill_md, exc)
-        return "", ""
+        return "", "", ""
     lines = text.splitlines()
 
     # Frontmatter must start at the first line (allowing optional BOM).
     first_line = lines[0].lstrip("\ufeff").strip() if lines else ""
     if first_line != "---":
         logger.warning("No YAML frontmatter in %s (first line is not '---')", skill_md)
-        return "", ""
+        return "", "", ""
 
     # Find the closing fence.
     close_idx = None
@@ -128,18 +142,18 @@ def _parse_skill_md(skill_md: Path) -> tuple[str, str]:
             break
     if close_idx is None:
         logger.warning("No closing YAML frontmatter fence in %s", skill_md)
-        return "", ""
+        return "", "", ""
 
     fm_text = "\n".join(lines[1:close_idx])
     try:
         data = yaml.safe_load(fm_text)
     except yaml.YAMLError:
         logger.warning("Malformed YAML frontmatter in %s", skill_md)
-        return "", ""
+        return "", "", ""
 
     if not isinstance(data, dict):
         logger.warning("Non-mapping YAML frontmatter in %s", skill_md)
-        return "", ""
+        return "", "", ""
 
     name = data.get("name")
     desc = data.get("description")
@@ -148,7 +162,13 @@ def _parse_skill_md(skill_md: Path) -> tuple[str, str]:
 
     name_str = "" if name is None else str(name)
     desc_str = "" if desc is None else str(desc)
-    return name_str, desc_str
+    # Body preview (first ~3000 chars after the frontmatter) joins the BM25
+    # corpus: Chinese queries match skill CONTENT, not just the (usually
+    # English) description. Size-capped so one huge SKILL.md cannot bloat
+    # the index build.
+    body_lines = lines[close_idx + 1 :]
+    body_preview = " ".join(line.strip() for line in body_lines if line.strip())[:3000]
+    return name_str, desc_str, body_preview
 
 
 def _iter_skill_files(root: Path, prefix: str = "") -> list[tuple[Path, str, str]]:
@@ -219,17 +239,22 @@ def _record_skill(skills: list[dict], seen_names: set[str], entry: dict, *, pref
         return
     seen_names.add(name)
     desc = str(entry.get("description") or "")
-    # Trigger phrases and tags broaden BM25 recall beyond the description:
-    # the indexed document is the retrieval surface (name: desc + lists),
-    # while only the description is injected. A skill that declares triggers
-    # can fire on queries the short description cannot cover.
+    # Trigger phrases, tags and the body preview broaden BM25 recall beyond
+    # the description: the indexed document is the retrieval surface
+    # (name: desc + lists + body preview), while only the description is
+    # injected. Trigger phrases cover queries the short description cannot;
+    # the CJK bigram tokenizer needs Chinese body text to match Chinese
+    # queries against.
     triggers = entry.pop("_triggers", None)
     tags = entry.pop("_tags", None)
+    body = entry.pop("_body_preview", None)
     text = f"{name}: {desc}"
     if triggers:
         text += " triggers: " + " ".join(triggers)
     if tags:
         text += " tags: " + " ".join(tags)
+    if body:
+        text += "\n" + body
     skills.append({
         "skill_id": _skill_id_from_entry(entry, prefix=prefix),
         "leaf_name": str(entry.get("skill_name") or name),
@@ -415,7 +440,7 @@ def _load_active_skills_legacy(
         if leaf_name in disabled or rel_name in disabled:
             continue
 
-        name, desc = _parse_skill_md(skill_md)
+        name, desc, body_preview = _parse_skill_md(skill_md)
         if not name:
             name = leaf_name
 
@@ -424,7 +449,10 @@ def _load_active_skills_legacy(
             "leaf_name": leaf_name,
             "name": name,
             "description": desc,
-            "text": f"{name}: {desc}",
+            # Body preview joins the indexed text so CJK queries (bigrams) can
+            # hit skill content beyond the frontmatter — most writing-skill
+            # descriptions are English while queries are Chinese.
+            "text": f"{name}: {desc}\n{body_preview}",
             # Legacy/fallback entries are not the plugin directory scan.
             "plugin_origin": False,
         })
@@ -577,6 +605,12 @@ def _load_active_skills_hermes(
                 return
             if not _skill_doc_is_visible(entry, visible_names):
                 return
+            # Body preview joins the indexed document (see _record_skill): the
+            # CJK bigram tokenizer needs Chinese body text to match Chinese
+            # queries against — most skill descriptions are English.
+            # _parse_skill_md never raises; it re-reads the file once per
+            # indexed skill at index build.
+            entry["_body_preview"] = _parse_skill_md(skill_file)[2]
             _record_skill(skills, seen_names, entry, prefix=prefix)
         except (TypeError, AttributeError) as exc:
             # Signature change in a core helper is systemic, not per-file:
@@ -663,6 +697,10 @@ def _load_active_skills_hermes(
             "description": desc,
         }
         entry["_triggers"], entry["_tags"] = _frontmatter_keywords(frontmatter)
+        # Same body-preview join as the directory scan (see _record_skill).
+        entry["_body_preview"] = (
+            _parse_skill_md(Path(str(skill_path)))[2] if skill_path else ""
+        )
         # Registry ids are ``plugin:skill`` and are absent from <available_skills>.
         _record_skill(skills, seen_names, entry)
 

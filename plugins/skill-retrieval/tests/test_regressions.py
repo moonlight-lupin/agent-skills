@@ -37,7 +37,7 @@ def test_parse_skill_md_does_not_bleed_later_keys(tmp_path):
         "  owner: bob\n"
         "---\n"
     )
-    name, desc = br._parse_skill_md(skill_md)
+    name, desc, _body = br._parse_skill_md(skill_md)
     assert name == "demo"
     assert desc == "Convert CSV files to JSON."
     assert "sausage" not in desc.lower()
@@ -49,7 +49,7 @@ def test_parse_skill_md_does_not_bleed_later_keys(tmp_path):
 def test_parse_skill_md_own_plugin_skilmd_no_bleed():
     """The plugin's own SKILL.md must not bleed ``plugin_type`` / ``hooks``."""
     skill_md = PLUGIN_DIR / "SKILL.md"
-    name, desc = br._parse_skill_md(skill_md)
+    name, desc, _body = br._parse_skill_md(skill_md)
     assert name == "skill-retrieval"
     assert "plugin_type" not in desc
     assert "hooks" not in desc
@@ -72,7 +72,7 @@ def test_parse_skill_md_block_scalar_indicator_stripped(tmp_path, indicator):
         "  Second line.\n"
         "---\n"
     )
-    _, desc = br._parse_skill_md(skill_md)
+    _, desc, _body = br._parse_skill_md(skill_md)
     assert not desc.startswith((">", "|"))
     assert "multi-line description" in desc
     assert "Second line" in desc

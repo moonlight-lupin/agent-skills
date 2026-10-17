@@ -63,7 +63,7 @@ def _install_hermes_stubs(monkeypatch, tmp_path, *roots):
     pb._skill_should_show = lambda conditions, tools, toolsets, platform=None: True
 
     def _parse(skill_file):
-        name, desc = br._parse_skill_md(skill_file)
+        name, desc, _body = br._parse_skill_md(skill_file)
         return True, {"name": name}, desc
 
     def _entry(skill_file, root, frontmatter, description):

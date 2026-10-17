@@ -43,7 +43,7 @@ def _install_three_arg_hermes(monkeypatch, tmp_path):
     pb._skill_should_show = _should_show_v0205
 
     def _parse_skill_file(skill_file):
-        name, desc = br._parse_skill_md(skill_file)
+        name, desc, _body = br._parse_skill_md(skill_file)
         return True, {"name": name}, desc
 
     def _build_snapshot_entry(skill_file, root, frontmatter, description):

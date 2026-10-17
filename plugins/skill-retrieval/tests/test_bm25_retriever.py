@@ -44,7 +44,7 @@ def test_parse_skill_md_basic(tmp_path):
         "---\n"
         "\n# Body\n"
     )
-    name, desc = br._parse_skill_md(skill_md)
+    name, desc, _body = br._parse_skill_md(skill_md)
     assert name == "deep-research"
     assert desc == "Autonomous research loop"
 
@@ -60,7 +60,7 @@ def test_parse_skill_md_multiline_description(tmp_path):
         "author: moonlight-lupin\n"
         "---\n"
     )
-    name, desc = br._parse_skill_md(skill_md)
+    name, desc, _body = br._parse_skill_md(skill_md)
     assert name == "skill-retrieval"
     assert "BM25-based skill retrieval plugin." in desc
     assert "Saves tokens per turn." in desc
@@ -69,7 +69,7 @@ def test_parse_skill_md_multiline_description(tmp_path):
 def test_parse_skill_md_missing_fields(tmp_path):
     skill_md = tmp_path / "SKILL.md"
     skill_md.write_text("---\nversion: 1.0\n---\n# No name\n")
-    name, desc = br._parse_skill_md(skill_md)
+    name, desc, _body = br._parse_skill_md(skill_md)
     assert name == ""
     assert desc == ""
 
@@ -320,7 +320,7 @@ def test_load_active_skills_uses_hermes_discovery_precedence(tmp_path, monkeypat
     prompt_builder._skill_should_show = lambda *args, **kwargs: True
 
     def parse_skill_file(skill_file):
-        name, desc = br._parse_skill_md(skill_file)
+        name, desc, _body = br._parse_skill_md(skill_file)
         return True, {"name": name}, desc
 
     def build_snapshot_entry(skill_file, root, frontmatter, description):
