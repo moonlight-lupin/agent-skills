@@ -148,7 +148,12 @@ def build_request(query: str, shortlist: "list[tuple[str, str]]") -> "tuple[dict
     neutral_query = neutralize_query(query)
     questions: dict = {}
     for skill_id, description in shortlist:
-        desc = (description or "")[:400]
+        # A description is third-party text (any skill author's wording), and
+        # it now travels inside the question instructions — the channel Jev
+        # judges on — so it gets the same imperative-pattern stripping as the
+        # query. A hostile description must not be able to bias its own
+        # rerank probability from inside the question.
+        desc = neutralize_query(description or "")[:400]
         questions[f"rel_{skill_id}"] = {
             "type": "noul",
             "instructions": (
