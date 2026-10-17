@@ -58,10 +58,15 @@ ENV_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 # Unanchored pass for third-party skill descriptions: the whole string is
-# metadata we control the use of, so an imperative shape ANYWHERE in a
-# description is stripped before it reaches the question instructions.
+# metadata we control the use of, so a recognized imperative shape ANYWHERE
+# in a description (after any non-word separator: punctuation, quotes,
+# brackets, colons) is stripped before it reaches the question instructions.
+# The tail is newline-aware: it strips through sentence terminators and,
+# when the shape ends in a newline, through that line break as well. Free
+# text that contains no recognized shape is NOT detectable — Jev remains
+# the judge and the A/B log keeps the raw shortlist for spot checks.
 ENV_INJECT_RE = re.compile(
-    r"(?:^|(?<=[\s.!?-]))(" + _SHAPES_RE_BODY + r")[^.\n]*[.\n]?\s*",
+    r"(?:^|(?<=[^\w]))(" + _SHAPES_RE_BODY + r")[^.!?\n]*[.!?\n]?\s*",
     re.IGNORECASE,
 )
 
@@ -176,8 +181,9 @@ def build_request(query: str, shortlist: "list[tuple[str, str]]") -> "tuple[dict
         # it now travels inside the question instructions — the channel Jev
         # judges on — so imperative shapes are stripped with two passes:
         # leading (_SHAPES prefix) and anywhere-in-string (_SHAPES unanchored).
-        # The user query keeps the leading-only pass: its mid-query text is
-        # the user's own words, not attacker-controlled metadata.
+        # The user query keeps leading-only stripping; descriptions strip
+        # recognized shapes anywhere (the query's own mid-text is the user's
+        # words, not attacker-controlled metadata).
         desc = _neutralize_desc(description or "")[:400]
         questions[f"rel_{skill_id}"] = {
             "type": "noul",
