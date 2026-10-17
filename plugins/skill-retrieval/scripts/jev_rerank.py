@@ -65,7 +65,14 @@ ENV_PREFIX_RE = re.compile(
 # quotes, brackets, colons, ACCENTED LATIN and CJK characters all allow
 # the strip (explicit codepoints instead of Python's Unicode-\w lookbehind,
 # which treats CJK as word characters and would block CJK-preceded shapes).
-_DESC_BOUNDARY = r"(?:^|(?<![a-z0-9_]))"
+# The class is written as NUMERIC RANGES (\\x41-\\x5A etc.), not literal
+# letters, and the flag is scoped to the shape group only: Python 3.14
+# expands literal members of a character class into their full folding
+# orbit under (?i) — 'K' (U+004B) would also match the Kelvin sign (U+212A),
+# and 'İ'/'ı'/'ſ' block the strip as if they were plain letters. Ranges
+# fold-check the lowercased char instead, so only true ASCII letters block
+# the strip.
+_DESC_BOUNDARY = r"(?:^|(?<![0-9\x41-\x5A\x61-\x7A\x5F]))"
 # Unanchored pass for third-party skill descriptions, narrowed to the
 # UNAMBIGUOUS injection shapes. 'system:', 'new task:', 'delete all',
 # 'erase all' and 'forget your' are ordinary wording in skill
@@ -77,14 +84,13 @@ _DESC_BOUNDARY = r"(?:^|(?<![a-z0-9_]))"
 # context; text with no recognized shape is not detectable — Jev
 # remains the judge and the A/B log keeps the raw shortlist.
 ENV_INJECT_RE = re.compile(
-    _DESC_BOUNDARY + r"(?:"
+    _DESC_BOUNDARY + r"(?i:(?:"
     r"ignore( all)?( previous| prior)? (instructions|prompts?|messages?)\b"
     r"|disregard( all)? (instructions|prompts?)\b"
     r"|system prompt:"
     r"|you are now\b"
     r"|override( your)? (instructions|rules)\b"
-    r")[.!?\n]?[ \t]*",
-    re.IGNORECASE,
+    r"))[.!?\n]?[ \t]*",
 )
 
 
