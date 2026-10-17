@@ -151,8 +151,10 @@ def build_request(query: str, shortlist: "list[tuple[str, str]]") -> "tuple[dict
         # A description is third-party text (any skill author's wording), and
         # it now travels inside the question instructions — the channel Jev
         # judges on — so it gets the same imperative-pattern stripping as the
-        # query. A hostile description must not be able to bias its own
-        # rerank probability from inside the question.
+        # query. Defense-in-depth only: ENV_PREFIX_RE is ^-anchored, so
+        # leading injection shapes are stripped, but a pattern embedded
+        # mid-description still reaches Jev. Jev remains the judge; the log
+        # keeps the raw shortlist for spot checks.
         desc = neutralize_query(description or "")[:400]
         questions[f"rel_{skill_id}"] = {
             "type": "noul",
