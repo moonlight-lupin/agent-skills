@@ -52,9 +52,11 @@ _SHAPES_RE_BODY = (
     r"|override (your )?(instructions|rules)\b"
 )
 # ^-anchored pass for the user query: a legit query may quote imperative
-# text in the middle, so only the leading shape is stripped.
+# text in the middle, so only the leading shape is stripped. Same sentence
+# tail as the unanchored pass: stops at the first . ! ? or line break, so
+# text after a !/?-terminated shape survives.
 ENV_PREFIX_RE = re.compile(
-    r"^(" + _SHAPES_RE_BODY + r")[^.\n]*[.\n]?\s*",
+    r"^(" + _SHAPES_RE_BODY + r")[^.!?\n]*[.!?\n]?\s*",
     re.IGNORECASE,
 )
 # Unanchored pass for third-party skill descriptions: the whole string is
