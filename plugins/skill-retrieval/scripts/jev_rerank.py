@@ -41,16 +41,16 @@ logger = logging.getLogger(__name__)
 TS_URL = "https://api.typesafe.ai/v1/systemone"
 MODEL_DEFAULT = "jev-latest"
 ENV_PREFIX_RE = re.compile(
-    r"^(ignore( all)?( previous| prior)? (instructions|prompts?|messages?)"
-    r"|disregard( all)? (instructions|prompts?)"
+    r"^(ignore( all)?( previous| prior)? (instructions|prompts?|messages?)\b"
+    r"|disregard( all)? (instructions|prompts?)\b"
     r"|system( prompt)?:"
-    r"|you are now"
+    r"|you are now\b"
     r"|new (instructions|task):"
-    r"|delete (everything|all)"
-    r"|erase (everything|all)"
-    r"|forget (everything|all|your)"
-    r"|override (your )?(instructions|rules)"
-    r")\b[^.\n]*[.\n]?\s*",
+    r"|delete (everything|all)\b"
+    r"|erase (everything|all)\b"
+    r"|forget (everything|all|your)\b"
+    r"|override (your )?(instructions|rules)\b"
+    r")[^.\n]*[.\n]?\s*",
     re.IGNORECASE,
 )
 
