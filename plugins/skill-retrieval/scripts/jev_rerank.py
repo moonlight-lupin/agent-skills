@@ -57,7 +57,7 @@ _SHAPES_RE_BODY = (
 # common legitimate phrasing also uses — 'delete all', 'system:' — only
 # cost the query when they sit at the very start).
 ENV_PREFIX_RE = re.compile(
-    r"^(" + _SHAPES_RE_BODY + r")[^.!?\n]*[.!?\n]?\s*",
+    r"^(" + _SHAPES_RE_BODY + r")[^.!?\n]{0,80}[.!?\n]?\s*",
     re.IGNORECASE,
 )
 # Boundary for the description pass: a shape may sit after ANY separator
@@ -65,7 +65,7 @@ ENV_PREFIX_RE = re.compile(
 # punctuation, quotes, brackets, colon, or a CJK character).
 _DESC_BOUNDARY = (
     r"(?:^|(?<![a-z0-9_\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff"
-    r"\uac00-\ud7af\u3131-\u314e\uff66-\uff9f]))"
+    r"\uac00-\ud7af\uff66-\uff9f]))"
 )
 # Unanchored pass for third-party skill descriptions, narrowed to the
 # UNAMBIGUOUS injection shapes. 'system:', 'new task:', 'delete all',
@@ -82,7 +82,7 @@ ENV_INJECT_RE = re.compile(
     r"|system prompt:"
     r"|you are now\b"
     r"|override( your)? (instructions|rules)\b"
-    r")[^.!?\n]*[.!?\n]?\s*",
+    r")[^.!?\n]{0,80}[.!?\n]?\s*",
     re.IGNORECASE,
 )
 
@@ -134,7 +134,9 @@ def neutralize_query(query) -> str:
         return ""
     text = query if isinstance(query, str) else str(query)
     cur = re.sub(r"\s+", " ", text).strip()
-    for _ in range(8):
+    # Repeat until stable; strictly shortening, so it terminates (a query
+    # with N leading copies of a shape needs N passes — no fixed cap there).
+    while True:
         nxt = ENV_PREFIX_RE.sub("", cur)
         if nxt == cur:
             break
@@ -183,7 +185,11 @@ def _neutralize_desc(text: str) -> str:
     shape set (neutralize_query).
     """
     cur = re.sub(r"\s+", " ", text).strip()
-    for _ in range(8):
+    # Repeat until stable: each strip removes the matched shape (always
+    # non-empty), so the string strictly shortens and the loop terminates —
+    # consecutive copies of a shape are all removed, with no pass cap to
+    # leak the tail copies.
+    while True:
         nxt = ENV_INJECT_RE.sub("", cur)
         if nxt == cur:
             break
@@ -352,16 +358,14 @@ def rerank(query, shortlist=None, rerank_candidates: int = RERANK_CANDIDATES) ->
         capped = shortlist
     tail = shortlist[len(capped):]  # beyond the cap: BM25 order, never sent
 
-    # A query whose text neutralized away entirely gives Jev nothing to
-    # judge against — the BM25 order stands (predates the description
-    # change; made explicit here).
-    if not neutralize_query(query):
-        return {"order": [s[0] for s in shortlist], "skipped": True,
-                "fallback_reason": "empty_query"}
-
     key = _load_key()
     probs, usage, error = (None, None, "missing_key")
-    if key:
+    if not neutralize_query(query):
+        # A query whose text neutralized away entirely gives Jev nothing
+        # to judge against — go through the shared fallback path below so
+        # the A/B log stays complete.
+        error = "empty_query"
+    elif key:
         # Description text for Jev state comes from the shortlist tuples when
         # present; the caller may pass (skill_id, score, description) triples.
         # Only the capped head is sent — the tail never leaves the machine.
