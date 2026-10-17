@@ -40,8 +40,8 @@ logger = logging.getLogger(__name__)
 
 TS_URL = "https://api.typesafe.ai/v1/systemone"
 MODEL_DEFAULT = "jev-latest"
-ENV_PREFIX_RE = re.compile(
-    r"^(ignore( all)?( previous| prior)? (instructions|prompts?|messages?)\b"
+_SHAPES_RE_BODY = (
+    r"ignore( all)?( previous| prior)? (instructions|prompts?|messages?)\b"
     r"|disregard( all)? (instructions|prompts?)\b"
     r"|system( prompt)?:"
     r"|you are now\b"
@@ -50,7 +50,18 @@ ENV_PREFIX_RE = re.compile(
     r"|erase (everything|all)\b"
     r"|forget (everything|all|your)\b"
     r"|override (your )?(instructions|rules)\b"
-    r")[^.\n]*[.\n]?\s*",
+)
+# ^-anchored pass for the user query: a legit query may quote imperative
+# text in the middle, so only the leading shape is stripped.
+ENV_PREFIX_RE = re.compile(
+    r"^(" + _SHAPES_RE_BODY + r")[^.\n]*[.\n]?\s*",
+    re.IGNORECASE,
+)
+# Unanchored pass for third-party skill descriptions: the whole string is
+# metadata we control the use of, so an imperative shape ANYWHERE in a
+# description is stripped before it reaches the question instructions.
+ENV_INJECT_RE = re.compile(
+    r"(?:^|(?<=[\s.!?-]))(" + _SHAPES_RE_BODY + r")[^.\n]*[.\n]?\s*",
     re.IGNORECASE,
 )
 
@@ -133,6 +144,19 @@ def _load_key() -> str | None:
     return legacy or None
 
 
+def _neutralize_desc(text: str) -> str:
+    """Strip imperative injection shapes from a skill description.
+
+    Two passes: the ^-anchored prefix strip, then an unanchored pass.
+    Descriptions are metadata (not user speech), so an imperative shape
+    anywhere in one is stripped before it reaches the question instructions.
+    The user query keeps the leading-only pass (neutralize_query).
+    """
+    neutral = ENV_PREFIX_RE.sub("", text)
+    neutral = ENV_INJECT_RE.sub("", neutral)
+    return re.sub(r"\s+", " ", neutral).strip()
+
+
 def build_request(query: str, shortlist: "list[tuple[str, str]]") -> "tuple[dict, dict]":
     """Build the Jev request payload pieces for one rerank turn.
 
@@ -150,12 +174,11 @@ def build_request(query: str, shortlist: "list[tuple[str, str]]") -> "tuple[dict
     for skill_id, description in shortlist:
         # A description is third-party text (any skill author's wording), and
         # it now travels inside the question instructions — the channel Jev
-        # judges on — so it gets the same imperative-pattern stripping as the
-        # query. Defense-in-depth only: ENV_PREFIX_RE is ^-anchored, so
-        # leading injection shapes are stripped, but a pattern embedded
-        # mid-description still reaches Jev. Jev remains the judge; the log
-        # keeps the raw shortlist for spot checks.
-        desc = neutralize_query(description or "")[:400]
+        # judges on — so imperative shapes are stripped with two passes:
+        # leading (_SHAPES prefix) and anywhere-in-string (_SHAPES unanchored).
+        # The user query keeps the leading-only pass: its mid-query text is
+        # the user's own words, not attacker-controlled metadata.
+        desc = _neutralize_desc(description or "")[:400]
         questions[f"rel_{skill_id}"] = {
             "type": "noul",
             "instructions": (
