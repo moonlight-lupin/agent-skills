@@ -100,11 +100,13 @@ When you opt in (`SKILL_RETRIEVAL_RERANK=jev` + a key present):
 
 - **Sent to `api.typesafe.ai`** (one POST per retrieval turn, model
   `jev-latest`): the user message flattened, stripped of leading imperative
-  shapes over the full shape set, capped at 2000 characters, plus one
+  shapes over the full shape set (shape plus its following sentence), capped
+  at 2000 characters, plus one
   question per top-12 shortlisted skill naming that skill's id and its
-  description — the description is whitespace-normalized and recognizable
-  unambiguous imperative shapes are stripped wherever they appear (ordinary
-  wordings like 'new task:', 'delete all' are kept), capped at 400
+  description — the description is whitespace-normalized and unambiguous
+  imperative shapes are removed wherever they appear (the shape itself plus
+  its trailing whitespace and terminator; sentence text around it stays;
+  ordinary wordings like 'new task:', 'delete all' are kept), capped at 400
   characters. BM25 scores never leave the machine. The response
   carries one relevance probability per candidate.
 - **Key**: `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted), read from

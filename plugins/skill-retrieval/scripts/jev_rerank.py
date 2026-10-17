@@ -57,7 +57,7 @@ _SHAPES_RE_BODY = (
 # common legitimate phrasing also uses — 'delete all', 'system:' — only
 # cost the query when they sit at the very start).
 ENV_PREFIX_RE = re.compile(
-    r"^(" + _SHAPES_RE_BODY + r")[^.!?\n]{0,80}[.!?\n]?\s*",
+    r"^(" + _SHAPES_RE_BODY + r")[^.!?\n]*[.!?\n]?\s*",
     re.IGNORECASE,
 )
 # Boundary for the description pass: a shape may sit after ANY separator
@@ -72,8 +72,10 @@ _DESC_BOUNDARY = (
 # 'erase all' and 'forget your' are ordinary wording in skill
 # descriptions (build systems, task lists, cleanup skills), so only the
 # shapes that essentially never appear in legitimate description text
-# are stripped; a match consumes its sentence (up to the first . ! ? or
-# line break). Text with no recognized shape is not detectable — Jev
+# are REMOVED — the shape itself plus its trailing whitespace and one
+# sentence terminator. Sentence text around the shape stays (bounded
+# damage), so a description ABOUT ignoring instructions keeps its
+# context; text with no recognized shape is not detectable — Jev
 # remains the judge and the A/B log keeps the raw shortlist.
 ENV_INJECT_RE = re.compile(
     _DESC_BOUNDARY + r"(?:"
@@ -82,7 +84,7 @@ ENV_INJECT_RE = re.compile(
     r"|system prompt:"
     r"|you are now\b"
     r"|override( your)? (instructions|rules)\b"
-    r")[^.!?\n]{0,80}[.!?\n]?\s*",
+    r")[.!?\n]?[ \t]*",
     re.IGNORECASE,
 )
 
