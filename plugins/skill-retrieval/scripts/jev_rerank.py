@@ -135,7 +135,12 @@ def neutralize_query(query) -> str:
     if query is None:
         return ""
     text = query if isinstance(query, str) else str(query)
-    cur = re.sub(r"\s+", " ", text).strip()
+    # Zero-width characters cannot hide a shape from the stripper.
+    text = re.sub(r"[\u200b-\u200d\u2060\ufeff]", "", text)
+    # Cap FIRST: the strip loop rescans the residual once per shape, so an
+    # unbounded input is quadratic; past the cap nothing recognizable is
+    # sent anyway.
+    cur = re.sub(r"\s+", " ", text).strip()[:2000]
     # Repeat until stable; strictly shortening, so it terminates (a query
     # with N leading copies of a shape needs N passes — no fixed cap there).
     while True:
@@ -186,7 +191,9 @@ def _neutralize_desc(text: str) -> str:
     The query keeps the other contract: leading-only pass over the FULL
     shape set (neutralize_query).
     """
-    cur = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"[\u200b-\u200d\u2060\ufeff]", "", text)
+    # Cap first (see neutralize_query): bounded scan per pass.
+    cur = re.sub(r"\s+", " ", text).strip()[:3000]
     # Repeat until stable: each strip removes the matched shape (always
     # non-empty), so the string strictly shortens and the loop terminates —
     # consecutive copies of a shape are all removed, with no pass cap to
@@ -216,11 +223,11 @@ def build_request(query: str, shortlist: "list[tuple[str, str]]") -> "tuple[dict
     for skill_id, description in shortlist:
         # A description is third-party text (any skill author's wording), and
         # it now travels inside the question instructions — the channel Jev
-        # judges on — so imperative shapes are stripped with two passes:
-        # leading (_SHAPES prefix) and anywhere-in-string (_SHAPES unanchored).
-        # The user query keeps leading-only stripping; descriptions strip
-        # recognized shapes anywhere (the query's own mid-text is the user's
-        # words, not attacker-controlled metadata).
+        # judges on — so the unambiguous injection shapes are removed from it
+        # wherever they appear (whitespace-normalized, repeat-until-stable;
+        # _neutralize_desc below). The user query keeps the leading-only
+        # pass over the full shape set: its mid-query text is the user's
+        # own words, not attacker-controlled metadata.
         desc = _neutralize_desc(description or "")[:400]
         questions[f"rel_{skill_id}"] = {
             "type": "noul",
