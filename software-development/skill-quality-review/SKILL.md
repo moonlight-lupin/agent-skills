@@ -3,7 +3,7 @@ name: skill-quality-review
 description: "Use when auditing or reviewing skill quality — batch checks across a library, deep per-skill grep methodology, usage stats, efficacy testing, or fix planning. Single consolidated home for the writing-for-agents review framework and the 3-surface review methodology."
 license: MIT
 metadata:
-  version: 1.2.1
+  version: 1.2.2
   author: moonlight-lupin
   hermes:
     tags: [skills, review, audit, quality, batch]
