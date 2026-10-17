@@ -61,12 +61,11 @@ ENV_PREFIX_RE = re.compile(
     re.IGNORECASE,
 )
 # Boundary for the description pass: a shape may sit after ANY separator
-# that is not a letter/digit inside the covered scripts (space,
-# punctuation, quotes, brackets, colon, or a CJK character).
-_DESC_BOUNDARY = (
-    r"(?:^|(?<![a-z0-9_\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff"
-    r"\uac00-\ud7af\uff66-\uff9f]))"
-)
+# that is not a plain-ASCII letter/digit/underscore — space, punctuation,
+# quotes, brackets, colons, ACCENTED LATIN and CJK characters all allow
+# the strip (explicit codepoints instead of Python's Unicode-\w lookbehind,
+# which treats CJK as word characters and would block CJK-preceded shapes).
+_DESC_BOUNDARY = r"(?:^|(?<![a-z0-9_]))"
 # Unanchored pass for third-party skill descriptions, narrowed to the
 # UNAMBIGUOUS injection shapes. 'system:', 'new task:', 'delete all',
 # 'erase all' and 'forget your' are ordinary wording in skill
