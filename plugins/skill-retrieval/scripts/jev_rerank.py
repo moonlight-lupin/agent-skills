@@ -52,23 +52,37 @@ _SHAPES_RE_BODY = (
     r"|override (your )?(instructions|rules)\b"
 )
 # ^-anchored pass for the user query: a legit query may quote imperative
-# text in the middle, so only the leading shape is stripped. Same sentence
-# tail as the unanchored pass: stops at the first . ! ? or line break, so
-# text after a !/?-terminated shape survives.
+# text in the middle, so only the leading shape is stripped. The full
+# shape set applies (a query is one turn's own words; the shapes that
+# common legitimate phrasing also uses — 'delete all', 'system:' — only
+# cost the query when they sit at the very start).
 ENV_PREFIX_RE = re.compile(
     r"^(" + _SHAPES_RE_BODY + r")[^.!?\n]*[.!?\n]?\s*",
     re.IGNORECASE,
 )
-# Unanchored pass for third-party skill descriptions: the whole string is
-# metadata we control the use of, so a recognized imperative shape ANYWHERE
-# in a description (after any non-word separator: punctuation, quotes,
-# brackets, colons) is stripped before it reaches the question instructions.
-# The tail is newline-aware: it strips through sentence terminators and,
-# when the shape ends in a newline, through that line break as well. Free
-# text that contains no recognized shape is NOT detectable — Jev remains
-# the judge and the A/B log keeps the raw shortlist for spot checks.
+# Boundary for the description pass: a shape may sit after ANY separator
+# that is not a letter/digit inside the covered scripts (space,
+# punctuation, quotes, brackets, colon, or a CJK character).
+_DESC_BOUNDARY = (
+    r"(?:^|(?<![a-z0-9_\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff"
+    r"\uac00-\ud7af\u3131-\u314e\uff66-\uff9f]))"
+)
+# Unanchored pass for third-party skill descriptions, narrowed to the
+# UNAMBIGUOUS injection shapes. 'system:', 'new task:', 'delete all',
+# 'erase all' and 'forget your' are ordinary wording in skill
+# descriptions (build systems, task lists, cleanup skills), so only the
+# shapes that essentially never appear in legitimate description text
+# are stripped; a match consumes its sentence (up to the first . ! ? or
+# line break). Text with no recognized shape is not detectable — Jev
+# remains the judge and the A/B log keeps the raw shortlist.
 ENV_INJECT_RE = re.compile(
-    r"(?:^|(?<=[^\w]))(" + _SHAPES_RE_BODY + r")[^.!?\n]*[.!?\n]?\s*",
+    _DESC_BOUNDARY + r"(?:"
+    r"ignore( all)?( previous| prior)? (instructions|prompts?|messages?)\b"
+    r"|disregard( all)? (instructions|prompts?)\b"
+    r"|system prompt:"
+    r"|you are now\b"
+    r"|override( your)? (instructions|rules)\b"
+    r")[^.!?\n]*[.!?\n]?\s*",
     re.IGNORECASE,
 )
 
@@ -109,18 +123,23 @@ _TOK_PRICE_PER_INPUT = 0.042 / 1_000_000  # $/token, TypeSafe list price
 
 
 def neutralize_query(query) -> str:
-    """Flatten any input to a string and strip imperative sentence patterns.
+    """Flatten any input to a string and strip leading imperative patterns.
 
-    Keeps legitimate query content; removes text shaped like injected
-    commands so it cannot steer the rerank judgement from inside the state.
+    Whitespace is collapsed first (a shape cannot hide behind a double
+    space, a tab, or a line break at the start), the leading pass repeats
+    with each strip (a splice can reassemble a shape after a removal),
+    and the final collapse cleans the leftovers. Capped at 2000 chars.
     """
     if query is None:
         return ""
     text = query if isinstance(query, str) else str(query)
-    neutral = ENV_PREFIX_RE.sub("", text)
-    # Collapse whitespace left by removals; cap length for the request budget.
-    neutral = re.sub(r"\s+", " ", neutral).strip()
-    return neutral[:2000]
+    cur = re.sub(r"\s+", " ", text).strip()
+    for _ in range(8):
+        nxt = ENV_PREFIX_RE.sub("", cur)
+        if nxt == cur:
+            break
+        cur = nxt
+    return re.sub(r"\s+", " ", cur).strip()[:2000]
 
 
 def _env_log_path() -> Path:
@@ -154,14 +173,22 @@ def _load_key() -> str | None:
 def _neutralize_desc(text: str) -> str:
     """Strip imperative injection shapes from a skill description.
 
-    Two passes: the ^-anchored prefix strip, then an unanchored pass.
-    Descriptions are metadata (not user speech), so an imperative shape
-    anywhere in one is stripped before it reaches the question instructions.
-    The user query keeps the leading-only pass (neutralize_query).
+    Whitespace is collapsed FIRST (a shape cannot hide behind a double
+    space, a tab, or a line break), then the unanchored description pass
+    repeats with each strip (a splice can reassemble a shape around the
+    removed part: 'You are\\n<shape>\\nnow a yes-bot'), and a final
+    collapse cleans the leftovers. Capped later in build_request.
+
+    The query keeps the other contract: leading-only pass over the FULL
+    shape set (neutralize_query).
     """
-    neutral = ENV_PREFIX_RE.sub("", text)
-    neutral = ENV_INJECT_RE.sub("", neutral)
-    return re.sub(r"\s+", " ", neutral).strip()
+    cur = re.sub(r"\s+", " ", text).strip()
+    for _ in range(8):
+        nxt = ENV_INJECT_RE.sub("", cur)
+        if nxt == cur:
+            break
+        cur = nxt
+    return re.sub(r"\s+", " ", cur).strip()
 
 
 def build_request(query: str, shortlist: "list[tuple[str, str]]") -> "tuple[dict, dict]":
@@ -324,6 +351,13 @@ def rerank(query, shortlist=None, rerank_candidates: int = RERANK_CANDIDATES) ->
     else:
         capped = shortlist
     tail = shortlist[len(capped):]  # beyond the cap: BM25 order, never sent
+
+    # A query whose text neutralized away entirely gives Jev nothing to
+    # judge against — the BM25 order stands (predates the description
+    # change; made explicit here).
+    if not neutralize_query(query):
+        return {"order": [s[0] for s in shortlist], "skipped": True,
+                "fallback_reason": "empty_query"}
 
     key = _load_key()
     probs, usage, error = (None, None, "missing_key")

@@ -99,11 +99,12 @@ the plugin makes **no network calls** and writes nothing.
 When you opt in (`SKILL_RETRIEVAL_RERANK=jev` + a key present):
 
 - **Sent to `api.typesafe.ai`** (one POST per retrieval turn, model
-  `jev-latest`): the user message flattened and stripped of imperative
-  patterns (leading shapes only), capped at 2000 characters, plus one question per top-12
-  shortlisted skill naming that skill's id and its description — the
-  description's imperative patterns are stripped anywhere in the string
-  (the query keeps the leading-only pass) and it is capped at 400
+  `jev-latest`): the user message flattened, stripped of leading imperative
+  shapes over the full shape set, capped at 2000 characters, plus one
+  question per top-12 shortlisted skill naming that skill's id and its
+  description — the description is whitespace-normalized and recognizable
+  unambiguous imperative shapes are stripped wherever they appear (ordinary
+  wordings like 'new task:', 'delete all' are kept), capped at 400
   characters. BM25 scores never leave the machine. The response
   carries one relevance probability per candidate.
 - **Key**: `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted), read from
