@@ -23,7 +23,9 @@ Usage:
     python3 add_toc.py <dir> --max-entries 80
 
 Exit code 0 = nothing pending or all applied cleanly; 1 = pending changes
-remain (dry-run) or some files were skipped for structure reasons.
+remain (dry-run) or some files were skipped for structure or encoding
+reasons. A non-UTF-8 file reports not-utf8, is never rewritten, and keeps
+the exit non-zero until it is converted to UTF-8.
 """
 import json
 import os
