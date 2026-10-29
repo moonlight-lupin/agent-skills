@@ -121,6 +121,7 @@ pip install pyyaml
 | BM25 `k1` | `1.5` | Constant in `scripts/bm25_retriever.py` |
 | BM25 `b` | `0.75` | Constant in `scripts/bm25_retriever.py` |
 | Jev rerank | off | Set `SKILL_RETRIEVAL_RERANK=jev` to enable; key in `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted), read from `os.environ` |
+| Session rerank cache | off | Set `SKILL_RETRIEVAL_RERANK_SESSION_CACHE=1` to reuse a named session's confirmed candidate workset and skip redundant Jev calls |
 | Rerank provider | `typesafe` | `SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter` uses `https://openrouter.ai/api/v1/systemone` with `OPENROUTER_API_KEY` |
 | Rerank log path | `$HERMES_HOME/data/jev-trial/rerank_ab_log.jsonl` (rotates past 5 MB) | Env var `SKILL_RETRIEVAL_RERANK_LOG` |
 
@@ -129,6 +130,7 @@ export SKILL_RETRIEVAL_TOP_K=8
 export SKILL_RETRIEVAL_INJECT_K=6
 export SKILL_RETRIEVAL_COMPACT=0
 export SKILL_RETRIEVAL_RERANK=jev
+export SKILL_RETRIEVAL_RERANK_SESSION_CACHE=1
 ```
 
 ### Jev rerank (optional, off by default)
@@ -153,6 +155,20 @@ model `jev-latest`). Behavior:
   are sent per call, even when the caller's shortlist is longer; the
   remainder keeps BM25 order at the tail and never leaves the machine.
 
+### Session rerank cache (optional, off by default)
+
+This mode targets phase-continuous conversations. The first successful Jev
+rerank freezes the named session's BM25 candidate pool as a workset. Local
+BM25 still runs on every turn. When the candidates that would be injected are
+already in the workset or in the session's confirmed fallback set, the plugin
+uses the current BM25 order and skips the external rerank. A candidate outside
+those sets triggers Jev; it is added to the fallback set only when a successful
+Jev result selects it for injection.
+
+The state is isolated by non-empty session id, bounded to 256 sessions, and
+cleared on skill-catalog mutation. Anonymous requests never reuse it. This
+optimization does not rewrite or mutate Hermes' system prompt.
+
 ## Verify it's working
 
 Phase 1 silently no-ops outside a full Hermes runtime, and the BM25 index can
@@ -161,7 +177,7 @@ silently empty. After restart, check the Hermes logs.
 **Healthy start — look for these log lines:**
 
 - `BM25 index built: N docs …`
-- `Skill retrieval plugin registered (top_k=…, compact=true)`
+- `Skill retrieval plugin registered (top_k=…, compact=true, rerank_session_cache=…)`
 
 **Degraded — these warnings mean it's not working:**
 

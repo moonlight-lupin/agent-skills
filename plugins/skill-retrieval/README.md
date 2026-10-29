@@ -50,6 +50,7 @@ Then restart the Hermes session so the plugin's `register()` runs.
 | BM25 k1 | `1.5` | edit `scripts/bm25_retriever.py` |
 | BM25 b | `0.75` | edit `scripts/bm25_retriever.py` |
 | Jev rerank | off | `SKILL_RETRIEVAL_RERANK=jev` enables; key `TYPESAFE_API_KEY` (legacy `TYPESAFE_KEY` accepted) from `os.environ` |
+| Session rerank cache | off | `SKILL_RETRIEVAL_RERANK_SESSION_CACHE=1` reuses a named session's confirmed candidate workset and avoids redundant Jev calls while BM25 stays inside it |
 | Rerank provider | `typesafe` | `SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter` calls Jev through [OpenRouter](https://openrouter.ai/docs/guides/community/jev) with `OPENROUTER_API_KEY` |
 | Rerank model | `jev-latest` (typesafe), `~typesafe/jev-latest` (openrouter) | `SKILL_RETRIEVAL_RERANK_MODEL`, e.g. `typesafe/jev-1.14` to pin a version |
 | Rerank A/B log | `$HERMES_HOME/data/jev-trial/rerank_ab_log.jsonl` (rotates to `.1` past 5 MB) | `SKILL_RETRIEVAL_RERANK_LOG` env var |
@@ -59,6 +60,7 @@ export SKILL_RETRIEVAL_TOP_K=8
 export SKILL_RETRIEVAL_INJECT_K=6
 export SKILL_RETRIEVAL_COMPACT=0  # retrieval-only mode; the skills prompt is left unchanged (the builder is still wrapped to record tool capabilities)
 export SKILL_RETRIEVAL_RERANK=jev  # optional: rerank the top-K with the Jev system-one model
+export SKILL_RETRIEVAL_RERANK_SESSION_CACHE=1  # optional: reuse a named session's confirmed workset
 export SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter  # optional: call Jev through OpenRouter with OPENROUTER_API_KEY instead of a TypeSafe key
 ```
 
@@ -67,6 +69,22 @@ export SKILL_RETRIEVAL_RERANK_PROVIDER=openrouter  # optional: call Jev through 
 Optional, off by default. When enabled, the BM25 top-N shortlist is reranked by the Jev system-one judgment model (`api.typesafe.ai/v1/systemone`, model `jev-latest`). It is fail-soft: a 3.0 s timeout with no retries, and any error falls back to the BM25 order. The key is read from `os.environ` only (Hermes loads the active profile's `.env` into environ at startup — no cross-profile file reads). Every query is logged to the A/B log path; `scripts/rerank_ab_report.py` summarizes the log locally. See **Data handling** below for exactly what leaves the machine.
 
 **Evaluate over a period of time before deciding to keep it.** A single session cannot show whether the rerank helps, so the practical benefit is hard to judge turn by turn. Enable the rerank, use it for real work for at least 1-2 weeks, then review the A/B log with `scripts/rerank_ab_report.py` — look at how often the Jev order differs from the BM25 order (`rank1_flip`), what the per-turn probability spread looks like, and whether the flips are right. If the spread is consistently tiny or the flips look arbitrary, turn it off.
+
+### Session rerank cache
+
+Optional and off by default. This mode is intended for conversations whose
+topic stays coherent for several turns. The first successful Jev rerank freezes
+that named session's BM25 candidate pool as a workset. On later turns, local
+BM25 still runs and determines the current order. If every candidate that would
+be injected is already in the workset (or was selected by a later successful
+rerank), the external Jev call is skipped. A new would-be-injected candidate
+triggers Jev again; only a successful Jev result can confirm it for reuse.
+
+The cache never changes the system prompt, never reuses anonymous requests,
+and never crosses session ids. It is bounded to 256 sessions and is cleared on
+skill installation, removal, or other skill-catalog mutations. On a cache hit,
+the current BM25 order is injected, so enable this only when avoiding repeated
+network reranks is worth that semantic tradeoff.
 
 ## Read-only core references
 
@@ -103,7 +121,9 @@ the plugin makes **no network calls** and writes nothing.
 
 When you opt in (`SKILL_RETRIEVAL_RERANK=jev` + a key present):
 
-- **Sent to `api.typesafe.ai`** (one POST per retrieval turn, model
+- **Sent to `api.typesafe.ai`** (normally one POST per retrieval turn; with
+  `SKILL_RETRIEVAL_RERANK_SESSION_CACHE=1`, confirmed named-session turns can
+  skip the POST; model
   `jev-latest`): the user message flattened, stripped of leading imperative
   shapes over the full shape set (shape plus its following sentence), capped
   at 2000 characters, plus one
