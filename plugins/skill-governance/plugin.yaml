@@ -1,0 +1,40 @@
+name: skill-governance
+version: 0.1.1
+description: "Consolidated skill provenance, fingerprint-bound manifest acknowledgements and advisory-only contrastive probes with a single composed hook surface."
+author: moonlight-lupin
+license: MIT
+requires_hermes: ">=0.21.1"
+tags: [skills, governance, drift, validation, provenance]
+provides_hooks:
+  - on_skill_lifecycle
+  - on_session_start
+  - pre_tool_call
+  - pre_llm_call
+config_schema:
+  manifest:
+    type: object
+    properties:
+      disabled: {type: bool, default: false}
+      manifest_filename: {type: str, default: UPSTREAM_MANIFEST.md}
+      skills_root: {type: str, default: ""}
+      dismissed: {type: list, default: []}
+      max_reported: {type: int, default: 6}
+      track_changes: {type: bool, default: true}
+      scan_budget_s: {type: number, default: 5.0}
+      max_files_per_skill: {type: int, default: 400}
+      max_bytes_per_skill: {type: int, default: 8000000}
+  advisor:
+    type: object
+    properties:
+      enabled: {type: bool, default: false}
+      probe_root: {type: str, default: ""}
+      excluded_skills: {type: list, default: []}
+      ttl_minutes: {type: number, default: 30}
+      markers: {type: list, default: []}
+      ledger_enabled: {type: bool, default: true}
+  cron:
+    type: object
+    properties:
+      enabled: {type: bool, default: false}
+      schedule: {type: str, default: "0 9 * * *"}
+      deliver: {type: str, default: telegram}

@@ -60,6 +60,7 @@ agent_skills/
 │   ├── contrastive-advisor/       ← advisory hook after behavioral skill edits; bundles the contrastive-refinement skill + fire-sweeper cron
 │   ├── skill-manifest/            ← enforces UPSTREAM_MANIFEST.md: detects untracked skills + content drift, requires fingerprint-bound ack
 │   ├── dev-pipeline/              ← five-stage development pipeline (grill/spec/test-evals/build/review-commit) with a pre_tool_call create-gate hook
+│   ├── skill-governance/          ← skill-provenance + contrastive-probe engines consolidated behind one composed hook surface (replaces skill-manifest + contrastive-advisor as one plugin)
 │   └── lumen/                     ← LLM wiki plugin: methodology + memory-fed curator
 ```
 
@@ -103,6 +104,7 @@ New skills are added as folders under the relevant domain directory.
 | [hermes-onboarding](agent-ops/hermes-onboarding/) | agent-ops | 21-step customer onboarding: gateway, dashboard, memory, search, guardrails, maintenance crons | disk-cleanup, log-analyzer |
 | [disk-cleanup](devops/disk-cleanup/) | devops | Triage disk space: survey all mounts → safe/ask buckets → execute approved set → verify delta | — |
 | [dev-pipeline](plugins/dev-pipeline/) | plugins | Five-stage development pipeline: grill → spec → test-evals → build → review-commit, planned by S0-S3 complexity and reviewed by R0-R3 risk (T0-T3 review-tier aliases), with a review-lessons library and a pre_tool_call create-gate that blocks new software-development skills unless a single-use allow flag is consumed | skill-quality-review |
+| [skill-governance](plugins/skill-governance/) | plugins | Consolidated skill provenance and governance: manifest fingerprints + drift acks and advisory-only contrastive probes behind one composed hook surface, conservative `governance.records` join, non-destructive legacy state import, and one opt-in clearance cron (successor to skill-manifest + contrastive-advisor; never enable all three together) | — |
 
 > **Related work:** [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus) (PewDiePie's self-hosted AI workspace) ships similar features as a standalone web app — "Deep Research" and "Compare" — while `deep-research` and `model-compare` cover the same ground as pure-prompt workflows + stdlib scripts inside any agent's tool loop.
 
@@ -165,6 +167,12 @@ A Hermes plugin that enforces the `UPSTREAM_MANIFEST.md` rule for a skill librar
 - **Fail-soft** — malformed configs, missing Hermes core modules, or manifest-parse failures degrade to a no-op advisory and never abort the host turn.
 
 Install by copying or symlinking `plugins/skill-manifest/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/skill-manifest/tests/`.
+
+### skill-governance
+
+A Hermes plugin that consolidates the provenance engine (`skill-manifest`) and the advisory edit-observation engine (`contrastive-advisor`) behind one composed hook surface (`on_skill_lifecycle`, `on_session_start`, `pre_tool_call`, `pre_llm_call`). The vendored engines are byte-identical to the legacy plugins; `manifest.v1`/`advisor.v1` import by copy (destination-wins, sources never modified); one optional clearance cron (`cron.*`, default off) replaces both legacy schedulers and preserves both clearance procedures verbatim; `governance.records` joins the two views conservatively — an acknowledged fingerprint never implies validated evidence.
+
+Install by copying or symlinking `plugins/skill-governance/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Migrate per the checklist in `plugins/skill-governance/README.md` — never enable all three plugins together. Tests: `python3 -m pytest plugins/skill-governance/tests/`.
 
 ## Conventions
 
