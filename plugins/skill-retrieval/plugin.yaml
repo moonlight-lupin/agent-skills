@@ -6,6 +6,12 @@ license: MIT
 homepage: https://github.com/moonlight-lupin/agent-skills/tree/main/plugins/skill-retrieval
 tags: [bm25, skill-retrieval, system-prompt, token-optimization, plugin]
 requires_hermes: ">=0.21.1"
+# Hermes' plugin dependency resolver (pm/plugin_declarations.py) reads
+# pyproject.toml, plugin.json, or these manifest keys. It does NOT read
+# requirements.txt, so without this the plugin loads with pyyaml missing,
+# every SKILL.md fails to parse, and the BM25 corpus is silently empty.
+pip_dependencies:
+  - "pyyaml>=6.0"
 provides_hooks:
   - pre_llm_call
   - on_skill_lifecycle
