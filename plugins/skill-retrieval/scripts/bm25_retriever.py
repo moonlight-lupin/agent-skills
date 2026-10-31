@@ -18,6 +18,17 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+def _yaml_module():
+    """Return a YAML module. PyYAML has no CPython 3.14 wheel, so prefer
+    the host's hermes_yaml (ruamel) facade when available."""
+    try:
+        import hermes_yaml
+        return hermes_yaml
+    except Exception:
+        import yaml
+        return yaml
+
+
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 try:
@@ -186,7 +197,7 @@ def _parse_skill_md(skill_md: Path) -> tuple[str, str, str]:
     non-mapping) and for a file that cannot be read. Never raises, so one
     unreadable skill cannot abort the whole index build.
     """
-    import yaml
+    yaml = _yaml_module()
 
     try:
         text = skill_md.read_text(errors="replace")
@@ -486,7 +497,7 @@ def _load_active_skills_legacy(
 
     Unset path constants resolve from the current Hermes home at call time.
     """
-    import yaml
+    yaml = _yaml_module()
 
     skills_root = SKILLS_ROOT if SKILLS_ROOT is not None else get_skills_dir()
     plugins_root = PLUGINS_ROOT if PLUGINS_ROOT is not None else get_plugins_dir()
