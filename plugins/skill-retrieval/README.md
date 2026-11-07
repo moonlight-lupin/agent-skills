@@ -28,7 +28,8 @@ ln -s "$(pwd)/plugins/skill-retrieval" ~/.hermes/plugins/skill-retrieval
 # profile's .env into os.environ at startup).
 
 # Dependencies (Hermes Python env)
-# pyyaml is the only dependency — usually already present in a Hermes env
+# pyyaml is the only dependency — usually already present in a Hermes env.
+# On CPython 3.14 the plugin uses the host's hermes_yaml facade instead.
 pip install pyyaml
 ```
 
