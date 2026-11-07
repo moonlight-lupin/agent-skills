@@ -16,10 +16,22 @@ import os
 import threading
 from pathlib import Path
 
-from . import core
-from .contrastive import advisor
-from .manifest import hooks as manifest_hooks
-
+try:
+    from . import core
+    from .contrastive import advisor
+    from .manifest import hooks as manifest_hooks
+except ImportError:
+    # pytest collects this dir as a package when it is the rootdir; the dir
+    # name "skill-governance" is not a Python identifier, so the import falls
+    # back to standalone mode and the relative imports above fail. Re-import
+    # as top-level modules with this dir on sys.path (the real plugin loader
+    # always imports this file as part of a package, so this branch never
+    # runs in production).
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import core  # noqa: F401
+    from contrastive import advisor  # noqa: F401
+    from manifest import hooks as manifest_hooks  # noqa: F401
 log = logging.getLogger("skill-governance")
 HERE = Path(__file__).resolve().parent
 

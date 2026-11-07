@@ -387,8 +387,14 @@ LEGACY_CRON_NAMES = ("Skill-manifest drift clearance",
                      "contrastive-advisor fire clearance")
 # Preserve both existing clearance procedures verbatim in a single scheduled
 # prompt, so consolidation cannot silently weaken the operator's checklist.
-from .manifest.hooks import PROMPT_AUTO_RESOLVE as _MANIFEST_CRON_PROMPT
-from .contrastive.advisor import SWEEPER_PROMPT as _PROBE_CRON_PROMPT
+try:
+    from .manifest.hooks import PROMPT_AUTO_RESOLVE as _MANIFEST_CRON_PROMPT
+    from .contrastive.advisor import SWEEPER_PROMPT as _PROBE_CRON_PROMPT
+except ImportError:
+    # Standalone import (pytest from a hyphenated dir name; see __init__.py):
+    # the package context is absent, so import the submodules top-level.
+    from manifest.hooks import PROMPT_AUTO_RESOLVE as _MANIFEST_CRON_PROMPT
+    from contrastive.advisor import SWEEPER_PROMPT as _PROBE_CRON_PROMPT
 
 CRON_PROMPT = (
     "Skill Governance unified scheduled clearance. Run BOTH procedures below. "
@@ -467,8 +473,10 @@ def _ensure_single_cron_locked(ctx):
             ctx.state.set("governance.cron",
                           {"job_id": named_id, "user_removed": False})
         return
-    if any(j.get("name") in LEGACY_CRON_NAMES for j in jobs):
-        # Never schedule a duplicate while old clearance jobs are present.
+    if any(j.get("name") in LEGACY_CRON_NAMES for j in jobs if j.get("enabled")):
+        # Never schedule a duplicate while an ENABLED legacy clearance job is
+        # present. A legacy job that exists but is disabled cannot fire, so it
+        # poses no duplicate-advisory risk and must not suppress the opt-in.
         return
     if state.get("job_id") and not state.get("user_removed"):
         ctx.state.set("governance.cron", {**state, "user_removed": True})

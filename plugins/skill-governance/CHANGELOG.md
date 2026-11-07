@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased — efficacy fixes (2026-11-07 post-deploy audit)
+
+- `ensure_single_cron`: only an **enabled** legacy-named clearance job now
+  suppresses creation of the unified `skill-governance clearance` job. A
+  legacy job that exists but is disabled cannot fire, so treating its mere
+  presence as a duplicate risk silently prevented the opt-in cron from ever
+  being created (found live on 2026-11-07: `cron.enabled: true` in config,
+  both legacy jobs present-but-disabled, zero governance job in jobs.json).
+- Tests: `pytest.ini` (`--import-mode=importlib`) ships with the plugin so the
+  suite collects from the installed directory as well as the repo root
+  (previously collection errored on `__init__.py`'s relative import).
+- State observation (no code change): 8 baseline keys archived under
+  `skills/.archive/` (`email-inbox-triage`, `pdf2epub-calibration`,
+  `mailbox-triage-ops`, `github`, `oauth-mcp-server`, `n8n-stack`,
+  `nas-stack-triage`, `repo-demo-assets`) were dropped from `manifest.v1`
+  baseline by the inventory's `.archive` exclusion — intended behavior, and
+  the live lint reports no pending/untracked findings for them.
+- New regression test: `test_disabled_legacy_jobs_do_not_block_governance_cron`.
+
 ## v0.1.1 — panel fixes (review gate: opus + codex, all findings fact-checked)
 
 Fixes from the pre-merge review panel (PR #24); vendored engines stay byte-identical.
