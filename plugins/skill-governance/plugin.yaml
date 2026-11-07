@@ -1,5 +1,5 @@
 name: skill-governance
-version: 0.1.1
+version: 0.2.0
 description: "Consolidated skill provenance, fingerprint-bound manifest acknowledgements and advisory-only contrastive probes with a single composed hook surface."
 author: moonlight-lupin
 license: MIT

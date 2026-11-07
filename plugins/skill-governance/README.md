@@ -1,19 +1,30 @@
-# Skill Governance v0.1.1 (P1 consolidation)
+# Skill Governance v0.2.0
 
-**Consolidated engine, verified.** This plugin combines the two existing
-engines without altering their implementation logic. v0.1.1 passed the
-pre-merge gate on an isolated real Hermes profile: real-loader registration,
-migration parity (deep-equal v1 import, idempotent, sources byte-identical),
-hook exercise with real advisories, cron opt-in/refusal, and config
-round-trip (evidence in PR #24, /tmp/gov-verification/VERIFICATION.md at
-review time).
+**Consolidated engine, released.** This plugin is the successor to
+`skill-manifest` and `contrastive-advisor` (both retired from this repo as of
+v0.2.0). It combines the two engines without altering their implementation
+logic. v0.1.1 passed the pre-merge gate on an isolated real Hermes profile:
+real-loader registration, migration parity (deep-equal v1 import, idempotent,
+sources byte-identical), hook exercise with real advisories, cron
+opt-in/refusal, and config round-trip (evidence in PR #24).
 
 - `manifest/`: skill provenance, drift/fingerprint tracking, acknowledgements.
 - `contrastive/`: non-blocking edit observation, probe reminders, fire ledger.
 - `core.py`: namespace isolation, non-destructive state import, conservative
   unified records and one optional clearance schedule.
 
-## Installation / migration
+## Installation
+
+From the Hermes plugin catalog (pinned, version-tracked):
+
+```bash
+hermes plugins install skill-governance
+```
+
+Or copy/symlink `plugins/skill-governance/` into `~/.hermes/plugins/` (or
+your profile's `plugins/`), then restart the gateway.
+
+## Migration from skill-manifest / contrastive-advisor (v0.1.x installs)
 
 **Never enable all three plugins simultaneously.** Both old plugins can
 register the same CLI aliases or fire duplicate notifications. The transition
@@ -41,8 +52,9 @@ is deliberately manual and reversible:
    fingerprint acknowledgements and fire-evidence paths.
 6. If desired, manually remove or disable both old clearance jobs, then
    opt in to **one** new job with `cron.enabled: true` in the new plugin's
-   settings. If either named legacy job remains, the new plugin will **not**
-   create a duplicate. The new scheduler honors manual removal of its own job.
+   settings. If either named legacy job is still **enabled**, the new plugin
+   will not create a duplicate (a disabled legacy job no longer blocks it).
+   The new scheduler honors manual removal of its own job.
 7. Verify ordinary arrivals, changed fingerprints, /skill-manifest-ack,
    behavioral edit advisories, and the probe ledger on disposable skills.
    Check the combined pre-LLM context contains both advisories, not just one.

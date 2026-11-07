@@ -1,24 +1,25 @@
 # Changelog
 
-## Unreleased — efficacy fixes (2026-11-07 post-deploy audit)
+## v0.2.0 — catalog release (2026-11-07)
 
+- Successor to `skill-manifest` + `contrastive-advisor`; those plugins are
+  retired from this repo (`plugins/skill-governance/` is the single home).
 - `ensure_single_cron`: only an **enabled** legacy-named clearance job now
-  suppresses creation of the unified `skill-governance clearance` job. A
-  legacy job that exists but is disabled cannot fire, so treating its mere
-  presence as a duplicate risk silently prevented the opt-in cron from ever
-  being created (found live on 2026-11-07: `cron.enabled: true` in config,
-  both legacy jobs present-but-disabled, zero governance job in jobs.json).
-- Tests: the suite now collects from the installed plugin directory too
-  (standalone-import fallback in `__init__.py`/`core.py` for the hyphenated
-  dir name, plus `tests/conftest.py` sys.path bootstrap); previously
-  collection errored on `__init__.py`'s relative import.
+  suppresses creation of the unified `skill-governance clearance` job, and a
+  missing `enabled` key defaults to True (matching `cron/jobs.py`). A legacy
+  job that exists but is disabled cannot fire, so treating its mere presence
+  as a duplicate risk silently prevented the opt-in cron from ever being
+  created (found live on 2026-11-07: `cron.enabled: true` in config, both
+  legacy jobs present-but-disabled, zero governance job in jobs.json).
+- Tests collect from the installed plugin directory as well as the repo root:
+  standalone-import fallback in `__init__.py`/`core.py` (guarded on
+  `__package__`, so production package loading is unchanged) for the
+  hyphenated dir name, plus `tests/conftest.py` sys.path bootstrap.
+- Regression tests: `test_disabled_legacy_jobs_do_not_block_governance_cron`,
+  `test_missing_enabled_legacy_job_blocks_governance_cron`.
 - State observation (no code change): 8 baseline keys archived under
-  `skills/.archive/` (`email-inbox-triage`, `pdf2epub-calibration`,
-  `mailbox-triage-ops`, `github`, `oauth-mcp-server`, `n8n-stack`,
-  `nas-stack-triage`, `repo-demo-assets`) were dropped from `manifest.v1`
-  baseline by the inventory's `.archive` exclusion — intended behavior, and
-  the live lint reports no pending/untracked findings for them.
-- New regression test: `test_disabled_legacy_jobs_do_not_block_governance_cron`.
+  `skills/.archive/` were dropped from `manifest.v1` baseline by the
+  inventory's `.archive` exclusion — intended behavior; live lint clean.
 
 ## v0.1.1 — panel fixes (review gate: opus + codex, all findings fact-checked)
 
