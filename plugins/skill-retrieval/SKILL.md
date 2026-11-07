@@ -105,11 +105,18 @@ hermes plugins enable skill-retrieval
 Restart the agent session so `register()` runs — it registers the
 `llm_request` middleware and the `pre_llm_call` hook.
 
-Dependencies (install into the Hermes Python env if missing):
+Dependencies: `hermes plugins install skill-retrieval` reads
+`pip_dependencies` from `plugin.yaml` and installs `pyyaml` into the Hermes
+Python env after you confirm the prompt (use `--yes-deps` for a headless
+install). A manual copy or symlink skips that step — install the dependency
+yourself only in that case:
 
 ```bash
 pip install pyyaml
 ```
+
+`requirements.txt` is not read by the installer; `plugin.yaml` is the
+declaration that counts.
 
 On CPython 3.14 prefer the host's `hermes_yaml` facade (ruamel.yaml) — the
 plugin resolves it automatically at runtime, falling back to PyYAML. If both
