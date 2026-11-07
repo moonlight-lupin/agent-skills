@@ -8,9 +8,10 @@
   presence as a duplicate risk silently prevented the opt-in cron from ever
   being created (found live on 2026-11-07: `cron.enabled: true` in config,
   both legacy jobs present-but-disabled, zero governance job in jobs.json).
-- Tests: `pytest.ini` (`--import-mode=importlib`) ships with the plugin so the
-  suite collects from the installed directory as well as the repo root
-  (previously collection errored on `__init__.py`'s relative import).
+- Tests: the suite now collects from the installed plugin directory too
+  (standalone-import fallback in `__init__.py`/`core.py` for the hyphenated
+  dir name, plus `tests/conftest.py` sys.path bootstrap); previously
+  collection errored on `__init__.py`'s relative import.
 - State observation (no code change): 8 baseline keys archived under
   `skills/.archive/` (`email-inbox-triage`, `pdf2epub-calibration`,
   `mailbox-triage-ops`, `github`, `oauth-mcp-server`, `n8n-stack`,

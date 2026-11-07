@@ -21,12 +21,15 @@ try:
     from .contrastive import advisor
     from .manifest import hooks as manifest_hooks
 except ImportError:
-    # pytest collects this dir as a package when it is the rootdir; the dir
-    # name "skill-governance" is not a Python identifier, so the import falls
-    # back to standalone mode and the relative imports above fail. Re-import
-    # as top-level modules with this dir on sys.path (the real plugin loader
-    # always imports this file as part of a package, so this branch never
-    # runs in production).
+    # Standalone import only: pytest collects this dir as a package when it is
+    # the rootdir; the dir name "skill-governance" is not a Python identifier,
+    # so the relative imports above fail with package=None. The real plugin
+    # loader always imports this file as part of a package, where
+    # __package__ is set and this branch never runs. Guard on __package__ so a
+    # relative ImportError raised INSIDE a dependency during production load
+    # is not mistaken for standalone mode and does not obscure the real error.
+    if __package__:
+        raise
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import core  # noqa: F401

@@ -391,8 +391,10 @@ try:
     from .manifest.hooks import PROMPT_AUTO_RESOLVE as _MANIFEST_CRON_PROMPT
     from .contrastive.advisor import SWEEPER_PROMPT as _PROBE_CRON_PROMPT
 except ImportError:
-    # Standalone import (pytest from a hyphenated dir name; see __init__.py):
-    # the package context is absent, so import the submodules top-level.
+    # Standalone import only (see __init__.py): re-raise when a package
+    # context exists so a real dependency failure is not masked.
+    if __package__:
+        raise
     from manifest.hooks import PROMPT_AUTO_RESOLVE as _MANIFEST_CRON_PROMPT
     from contrastive.advisor import SWEEPER_PROMPT as _PROBE_CRON_PROMPT
 
@@ -473,10 +475,12 @@ def _ensure_single_cron_locked(ctx):
             ctx.state.set("governance.cron",
                           {"job_id": named_id, "user_removed": False})
         return
-    if any(j.get("name") in LEGACY_CRON_NAMES for j in jobs if j.get("enabled")):
+    if any(j.get("name") in LEGACY_CRON_NAMES
+           for j in jobs if j.get("enabled", True)):
         # Never schedule a duplicate while an ENABLED legacy clearance job is
         # present. A legacy job that exists but is disabled cannot fire, so it
         # poses no duplicate-advisory risk and must not suppress the opt-in.
+        # Missing `enabled` defaults to True, matching cron/jobs.py.
         return
     if state.get("job_id") and not state.get("user_removed"):
         ctx.state.set("governance.cron", {**state, "user_removed": True})

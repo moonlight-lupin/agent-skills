@@ -252,7 +252,9 @@ def test_disabled_legacy_jobs_do_not_block_governance_cron(monkeypatch, tmp_path
     """Only ENABLED legacy jobs block creation; a disabled one must not.
 
     Regression test: the suppression guard used presence alone, so the unified
-    opt-in cron was never created while a disabled legacy job existed.
+    opt-in cron was never created while a disabled legacy job existed. A legacy
+    job MISSING the `enabled` key counts as enabled (cron/jobs.py defaults it
+    to True), so it suppresses creation.
     """
     core = _plugin().core
     host = Host(tmp_path, {"cron.enabled": True})
@@ -260,7 +262,6 @@ def test_disabled_legacy_jobs_do_not_block_governance_cron(monkeypatch, tmp_path
     jobs = types.ModuleType("cron.jobs")
     jobs.load_jobs = lambda: [
         {"name": core.LEGACY_CRON_NAMES[0], "id": "old", "enabled": False},
-        {"name": core.LEGACY_CRON_NAMES[1], "id": "old2"},  # missing enabled key
     ]
     tools = types.ModuleType("tools")
     cronjob_tools = types.ModuleType("tools.cronjob_tools")
@@ -273,6 +274,27 @@ def test_disabled_legacy_jobs_do_not_block_governance_cron(monkeypatch, tmp_path
     assert len(created) == 1
     assert created[0].get("name") == core.CRON_NAME
     assert host.state.get("governance.cron") == {"job_id": "new1"}
+
+
+def test_missing_enabled_legacy_job_blocks_governance_cron(monkeypatch, tmp_path):
+    """A legacy job without an `enabled` key defaults to enabled (cron/jobs.py
+    uses job.get("enabled", True)), so it must suppress the unified cron."""
+    core = _plugin().core
+    host = Host(tmp_path, {"cron.enabled": True})
+    cron = types.ModuleType("cron")
+    jobs = types.ModuleType("cron.jobs")
+    jobs.load_jobs = lambda: [
+        {"name": core.LEGACY_CRON_NAMES[1], "id": "old2"},  # no enabled key
+    ]
+    tools = types.ModuleType("tools")
+    cronjob_tools = types.ModuleType("tools.cronjob_tools")
+    called = []
+    cronjob_tools.cronjob = lambda **kw: called.append(kw)
+    for name, mod in (("cron", cron), ("cron.jobs", jobs), ("tools", tools),
+                      ("tools.cronjob_tools", cronjob_tools)):
+        monkeypatch.setitem(sys.modules, name, mod)
+    core.ensure_single_cron(host)
+    assert called == []
 
 
 def test_cron_default_off_even_with_cron_modules_present(monkeypatch, tmp_path):
