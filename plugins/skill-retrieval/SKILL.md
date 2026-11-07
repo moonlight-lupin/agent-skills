@@ -111,6 +111,10 @@ Dependencies (install into the Hermes Python env if missing):
 pip install pyyaml
 ```
 
+On CPython 3.14 prefer the host's `hermes_yaml` facade (ruamel.yaml) — the
+plugin resolves it automatically at runtime, falling back to PyYAML. If both
+are missing it logs one warning and keeps running with an empty index.
+
 ## Configuration
 
 | Setting | Default | How to set |
@@ -212,7 +216,9 @@ silently empty. After restart, check the Hermes logs.
 
 ## Dependencies
 
-- `pyyaml`
+- `pyyaml` — declared in `plugin.yaml` (`pip_dependencies`), so
+  `hermes plugins install skill-retrieval` installs it. On CPython 3.14 the
+  host's `hermes_yaml` facade is used instead when PyYAML is unavailable.
 
 ## Limitations
 

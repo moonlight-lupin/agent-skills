@@ -18,15 +18,29 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+_YAML_MODULE = None
+
+
 def _yaml_module():
     """Return a YAML module. PyYAML has no CPython 3.14 wheel, so prefer
-    the host's hermes_yaml (ruamel) facade when available."""
+    the host's hermes_yaml (ruamel) facade when available.
+
+    Resolved once and cached in a module global: re-running the import
+    machinery per SKILL.md parse is wasted work when the facade is absent,
+    and if BOTH modules are missing the ModuleNotFoundError must surface
+    here (inside a controlled call site), never from a bare top-level
+    ``import yaml`` — _parse_skill_md's contract is never-raises.
+    """
+    global _YAML_MODULE
+    if _YAML_MODULE is not None:
+        return _YAML_MODULE
     try:
         import hermes_yaml
-        return hermes_yaml
+        _YAML_MODULE = hermes_yaml
     except Exception:
         import yaml
-        return yaml
+        _YAML_MODULE = yaml
+    return _YAML_MODULE
 
 
 # ─── Config ───────────────────────────────────────────────────────────────────
@@ -197,7 +211,11 @@ def _parse_skill_md(skill_md: Path) -> tuple[str, str, str]:
     non-mapping) and for a file that cannot be read. Never raises, so one
     unreadable skill cannot abort the whole index build.
     """
-    yaml = _yaml_module()
+    try:
+        yaml = _yaml_module()
+    except Exception:
+        logger.warning("No YAML module available (neither hermes_yaml nor PyYAML)")
+        return "", "", ""
 
     try:
         text = skill_md.read_text(errors="replace")
@@ -205,7 +223,6 @@ def _parse_skill_md(skill_md: Path) -> tuple[str, str, str]:
         logger.warning("Cannot read %s: %s", skill_md, exc)
         return "", "", ""
     lines = text.splitlines()
-
     # Frontmatter must start at the first line (allowing optional BOM).
     first_line = lines[0].lstrip("\ufeff").strip() if lines else ""
     if first_line != "---":
@@ -497,7 +514,11 @@ def _load_active_skills_legacy(
 
     Unset path constants resolve from the current Hermes home at call time.
     """
-    yaml = _yaml_module()
+    try:
+        yaml = _yaml_module()
+    except Exception:
+        logger.warning("No YAML module available — legacy loader returns no skills")
+        return []
 
     skills_root = SKILLS_ROOT if SKILLS_ROOT is not None else get_skills_dir()
     plugins_root = PLUGINS_ROOT if PLUGINS_ROOT is not None else get_plugins_dir()
