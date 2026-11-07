@@ -24,6 +24,9 @@ Configuration:
   System prompt compaction is enabled by default. Set
   ``SKILL_RETRIEVAL_COMPACT=0`` to keep retrieval injection while leaving the
   original Hermes skills prompt untouched.
+  Jev session caching is disabled by default. Set
+  ``SKILL_RETRIEVAL_RERANK_SESSION_CACHE=1`` to reuse a named session's
+  confirmed candidate workset and avoid redundant external rerank calls.
 """
 
 from __future__ import annotations
@@ -123,7 +126,12 @@ def _parse_inject_k(raw: str | None, top_k: int) -> int:
     return value
 
 
-def _parse_bool_env(raw: str | None, *, default: bool = True) -> bool:
+def _parse_bool_env(
+    raw: str | None,
+    *,
+    default: bool = True,
+    name: str = "SKILL_RETRIEVAL_COMPACT",
+) -> bool:
     """Parse a permissive boolean env var without failing plugin startup."""
     if raw is None or not str(raw).strip():
         return default
@@ -132,13 +140,18 @@ def _parse_bool_env(raw: str | None, *, default: bool = True) -> bool:
         return True
     if value in {"0", "false", "no", "off"}:
         return False
-    logger.warning("Invalid SKILL_RETRIEVAL_COMPACT=%r — using default %s", raw, default)
+    logger.warning("Invalid %s=%r — using default %s", name, raw, default)
     return default
 
 
 TOP_K = _parse_top_k(os.environ.get("SKILL_RETRIEVAL_TOP_K"))
 INJECT_K = _parse_inject_k(os.environ.get("SKILL_RETRIEVAL_INJECT_K"), TOP_K)
 COMPACT_SYSTEM_PROMPT = _parse_bool_env(os.environ.get("SKILL_RETRIEVAL_COMPACT"))
+RERANK_SESSION_CACHE = _parse_bool_env(
+    os.environ.get("SKILL_RETRIEVAL_RERANK_SESSION_CACHE"),
+    default=False,
+    name="SKILL_RETRIEVAL_RERANK_SESSION_CACHE",
+)
 
 # Capability snapshots captured from the llm_request middleware: the skill
 # names currently visible in Hermes' <available_skills> block, keyed by
@@ -150,8 +163,10 @@ COMPACT_SYSTEM_PROMPT = _parse_bool_env(os.environ.get("SKILL_RETRIEVAL_COMPACT"
 # turn and must NOT be applied (hook falls back to the fail-open get_index()).
 _SNAPSHOT_MAX_AGE_S = 30.0
 _MAX_SNAPSHOT_SESSIONS = 256
+_MAX_RERANK_SESSION_STATES = 256
 _session_capability_snaps: "OrderedDict[str, tuple[float, frozenset]]" = OrderedDict()
 _session_platforms: "OrderedDict[str, str]" = OrderedDict()
+_session_rerank_states: "OrderedDict[str, tuple[frozenset, frozenset]]" = OrderedDict()
 _llm_request_warned = False
 
 
@@ -173,6 +188,57 @@ def _resolve_session_id(session_id) -> str:
     if not isinstance(sid, str):
         sid = str(sid) if sid else ""
     return sid
+
+
+def _can_reuse_session_rerank(session_id: str | None, candidate_ids) -> bool:
+    """Return whether BM25's injected candidates fit a confirmed workset.
+
+    The cache is deliberately limited to named sessions. Anonymous requests
+    cannot be isolated safely and always take the normal rerank path.
+    """
+    if not RERANK_SESSION_CACHE:
+        return False
+    sid = _resolve_session_id(session_id)
+    if not sid:
+        return False
+    state = _session_rerank_states.get(sid)
+    if state is None:
+        return False
+    workset, confirmed_fallbacks = state
+    would_inject = frozenset(list(candidate_ids)[:INJECT_K])
+    if not would_inject.issubset(workset | confirmed_fallbacks):
+        return False
+    _session_rerank_states.move_to_end(sid)
+    return True
+
+
+def _remember_session_rerank(
+    session_id: str | None,
+    candidate_ids,
+    injected_ids,
+) -> None:
+    """Freeze an initial workset or remember newly confirmed fallbacks."""
+    if not RERANK_SESSION_CACHE:
+        return
+    sid = _resolve_session_id(session_id)
+    if not sid:
+        return
+    candidate_set = frozenset(candidate_ids)
+    injected_set = frozenset(injected_ids)
+    previous = _session_rerank_states.get(sid)
+    if previous is None:
+        state = (candidate_set, frozenset())
+    else:
+        workset, confirmed_fallbacks = previous
+        state = (workset, confirmed_fallbacks | (injected_set - workset))
+    _session_rerank_states[sid] = state
+    _session_rerank_states.move_to_end(sid)
+    while len(_session_rerank_states) > _MAX_RERANK_SESSION_STATES:
+        _session_rerank_states.popitem(last=False)
+
+
+def _clear_session_rerank_cache() -> None:
+    _session_rerank_states.clear()
 
 
 def _remember_capability_snapshot(
@@ -198,6 +264,7 @@ def _remember_capability_snapshot(
         while len(_session_capability_snaps) > _MAX_SNAPSHOT_SESSIONS:
             evicted, _ = _session_capability_snaps.popitem(last=False)
             _session_platforms.pop(evicted, None)
+            _session_rerank_states.pop(evicted, None)
         while len(_session_platforms) > _MAX_SNAPSHOT_SESSIONS:
             _session_platforms.popitem(last=False)
     except Exception:
@@ -496,10 +563,11 @@ def _on_llm_request(
 
 
 def _on_skill_lifecycle(action: str = "", **kwargs) -> None:
-    """Observer: drop the BM25 index on any skill mutation (not mere loads)."""
+    """Drop retrieval caches on any skill mutation (not mere loads)."""
     try:
         if action != "loaded":
             clear_index_cache()
+            _clear_session_rerank_cache()
     except Exception:
         logger.debug("on_skill_lifecycle cache clear failed", exc_info=True)
 
@@ -536,40 +604,54 @@ def _on_pre_llm_call(session_id: str, user_message: str, **kwargs) -> dict | Non
         # only re-ordered. The injection below then filters to INJECT_K.
         rerank_note = ""
         if RERANK_MODE == "jev" and len(results) >= 2:
-            shortlist = []
-            for skill_id, score in results:
-                info = (
-                    get_skill_info(skill_id, **cap_kwargs)
-                    if cap_kwargs is not None
-                    else get_skill_info(skill_id)
+            bm25_candidate_ids = [skill_id for skill_id, _score in results]
+            reuse_session_workset = _can_reuse_session_rerank(
+                session_id, bm25_candidate_ids
+            )
+            if reuse_session_workset:
+                logger.debug(
+                    "Reused session rerank workset for session %s", session_id
                 )
-                desc = info["description"] if info else ""
-                shortlist.append((skill_id, score, desc))
-            rr = _jev_rerank(user_message, shortlist)
-            if not rr.get("skipped"):
-                # Rebuild (skill_id, score) pairs in the reranked order; keep
-                # the BM25 score for any candidate missing from the result.
-                score_by_id = dict(results)
-                reranked_results = [
-                    (sid, score_by_id[sid])
-                    for sid in rr["order"]
-                    if sid in score_by_id
-                ]
-                if len(reranked_results) == len(results):
-                    results = reranked_results
-                    rerank_note = (
-                        f"\n<!-- jev rerank: applied, "
-                        f"{rr.get('input_tokens', '?')} tok, "
-                        f"{rr.get('latency_ms', 0):.0f} ms -->"
-                    )
-                else:
-                    logger.warning(
-                        "Jev rerank returned incomplete order — keeping BM25"
-                    )
             else:
-                logger.info(
-                    "Jev rerank skipped: %s", rr.get("fallback_reason", "unknown")
-                )
+                shortlist = []
+                for skill_id, score in results:
+                    info = (
+                        get_skill_info(skill_id, **cap_kwargs)
+                        if cap_kwargs is not None
+                        else get_skill_info(skill_id)
+                    )
+                    desc = info["description"] if info else ""
+                    shortlist.append((skill_id, score, desc))
+                rr = _jev_rerank(user_message, shortlist)
+                if not rr.get("skipped"):
+                    # Rebuild (skill_id, score) pairs in the reranked order; keep
+                    # the BM25 score for any candidate missing from the result.
+                    score_by_id = dict(results)
+                    reranked_results = [
+                        (sid, score_by_id[sid])
+                        for sid in rr["order"]
+                        if sid in score_by_id
+                    ]
+                    if len(reranked_results) == len(results):
+                        results = reranked_results
+                        _remember_session_rerank(
+                            session_id,
+                            bm25_candidate_ids,
+                            [sid for sid, _score in results[:INJECT_K]],
+                        )
+                        rerank_note = (
+                            f"\n<!-- jev rerank: applied, "
+                            f"{rr.get('input_tokens', '?')} tok, "
+                            f"{rr.get('latency_ms', 0):.0f} ms -->"
+                        )
+                    else:
+                        logger.warning(
+                            "Jev rerank returned incomplete order — keeping BM25"
+                        )
+                else:
+                    logger.info(
+                        "Jev rerank skipped: %s", rr.get("fallback_reason", "unknown")
+                    )
 
         # Injection split: the candidate pool is TOP_K wide but only the
         # first INJECT_K entries are injected. With jev rerank applied this
@@ -628,8 +710,10 @@ def register(ctx):
 
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)
     logger.info(
-        "Skill retrieval plugin registered (top_k=%d, inject_k=%d, compact=%s)",
+        "Skill retrieval plugin registered "
+        "(top_k=%d, inject_k=%d, compact=%s, rerank_session_cache=%s)",
         TOP_K,
         INJECT_K,
         str(COMPACT_SYSTEM_PROMPT).lower(),
+        str(RERANK_SESSION_CACHE).lower(),
     )
