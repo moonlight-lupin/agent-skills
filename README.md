@@ -49,7 +49,7 @@ agent_skills/
 │   ├── claude-plugin-converter/      ← convert Claude Code plugins → self-contained Hermes plugins
 │   ├── log-analyzer/                 ← log pattern detection: error clusters, rate limits, timeouts
 │   ├── input-token-overheads/        ← audit input token cost, two scopes: per-turn prompt overhead + aggregate spend (cost accounting)
-│   ├── operator-brain/               ← 8-module behavioral stack: act, lead with outcome, ground claims
+│   ├── operator-brain/               ← 10-module behavioral stack (Fable 5 + 5.1): act, lead with outcome, ground claims, narrate long work
 │   └── hermes-onboarding/            ← 21-step customer onboarding: gateway, dashboard, memory, crons
 ├── software-development/              ← skill development, review, and methodology skills
 │   └── skill-quality-review/          ← batch skill audit: 9 checks, writing-for-agents levers, efficacy testing
@@ -98,7 +98,7 @@ New skills are added as folders under the relevant domain directory.
 | [contrastive-refinement](plugins/skill-governance/skills/contrastive-refinement/) | agent-ops (bundled in `plugins/skill-governance/`) | Evidence-first skill refinement: probe candidate edits on the same task, blind-select, compose, record lessons with evidence lines | skill-governance (its own plugin) |
 | [skill-quality-review](software-development/skill-quality-review/) | software-development | Batch skill audit: 9 automated checks, writing-for-agents levers, per-skill grep methodology, efficacy A/B testing, frontmatter/description fixes | — | [log-analyzer](agent-ops/log-analyzer/) | agent-ops | Log pattern detection: error clusters, rate limits, timeout clusters, tool failures | scheduled-summary |
 | [input-token-overheads](agent-ops/input-token-overheads/) | agent-ops | Audit input token cost at two scopes: per-turn prompt overhead (tool schemas, skills index, system text, profile, memory — measured live, ranked, reduced) and aggregate spend/cost accounting across sessions, cron fires, and tool traffic (cache-aware interpretation, pre-checked config levers, scheduled delta checks) | — |
-| [operator-brain](agent-ops/operator-brain/) | agent-ops | 8-module behavioral stack from Anthropic's Fable guide: act, lead with outcome, ground every claim | controlled-english-output |
+| [operator-brain](agent-ops/operator-brain/) | agent-ops | 10-module behavioral stack from Anthropic's Fable 5 and Fable 5.1 guides: act, lead with outcome, ground every claim, narrate long work, stay surgical | controlled-english-output |
 | [hermes-onboarding](agent-ops/hermes-onboarding/) | agent-ops | 21-step customer onboarding: gateway, dashboard, memory, search, guardrails, maintenance crons | disk-cleanup, log-analyzer |
 | [disk-cleanup](devops/disk-cleanup/) | devops | Triage disk space: survey all mounts → safe/ask buckets → execute approved set → verify delta | — |
 | [dev-pipeline](plugins/dev-pipeline/) | plugins | Five-stage development pipeline: grill → spec → test-evals → build → review-commit, planned by S0-S3 complexity and reviewed by R0-R3 risk (T0-T3 review-tier aliases), with a review-lessons library and a pre_tool_call create-gate that blocks new software-development skills unless a single-use allow flag is consumed | skill-quality-review |
