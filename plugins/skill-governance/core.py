@@ -13,7 +13,6 @@ import logging
 import os
 import re
 import threading
-import time
 from pathlib import Path
 
 try:
@@ -27,7 +26,6 @@ log = logging.getLogger("skill-governance")
 STATE_KEYS = {"manifest": "manifest.v1", "advisor": "advisor.v1"}
 LEGACY_IDS = {"manifest": "skill-manifest", "advisor": "contrastive-advisor"}
 RECORDS_KEY = "governance.records"
-CRON_LOCK_REL = Path("plugin-data") / "skill-governance" / ".clearance-cron.lock"
 # In-memory parsed-evidence cache (per process); authoritative data stays on disk.
 _EV_CACHE = {"ledger_path": None, "ledger_sig": None, "rows": (),
              "acks_path": None, "acks_sig": None, "acks_doc": {}}
@@ -84,9 +82,6 @@ class ComponentContext:
         return ComponentState(self._ctx.state, self._prefix)
 
     def get_config(self, key, default=None):
-        # Only the composed plugin may create scheduled clearance jobs.
-        if (self._prefix, key) in {("manifest", "auto_resolve"), ("advisor", "sweeper")}:
-            return False
         return self._ctx.get_config(f"{self._prefix}.{key}", default)
 
     def __getattr__(self, name):
@@ -365,11 +360,11 @@ def warn_legacy_coexistence(ctx=None) -> list:
     adds a runtime signal. Never raises.
     """
     try:
-        from hermes_cli.plugins_discovery import _get_enabled_plugins
-        enabled = _get_enabled_plugins()
-        if not isinstance(enabled, set):
-            return []  # None = grandfathered/unknown; cannot judge safely
-        active = sorted(set(LEGACY_IDS.values()) & set(enabled))
+        if ctx is None:
+            return []
+        active = sorted(
+            pid for pid in LEGACY_IDS.values() if ctx.has_plugin(pid)
+        )
         if active:
             log.warning(
                 "skill-governance: legacy plugins %s are still enabled. "
@@ -382,9 +377,6 @@ def warn_legacy_coexistence(ctx=None) -> list:
         return []
 
 
-CRON_NAME = "skill-governance clearance"
-LEGACY_CRON_NAMES = ("Skill-manifest drift clearance",
-                     "contrastive-advisor fire clearance")
 # Preserve both existing clearance procedures verbatim in a single scheduled
 # prompt, so consolidation cannot silently weaken the operator's checklist.
 try:
@@ -409,96 +401,38 @@ CRON_PROMPT = (
 )
 
 
-def ensure_single_cron(ctx):
-    """Best-effort one-job scheduler; preserves manual removals and legacy jobs.
 
-    The check-then-create sequence runs under a non-blocking flock with short
-    retries (same discipline as the vendored manifest engine's
-    _ensure_cron_lock): concurrent session starts must not each observe "no
-    job" and each create one, and contention must never stall a session
-    start. On non-POSIX hosts (no fcntl) it degrades to the v0.1.0 unlocked
-    behavior. A hand-recreated named job opts the operator back in after a
-    removal.
+
+def register_clearance_blueprint(ctx):
+    """Register the unified clearance procedure as an Automation Blueprint.
+
+    The user adopts it with /blueprint (dashboard gallery or slash command);
+    the plugin never writes cron state or imports private cron modules.
+    Best-effort: a host without the blueprint surface logs and skips.
+    Never raises.
     """
-    if ctx.get_config("cron.enabled", False) is not True:
-        return
-    lock_path = _resolve_home(ctx) / CRON_LOCK_REL
-    fd = None
-    pos_fcntl = True
-    try:
+    register = getattr(ctx, "register_automation_blueprint", None)
+    if not callable(register):
         try:
-            import fcntl  # noqa: F401
-        except ImportError:
-            # Non-POSIX host: degrade to the unlocked v0.1.0 behavior.
-            pos_fcntl = False
-        if pos_fcntl:
-            lock_path.parent.mkdir(parents=True, exist_ok=True)
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
-            acquired = False
-            for _ in range(3):
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    acquired = True
-                    break
-                except OSError:
-                    time.sleep(0.05)
-            if acquired:
-                try:
-                    _ensure_single_cron_locked(ctx)
-                finally:
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-        else:
-            _ensure_single_cron_locked(ctx)
-    except Exception:
-        log.warning("Governance cron setup failed; no hook failure", exc_info=True)
-    finally:
-        if fd is not None:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-
-
-def _ensure_single_cron_locked(ctx):
+            log.warning(
+                "skill-governance: host lacks register_automation_blueprint; "
+                "clearance is available only as the CRON_PROMPT procedure"
+            )
+        except Exception:
+            pass
+        return None
     try:
-        from cron.jobs import load_jobs
-        from tools.cronjob_tools import cronjob
-    except ImportError:
-        return
-    state = ctx.state.get("governance.cron", {}) or {}
-    jobs = [j for j in (load_jobs() or []) if isinstance(j, dict)]
-    named = next((j for j in jobs if j.get("name") == CRON_NAME), None)
-    if named:
-        # Adopting a named job also opts back in after a manual removal.
-        named_id = str(named.get("id") or "")
-        if named_id != str(state.get("job_id") or "") or state.get("user_removed"):
-            ctx.state.set("governance.cron",
-                          {"job_id": named_id, "user_removed": False})
-        return
-    if any(j.get("name") in LEGACY_CRON_NAMES
-           for j in jobs if j.get("enabled", True)):
-        # Never schedule a duplicate while an ENABLED legacy clearance job is
-        # present. A legacy job that exists but is disabled cannot fire, so it
-        # poses no duplicate-advisory risk and must not suppress the opt-in.
-        # Missing `enabled` defaults to True, matching cron/jobs.py.
-        return
-    if state.get("job_id") and not state.get("user_removed"):
-        ctx.state.set("governance.cron", {**state, "user_removed": True})
-        return
-    if state.get("user_removed"):
-        return
-    payload = {
-        "action": "create", "name": CRON_NAME,
-        "schedule": ctx.get_config("cron.schedule", "0 9 * * *"),
-        "prompt": CRON_PROMPT,
-    }
-    deliver = ctx.get_config("cron.deliver", "telegram")
-    if isinstance(deliver, str) and deliver.strip():
-        payload["deliver"] = deliver.strip()
-    output = cronjob(**payload)
-    if isinstance(output, str):
-        output = json.loads(output)
-    if isinstance(output, dict):
-        job_id = output.get("job_id") or (output.get("job") or {}).get("id")
-        if job_id:
-            ctx.state.set("governance.cron", {"job_id": str(job_id)})
+        return register(
+            "clearance",
+            title="Skill-governance clearance",
+            description=(
+                "Daily skill-provenance clearance: manifest drift review and "
+                "contrastive-probe acknowledgements in one procedure."
+            ),
+            schedule_template="0 9 * * *",
+            prompt_template=CRON_PROMPT,
+            tags=["skills", "governance"],
+        )
+    except Exception:
+        log.warning("skill-governance: blueprint registration failed", exc_info=True)
+        return None

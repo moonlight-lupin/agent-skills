@@ -2,6 +2,7 @@
 
 No real Hermes profile, user config, cron job or probe ledger is touched.
 """
+import builtins
 import importlib.util
 import json
 import os
@@ -42,7 +43,9 @@ class Store:
 
 class Host:
     def __init__(self, home, config=None):
-        self.hermes_home = str(home)
+        # The real host pins the profile home via HERMES_HOME (the runtime
+        # PluginContext has no hermes_home attribute); model that contract.
+        os.environ["HERMES_HOME"] = str(home)
         self.state = Store()
         self.settings = config or {}
         self.hooks = {}
@@ -56,6 +59,23 @@ class Host:
         assert name not in self.hooks
         self.hooks[name] = callback
 
+    def register_automation_blueprint(self, key, *, title, description,
+                                      schedule_template, prompt_template,
+                                      category="general", slots=(),
+                                      deliver_default="origin", skills=(),
+                                      tags=()):
+        assert not hasattr(self, "blueprints") or key not in self.blueprints, (
+            f"duplicate blueprint {key}"
+        )
+        if not hasattr(self, "blueprints"):
+            self.blueprints = {}
+        self.blueprints[key] = {
+            "title": title, "description": description,
+            "schedule_template": schedule_template,
+            "prompt_template": prompt_template,
+            "deliver_default": deliver_default,
+        }
+
     def register_skill(self, name, path):
         assert Path(path).is_file()
         self.skills[name] = Path(path)
@@ -65,6 +85,16 @@ class Host:
 
     def register_command(self, name, *args, **kw):
         self.commands[name] = args
+
+
+@pytest.fixture(autouse=True)
+def _restore_hermes_home_env():
+    saved = os.environ.get("HERMES_HOME")
+    yield
+    if saved is None:
+        os.environ.pop("HERMES_HOME", None)
+    else:
+        os.environ["HERMES_HOME"] = saved
 
 
 def test_namespaced_state_and_config_are_independent(tmp_path):
@@ -79,8 +109,6 @@ def test_namespaced_state_and_config_are_independent(tmp_path):
     assert host.state.values["manifest.v1"] != host.state.values["advisor.v1"]
     assert m.get_config("track_changes") is False
     assert a.get_config("enabled") is True
-    assert m.get_config("auto_resolve", True) is False
-    assert a.get_config("sweeper", True) is False
     with pytest.raises(ValueError):
         m.state.set("../other", {})
 
@@ -227,113 +255,72 @@ def test_ledger_answer_never_counts_as_fingerprint_bound_validation():
     assert records["skill:alpha"]["manifest_status"] == "unknown"
 
 
-def test_legacy_jobs_prevent_new_governance_cron(monkeypatch, tmp_path):
-    """An ENABLED legacy-named job suppresses the unified cron (duplicate risk)."""
-    core = _plugin().core
-    host = Host(tmp_path, {"cron.enabled": True})
-    cron = types.ModuleType("cron")
-    jobs = types.ModuleType("cron.jobs")
-    jobs.load_jobs = lambda: [
-        {"name": core.LEGACY_CRON_NAMES[0], "id": "old", "enabled": True},
-        {"name": core.LEGACY_CRON_NAMES[1], "id": "old2", "enabled": False},
-    ]
-    tools = types.ModuleType("tools")
-    cronjob_tools = types.ModuleType("tools.cronjob_tools")
-    called = []
-    cronjob_tools.cronjob = lambda **kw: called.append(kw)
-    for name, mod in (("cron", cron), ("cron.jobs", jobs), ("tools", tools),
-                      ("tools.cronjob_tools", cronjob_tools)):
-        monkeypatch.setitem(sys.modules, name, mod)
-    core.ensure_single_cron(host)
-    assert called == []
+def test_register_clearance_blueprint_adopts_public_surface(tmp_path):
+    """v0.3.0: register() exposes the clearance procedure as an automation
+    blueprint on the PUBLIC host surface -- no private cron module imports,
+    no cron state writes."""
+    plugin = _plugin()
+    host = Host(tmp_path, {})
+    plugin.register(host)
+    assert set(host.blueprints) == {"clearance"}
+    bp = host.blueprints["clearance"]
+    assert bp["schedule_template"] == "0 9 * * *"
+    assert bp["deliver_default"] == "origin"
+    prompt = bp["prompt_template"]
+    # Both legacy procedures survive verbatim in the unified prompt.
+    assert plugin.manifest_hooks.PROMPT_AUTO_RESOLVE in prompt
+    assert "PROBE-FIRE CLEARANCE" in prompt
+    assert plugin.contrastive.advisor.SWEEPER_PROMPT in prompt
+    # Register never wrote state (a blueprint is not a cron job).
+    assert host.state.writes == []
 
 
-def test_disabled_legacy_jobs_do_not_block_governance_cron(monkeypatch, tmp_path):
-    """Only ENABLED legacy jobs block creation; a disabled one must not.
-
-    Regression test: the suppression guard used presence alone, so the unified
-    opt-in cron was never created while a disabled legacy job existed. A legacy
-    job MISSING the `enabled` key counts as enabled (cron/jobs.py defaults it
-    to True), so it suppresses creation.
-    """
-    core = _plugin().core
-    host = Host(tmp_path, {"cron.enabled": True})
-    cron = types.ModuleType("cron")
-    jobs = types.ModuleType("cron.jobs")
-    jobs.load_jobs = lambda: [
-        {"name": core.LEGACY_CRON_NAMES[0], "id": "old", "enabled": False},
-    ]
-    tools = types.ModuleType("tools")
-    cronjob_tools = types.ModuleType("tools.cronjob_tools")
-    created = []
-    cronjob_tools.cronjob = lambda **kw: created.append(kw) or {"job_id": "new1"}
-    for name, mod in (("cron", cron), ("cron.jobs", jobs), ("tools", tools),
-                      ("tools.cronjob_tools", cronjob_tools)):
-        monkeypatch.setitem(sys.modules, name, mod)
-    core.ensure_single_cron(host)
-    assert len(created) == 1
-    assert created[0].get("name") == core.CRON_NAME
-    assert host.state.get("governance.cron") == {"job_id": "new1"}
+def test_probe_settings_resolve_home_from_hermes_constants(tmp_path, monkeypatch):
+    """Reviewer finding 4: the probe/fire stores must follow the profile home
+    (hermes_constants.get_hermes_home()), never a hard-coded ~/.hermes."""
+    plugin = _plugin()
+    core = plugin.core
+    host = Host(tmp_path, {"advisor.enabled": True})
+    a = core.ComponentContext(host, "advisor")
+    settings = plugin.contrastive.advisor.load_settings(a)
+    assert settings["enabled"] is True
+    assert settings["hermes_home"] == str(tmp_path)
 
 
-def test_missing_enabled_legacy_job_blocks_governance_cron(monkeypatch, tmp_path):
-    """A legacy job without an `enabled` key defaults to enabled (cron/jobs.py
-    uses job.get("enabled", True)), so it must suppress the unified cron."""
-    core = _plugin().core
-    host = Host(tmp_path, {"cron.enabled": True})
-    cron = types.ModuleType("cron")
-    jobs = types.ModuleType("cron.jobs")
-    jobs.load_jobs = lambda: [
-        {"name": core.LEGACY_CRON_NAMES[1], "id": "old2"},  # no enabled key
-    ]
-    tools = types.ModuleType("tools")
-    cronjob_tools = types.ModuleType("tools.cronjob_tools")
-    called = []
-    cronjob_tools.cronjob = lambda **kw: called.append(kw)
-    for name, mod in (("cron", cron), ("cron.jobs", jobs), ("tools", tools),
-                      ("tools.cronjob_tools", cronjob_tools)):
-        monkeypatch.setitem(sys.modules, name, mod)
-    core.ensure_single_cron(host)
-    assert called == []
+def test_register_degrades_without_blueprint_surface(tmp_path, monkeypatch):
+    """A host lacking register_automation_blueprint is tolerated: hooks stay
+    up, no exception escapes register()."""
+    plugin = _plugin()
+    host = Host(tmp_path, {})
+    monkeypatch.setattr(host, "register_automation_blueprint", None, raising=False)
+    plugin.register(host)
+    assert set(host.hooks) == {
+        "on_skill_lifecycle", "on_session_start", "pre_tool_call", "pre_llm_call"
+    }
 
 
-def test_cron_default_off_even_with_cron_modules_present(monkeypatch, tmp_path):
-    """The cron.enabled gate must be the thing that stops creation."""
-    core = _plugin().core
-    host = Host(tmp_path)  # cron.enabled unset (default False)
-    created = []
-    cron = types.ModuleType("cron")
-    jobs = types.ModuleType("cron.jobs")
-    jobs.load_jobs = lambda: []
-    tools = types.ModuleType("tools")
-    cronjob_tools = types.ModuleType("tools.cronjob_tools")
-    cronjob_tools.cronjob = lambda **kw: created.append(kw)
-    for name, mod in (("cron", cron), ("cron.jobs", jobs), ("tools", tools),
-                      ("tools.cronjob_tools", cronjob_tools)):
-        monkeypatch.setitem(sys.modules, name, mod)
-    core.ensure_single_cron(host)
-    assert created == []
-    assert host.state.values == {}
+def test_import_firewall_blocks_private_cron_modules(tmp_path, monkeypatch):
+    """Drive the import, not the source: importing `cron` or
+    `tools.cronjob_tools` must never even be ATTEMPTED, across register()
+    and the session hook. A swallowed import error that still returned None
+    would satisfy a naive raise-check; the attempt log pins it."""
+    plugin = _plugin()
+    host = Host(tmp_path, {})
+    attempted = []
+    real_import = builtins.__import__
 
+    def guarding_import(name, *args, **kw):
+        if name == "cron" or name.startswith("cron.") \
+           or name == "tools" or name.startswith("tools."):
+            attempted.append(name)
+            raise ModuleNotFoundError(f"blocked for test: {name}")
+        return real_import(name, *args, **kw)
 
-def test_cron_opt_back_in_via_recreated_named_job(monkeypatch, tmp_path):
-    core = _plugin().core
-    host = Host(tmp_path, {"cron.enabled": True})
-    host.state.set("governance.cron", {"job_id": "gone", "user_removed": True})
-    jobs = types.ModuleType("cron.jobs")
-    job_list = [{"name": core.CRON_NAME, "id": "re-created"}]
-    jobs.load_jobs = lambda: list(job_list)
-    cronjob_tools = types.ModuleType("tools.cronjob_tools")
-    calls = []
-    cronjob_tools.cronjob = lambda **kw: calls.append(kw)
-    for name, mod in (("cron", types.ModuleType("cron")), ("cron.jobs", jobs),
-                      ("tools", types.ModuleType("tools")),
-                      ("tools.cronjob_tools", cronjob_tools)):
-        monkeypatch.setitem(sys.modules, name, mod)
-    core.ensure_single_cron(host)
-    assert calls == []  # adoption, not creation
-    assert host.state.get("governance.cron") == {"job_id": "re-created",
-                                                 "user_removed": False}
+    monkeypatch.setattr(builtins, "__import__", guarding_import)
+    plugin.register(host)
+    assert host.hooks["on_session_start"](session_id="x") is None
+    assert host.hooks["pre_llm_call"](session_id="x", user_message="hi") is None
+    assert attempted == [], f"private cron module imports were attempted: {attempted}"
 
 
 def test_both_engines_advice_is_delivered_in_one_gateway_hook(tmp_path, monkeypatch):
@@ -367,31 +354,6 @@ def test_migration_preflight_fails_without_partial_state(tmp_path):
     with pytest.raises(json.JSONDecodeError):
         core.migrate_legacy_state(host)
     assert host.state.writes == []
-
-
-def test_single_cron_respects_user_removal(monkeypatch, tmp_path):
-    core = _plugin().core
-    host = Host(tmp_path, {"cron.enabled": True})
-    jobs = types.ModuleType("cron.jobs")
-    active_jobs = []
-    jobs.load_jobs = lambda: list(active_jobs)
-    cronjob_tools = types.ModuleType("tools.cronjob_tools")
-    calls = []
-    def create(**kw):
-        calls.append(kw)
-        return {"job_id": "g-1"}
-    cronjob_tools.cronjob = create
-    for name, mod in (("cron", types.ModuleType("cron")), ("cron.jobs", jobs),
-                      ("tools", types.ModuleType("tools")),
-                      ("tools.cronjob_tools", cronjob_tools)):
-        monkeypatch.setitem(sys.modules, name, mod)
-    core.ensure_single_cron(host)
-    assert len(calls) == 1
-    assert host.state.get("governance.cron") == {"job_id": "g-1"}
-    core.ensure_single_cron(host)  # job no longer listed -> manual removal
-    assert host.state.get("governance.cron")["user_removed"] is True
-    core.ensure_single_cron(host)
-    assert len(calls) == 1
 
 
 def test_external_ack_digest_is_current_only_for_matching_fingerprint():

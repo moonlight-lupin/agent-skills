@@ -1,4 +1,11 @@
-# Skill Governance v0.2.0
+# Skill Governance v0.3.0
+
+**What changed in v0.3.0 (reviewer-gated, catalog PR #150636):** the clearance
+schedule is no longer a self-installed cron job. The plugin registers one
+Automation Blueprint (`skill-governance:clearance`, daily `0 9 * * *`,
+delivery `origin`) through the public host surface; you adopt it from the
+blueprint gallery or `/blueprint`. The plugin imports no private cron modules
+and writes no cron state.
 
 **Consolidated engine, released.** This plugin is the successor to
 `skill-manifest` and `contrastive-advisor` (both retired from this repo as of
@@ -11,7 +18,8 @@ opt-in/refusal, and config round-trip (evidence in PR #24).
 - `manifest/`: skill provenance, drift/fingerprint tracking, acknowledgements.
 - `contrastive/`: non-blocking edit observation, probe reminders, fire ledger.
 - `core.py`: namespace isolation, non-destructive state import, conservative
-  unified records and one optional clearance schedule.
+  unified records and one clearance Automation Blueprint (adopted, not
+  self-installed).
 
 ## Installation
 
@@ -51,17 +59,17 @@ is deliberately manual and reversible:
    they are still referenced by their original engines. This preserves
    fingerprint acknowledgements and fire-evidence paths.
 6. If desired, manually remove or disable both old clearance jobs, then
-   opt in to **one** new job with `cron.enabled: true` in the new plugin's
-   settings. If either named legacy job is still **enabled**, the new plugin
-   will not create a duplicate (a disabled legacy job no longer blocks it).
-   The new scheduler honors manual removal of its own job.
+   adopt the single clearance blueprint with `/blueprint`
+   (`skill-governance:clearance`, daily `09:00`, delivery `origin`). The
+   plugin never checks for, creates or removes a scheduled job itself.
 7. Verify ordinary arrivals, changed fingerprints, /skill-manifest-ack,
    behavioral edit advisories, and the probe ledger on disposable skills.
    Check the combined pre-LLM context contains both advisories, not just one.
 
 **Rollback:** disable the new plugin, enable the two originals with their
-original configuration, and restart. Disable the new cron first if one was
-explicitly enabled. **Rollback is NOT lossless.** Know these three facts
+original configuration, and restart. Delete the adopted clearance job first
+if one was adopted (it keeps firing with the old prompt). **Rollback is NOT
+lossless.** Know these three facts
 before you roll back:
 
 - The migration imports legacy state once, by copy. Afterwards the new
@@ -89,15 +97,15 @@ back up `<HERMES_HOME>/plugin-data/` first.
 All options are plugin-local under
 `plugins.entries.skill-governance.settings`:
 
-- `manifest.*`: the original manifest fields, except `auto_resolve*` (legacy
-  scheduler disabled; owned by `cron.*` now).
-- `advisor.enabled` (false by default), `advisor.probe_root`,
+- `manifest.*`: the original manifest fields (filename, roots, budgets,
+  dismissed list, track_changes). The removed scheduler fields
+  `auto_resolve*` are no longer configurable.
+- `advisor.enabled` (false by default) plus `advisor.probe_root`,
   `advisor.excluded_skills`, `advisor.ttl_minutes`, `advisor.markers`,
-  `advisor.ledger_enabled`. Legacy `sweeper*` options are replaced by
-  `cron.*`.
-- `cron.enabled` (false by default, to honor prior opt-outs),
-  `cron.schedule` (default `0 9 * * *`),
-  `cron.deliver` (default telegram).
+  `advisor.ledger_enabled`.
+- Legacy `sweeper*` and `cron.*` options are replaced by the adopted
+  `skill-governance:clearance` Automation Blueprint (see the v0.3.0 note at
+  the top).
 
 The bundled skill is now
 `skill-governance:contrastive-refinement`, not the original

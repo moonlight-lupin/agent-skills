@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import pathlib
 import re
 import sys
@@ -105,10 +106,12 @@ def load_settings(ctx) -> dict:
             raw[key] = value
     if raw.get("enabled") is not True:
         return {"enabled": False}  # opt-in gate: absent/False/missing entry = disabled
-    hermes_home = (
-        getattr(ctx, "hermes_home", None)
-        or str(pathlib.Path.home() / ".hermes")
-    )
+    try:
+        import hermes_constants
+        hermes_home = str(hermes_constants.get_hermes_home())
+    except ImportError:
+        env = os.environ.get("HERMES_HOME", "").strip()
+        hermes_home = str(pathlib.Path(env).expanduser()) if env else str(pathlib.Path.home() / ".hermes")
     excluded = _as_tuple(raw.get("excluded_skills"))
     ttl_raw = raw.get("ttl_minutes")
     ttl = DEFAULT_TTL_MINUTES
@@ -514,7 +517,7 @@ def pending_advisory(ctx, settings: dict, *, now=None) -> dict | None:
         return None
     skill = str(item.get("skill", "?"))[:64]
     status = probe_evidence(str(item.get("probe_dir", "")))
-    text = render(skill, status, setup_note=_first_fire_note(settings, skill))
+    text = render(skill, status)
     record_fire(
         settings, skill, str(item.get("tool", "")), item.get("session_id"),
         status, text,
@@ -542,103 +545,6 @@ def render(skill: str, evidence: str, setup_note: str | None = None) -> str:
         # never one over (Codex C2: slice-to-cap + ellipsis == cap + 1).
         text = text[: INJECT_HARD_CAP - 1].rstrip() + "…"
     return text
-
-
-# --- fire sweeper (self-installed clearance cron; mirrors skill-manifest) ----------
-
-
-def _first_fire_note(settings: dict, skill: str) -> str | None:
-    """Pointer to the fire sweeper, only on a skill's first-ever fire.
-    Fail-open: any ledger read problem returns None (no noise over a hiccup)."""
-    try:
-        if not settings.get("ledger_enabled"):
-            return None
-        rows = _load_ledger_rows(_ledger_path(settings))
-        if any(str(r.get("skill", "")) == skill for r in rows):
-            return None
-        return (
-            "\n\nNew here? This plugin self-installs a fire-sweeper cron "
-            f'("{SWEEPER_JOB_NAME}") that closes stale fires by '
-            "classification (see docs/README.md)."
-        )
-    except Exception:
-        return None
-
-
-def _cfg(ctx, key: str, default):
-    try:
-        value = ctx.get_config(key)
-    except Exception:
-        return default
-    return default if value is None else value
-
-
-def _import_cron():
-    """Lazy import; a process without the cron modules skips silently."""
-    try:
-        from cron.jobs import load_jobs
-        from tools.cronjob_tools import cronjob
-        return load_jobs, cronjob
-    except Exception:
-        return None
-
-
-def ensure_sweeper(ctx) -> None:
-    """Register the fire-clearance cron once, unless the user removed it.
-    Self-installing pattern ported from skill-manifest (named-job adoption,
-    user-removal honoring). All failures log-and-swallow."""
-    try:
-        if _cfg(ctx, "sweeper", True) in (False, "false", "0"):
-            return
-        data = _state(ctx)
-        removed = data.get("sweeper_user_removed") is True
-        job_id = str(data.get("sweeper_job_id") or "")
-        api = _import_cron()
-        if api is None:
-            return
-        load_jobs, cronjob = api
-        jobs = [j for j in (load_jobs() or []) if isinstance(j, dict)]
-        named = next((str(j.get("id")) for j in jobs if j.get("name") == SWEEPER_JOB_NAME and j.get("id")), "")
-        if removed:
-            if named:  # hand-recreated job = opt back in
-                data["sweeper_job_id"] = named
-                data["sweeper_user_removed"] = False
-                _set_state(ctx, data)
-            return
-        if job_id and any(str(j.get("id")) == job_id for j in jobs):
-            return
-        if named:
-            data["sweeper_job_id"] = named
-            _set_state(ctx, data)
-            return
-        payload = {
-            "action": "create",
-            "schedule": _cfg(ctx, "sweeper_schedule", "40 8 * * *"),
-            "prompt": SWEEPER_PROMPT,
-            "name": SWEEPER_JOB_NAME,
-        }
-        deliver = str(_cfg(ctx, "sweeper_deliver", "telegram") or "").strip()
-        if deliver:
-            payload["deliver"] = deliver
-        raw = cronjob(**payload)
-        created = ""
-        data_raw = raw
-        if isinstance(data_raw, str):
-            import json as _json
-            try:
-                data_raw = _json.loads(data_raw)
-            except Exception:
-                data_raw = {}
-        if isinstance(data_raw, dict):
-            created = str(data_raw.get("job_id") or (data_raw.get("job") or {}).get("id") or "")
-        if created:
-            data = _state(ctx)
-            data["sweeper_job_id"] = created
-            _set_state(ctx, data)
-        else:
-            _log(f"fire sweeper cron create failed: {raw!r}"[:220])
-    except Exception as exc:
-        _log(f"ensure sweeper skipped ({type(exc).__name__}: {exc})")
 
 
 # --- hook callbacks ----------------------------------------------------------------
@@ -683,10 +589,7 @@ def on_pre_llm_call(ctx, session_id=None, user_message=None, **kw):
 
 
 def on_session_start(ctx=None, session_id="", **kw):
-    """Session-start hook: self-install the fire sweeper, once. Never raises."""
-    try:
-        if ctx is not None:
-            ensure_sweeper(ctx)
-    except Exception as exc:
-        _log(f"session-start skipped ({type(exc).__name__}: {exc})")
+    """Session-start no-op: the clearance schedule is an adopted automation
+    blueprint, not a self-installed cron. Never raises."""
+    del ctx, session_id, kw
     return None

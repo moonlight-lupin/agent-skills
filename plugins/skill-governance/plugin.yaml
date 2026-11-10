@@ -1,5 +1,5 @@
 name: skill-governance
-version: 0.2.0
+version: 0.3.0
 description: "Consolidated skill provenance, fingerprint-bound manifest acknowledgements and advisory-only contrastive probes with a single composed hook surface."
 author: moonlight-lupin
 license: MIT
@@ -32,9 +32,3 @@ config_schema:
       ttl_minutes: {type: number, default: 30}
       markers: {type: list, default: []}
       ledger_enabled: {type: bool, default: true}
-  cron:
-    type: object
-    properties:
-      enabled: {type: bool, default: false}
-      schedule: {type: str, default: "0 9 * * *"}
-      deliver: {type: str, default: telegram}

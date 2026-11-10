@@ -44,12 +44,13 @@ def register(ctx):
     advisor_ctx = core.ComponentContext(ctx, "advisor")
     manifest_hooks.configure(manifest_ctx)
 
-    # The vendored first-fire note points at the legacy self-installed
-    # "contrastive-advisor fire clearance" job. That job never exists under
-    # governance (scheduling is owned by cron.* and the legacy sweeper gate is
-    # force-disabled), so the note would tell the model about a cron job it
-    # cannot find. Suppressed at the adapter boundary, not in vendored code.
-    advisor._first_fire_note = lambda *a, **k: None
+    # Clearance schedule is an adopted automation blueprint (0.3.0): the
+    # profile blueprint catalog holds the procedure; the plugin never writes
+    # cron state. Best-effort: never raise from register().
+    try:
+        core.register_clearance_blueprint(ctx)
+    except Exception:
+        log.warning("Governance clearance blueprint registration failed", exc_info=True)
 
     bootstrap = {"done": False, "failed": False}
     bootstrap_lock = threading.Lock()
@@ -86,7 +87,6 @@ def register(ctx):
             return None
         manifest_hooks.on_session_start(session_id=session_id, **kw)
         advisor.on_session_start(advisor_ctx, session_id=session_id, **kw)
-        core.ensure_single_cron(ctx)
         refresh()
 
     def on_skill_lifecycle(**kw):
