@@ -3,7 +3,7 @@ name: deep-research
 description: "Use when the user asks for \"deep research\", a \"research report on\", a \"comprehensive analysis of\", to \"look into X in depth\", to \"write a report on X\", or any question needing multi-source synthesis beyond a single search — an autonomous multi-step deep research engine implementing an iterative Think → Search → Extract → Synthesize → Stop loop. The LLM drives every decision: what to search, what's relevant, what's missing, and when to stop. Produces a cited, magazine-quality report with inline citations, category-specific formatting, and research stats. For entity vetting/dossiers use entity-research; for news digests use news-monitoring; for source-grounded Q&A use notebooklm-mode."
 license: MIT
 metadata:
-  version: 1.9.3
+  version: 1.10.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   hermes:
@@ -156,6 +156,7 @@ Query rules, fetch budgets, quote anchoring, the synthesis template, the evidenc
 | Query generation, search and fetch, extraction, anchoring, synthesis, or the stopping check | `references/step3-iterative-loop.md` |
 | Evidence-store commands and the three delivery gates | `references/validation-gates.md` |
 | The evidence.json intermediate | `references/structured-evidence-format.md` |
+| The default search or reader fails, or the plan needs a country, language or date filter | `references/search-and-fetch-fallbacks.md` |
 
 1. **3a — Query Generation (gap-driven)** — Breadth comes from the Step 1 preset (simple=2, moderate=3, complex=4). Round 1 targets plan sub-questions; later rounds target gaps and recorded follow-ups.
 2. **3b — Search and Fetch** — Use the donsetch MCP search/fetch tools when the user asked for them; otherwise `web_search` / `web_extract`. Never abort over a provider preference. *Optional, paid:* when the plan needs the **same public facts for several organisations** (size, mandate, sector exposure, recent commitments), one Exa Agent API run can collect them as cited rows (about US$0.10 a run, ceiling US$1.10; quote first; organisations only, never people). Its output enters the evidence store like any other source — each fact keeps the page it cites and gets its own label. Procedure: `entity-research/references/organisation-evidence-exa.md`.
