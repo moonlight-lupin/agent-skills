@@ -254,10 +254,47 @@ class TestParseUkOfsi(unittest.TestCase):
         self.assertEqual(entries[0]["name"], "ACME")
 
     def test_unreadable_layout_returns_empty_signal_unavailable(self):
-        """A header without Name columns degrades to [] -> the list reports
-        unavailable instead of mis-joining unrelated columns."""
-        raw = b'Report Date: X\nA,B,C\n1,2,3\n'
-        self.assertEqual(er._parse_uk_ofsi(raw), [])
+        """Two unreadable shapes degrade to [] -> the list reports unavailable
+        instead of mis-joining unrelated columns: (a) no 'Last Updated' header
+        row at all; (b) a real 'Last Updated' header row that lacks Name
+        columns (exercises the no-name-columns branch after detection)."""
+        raw_no_header = b'Report Date: X\nA,B,C\n1,2,3\n'
+        self.assertEqual(er._parse_uk_ofsi(raw_no_header), [])
+        raw_no_name_cols = (b'Report Date: X\n'
+                            b'Last Updated,Unique ID,Regime Name,Type of entity\n'
+                            b',S9,Regime Z,Entity\n')
+        self.assertEqual(er._parse_uk_ofsi(raw_no_name_cols), [])
+
+    def test_no_name_columns_reports_list_unavailable(self):
+        """Integration without network: when the layout can't be read, the
+        parser's [] -> _load_list's `if not entries` -> None chain makes
+        screen_lists report UK-OFSI as unavailable (other lists unaffected)."""
+        raw_no_name_cols = (b'Report Date: X\n'
+                            b'Last Updated,Unique ID,Regime Name,Type of entity\n'
+                            b',S9,Regime Z,Entity\n')
+        original_fetch = er._fetch
+        er._fetch = lambda url, timeout=60: raw_no_name_cols
+        try:
+            loaded = er._load_list("UK-OFSI", cache_dir=str(self._tmp_cache()), refresh=True)
+        finally:
+            er._fetch = original_fetch
+        self.assertIsNone(loaded)
+        self.assertEqual(er.screen_lists("Acme", lists=(), _entries={})["unavailable"], [])
+        orig2 = er._fetch
+        er._fetch = lambda url, timeout=60: raw_no_name_cols
+        try:
+            sig = er.screen_lists("Acme", lists=("UK-OFSI",), _entries=None,
+                                  cache_dir=str(self._tmp_cache()))
+        finally:
+            er._fetch = orig2
+        self.assertEqual(sig["checked"], [])
+        self.assertEqual(sig["unavailable"], ["UK-OFSI"])
+        self.assertIn("UK-OFSI", sig["note"])
+
+    @staticmethod
+    def _tmp_cache():
+        import tempfile
+        return tempfile.mkdtemp(prefix="uk-cache-")
 
     def test_url_points_at_uk_sanctions_list(self):
         """Issue #31: the closed OFSI blob URL must be gone."""
