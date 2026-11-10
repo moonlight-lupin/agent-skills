@@ -3,7 +3,7 @@ name: people-enrichment
 description: "Use when the user has a list of names or companies and wants their job, employer, work history, LinkedIn URLs or company profiles looked up, or wants to find people or companies matching criteria — trigger on phrases like \"enrich these contacts\", \"find their LinkedIn\", \"look up these people\", \"who works at X\", \"find directors at Y\", \"enrich these companies\", or \"get firmographics for\". Enrich and search People Data Labs (PDL) Person and Company data, writing results to .xlsx. Five operations: enrich named PEOPLE into a profile, employment history and LinkedIn URL; IDENTIFY an ambiguous person as several scored candidates; SEARCH people by criteria (company, title, location); enrich COMPANIES into firmographics (industry, size, employees, HQ, founded, LinkedIn); and SEARCH companies by criteria. Do not scrape LinkedIn directly — this uses a licensed data aggregator (PDL) instead, for legal and reliability reasons."
 license: MIT
 metadata:
-  version: 1.0.1
+  version: 1.1.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
 ---
@@ -100,6 +100,30 @@ python scripts/enrich.py company-search --industry "real estate" --country singa
 
 Flags: `--name --industry --country --locality --tag --min-employees`, plus `--size` and `--sql`.
 
+## Enrich a list of email addresses — triage first, one lookup per company, people last
+
+For a list that is mostly addresses (an event sign-up sheet, a CRM export, a business-card scan),
+`scripts/email_list.py` keeps the lookups to what the list actually needs:
+
+```bash
+python scripts/email_list.py triage --input emails.csv --out-dir work --exclude-domain yourco.example
+python scripts/enrich.py company-enrich --input work/companies.csv --output work/companies.xlsx
+python scripts/enrich.py person-enrich  --input work/people.csv    --output work/people.xlsx   # only if names/titles are needed
+python scripts/email_list.py merge --dir work --output enriched_list.xlsx
+```
+
+1. **Triage (free, offline)** sorts every unique address into webmail (never looked up — no
+   company data, and private), shared mailbox (`info@`, `sales@` …; company lookup only),
+   personal work address, invalid, or excluded (`--exclude-domain`, e.g. your own organisation).
+2. **One company lookup per domain**, not per address — `companies.csv` has one row per domain.
+3. **People last, and only if needed.** Firmographics alone need no person lookup; run
+   `people.csv` only when names or titles matter. Quote the credit count (`--dry-run`) first.
+4. **Merge** writes one row per address with an outcome — person, company only, webmail, not
+   found, excluded — and a check column: matches below the confidence floor, and a person whose
+   current company differs from the address's domain (they may have moved). Blanks stay blank.
+
+Adapted from monid's guide to email-list enrichment (triage, dedupe by domain, then pay).
+
 ## Reviewing output with the user
 
 People sheets have two tabs: **People** (one row per person, status colour-coded) and **Employment history** (one row per past role). Company sheets have a single **Companies** tab. The **Status** column is the first thing to check: `matched` (green), `needs_review` (amber), `no_match` (red), `error` (orange). Call out the amber/red rows explicitly so the user knows what to double-check.
@@ -127,10 +151,11 @@ The PDL-specific pieces are the `*_params` builders, `pdl_request`, and the `par
 ## Pitfalls
 
 1. **Free plan hides contact values** — emails/phones come back as booleans; read the status columns.
-2. **Search cost scales with `--size`** — quote the rough credit cost and keep `--size` modest.
-3. **Common names mis-match** — raise `--min-likelihood` or add context columns (company/email).
-4. **Never commit `.env`** — the key is a secret; `--self-test` and `--dry-run` need no key.
-5. **Dry-run is an estimate** — actual billing follows PDL's endpoint terms and returned records/matches.
+2. **Shared mailboxes are not people** — `info@`, `sales@`, `ir@`-style addresses are dropped from a person's email list (`is_role_address`).
+3. **Search cost scales with `--size`** — quote the rough credit cost and keep `--size` modest.
+4. **Common names mis-match** — raise `--min-likelihood` or add context columns (company/email).
+5. **Never commit `.env`** — the key is a secret; `--self-test` and `--dry-run` need no key.
+6. **Dry-run is an estimate** — actual billing follows PDL's endpoint terms and returned records/matches.
 
 ## Verification checklist
 
@@ -139,6 +164,7 @@ The PDL-specific pieces are the `*_params` builders, `pdl_request`, and the `par
 - [ ] `PDL_API_KEY` available via env or `.env` for live runs (never written into the skill).
 - [ ] Rough credit cost stated before any large search.
 - [ ] Amber/red status rows flagged to the user.
+- [ ] For an email list: triage run first; webmail never sent; one company lookup per domain; person lookups only if needed.
 - [ ] `.env` not printed/committed.
 
 ## Requirements
