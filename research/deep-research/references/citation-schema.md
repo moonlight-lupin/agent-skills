@@ -1,6 +1,6 @@
 # Source Record Schema
 
-Source Tracker stores records in a SQLite table named `sources`. Each row is one
+Citation database stores records in a SQLite table named `sources`. Each row is one
 canonical cited URL. URL variants can be merged by the dedup workflow.
 
 ```sql

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tests for source-tracker scripts.
+"""Tests for the citation-database scripts (absorbed source-tracker).
 
-Run: python -m pytest research/source-tracker/tests/test_source_db.py -v
+Run: python -m pytest research/deep-research/tests/test_source_db.py -v
 """
 
 from __future__ import annotations
@@ -141,6 +141,17 @@ def test_url_normalization() -> None:
     assert source_db.canonicalize_url("https://Example.com/") == "https://example.com/"
     assert source_db.dedup_key("HTTPS://WWW.Example.COM/path/#frag") == "//example.com/path"
     assert source_db.dedup_key("http://example.com/") == source_db.dedup_key("https://www.example.com/")
+
+
+def test_rejects_non_web_schemes() -> None:
+    """file://, ftp:// and other non-web schemes must be rejected — never stored or fetched."""
+    for bad in ("file://localhost/etc/passwd", "ftp://example.com/download", "javascript:alert(1)"):
+        try:
+            source_db.canonicalize_url(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected ValueError for {bad!r}")
 
 
 def test_health_check() -> None:

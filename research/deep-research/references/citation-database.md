@@ -1,20 +1,11 @@
----
-name: source-tracker
-description: "Use when research spans multiple sessions and citations must persist — add URLs as they're cited, dedup variants, tag by topic, check link health, and export bibliographies in Markdown/BibTeX/CSV/JSON."
-license: MIT
-metadata:
-  version: 1.0.0
-  author: moonlight-lupin
-  platforms: [linux, macos, windows]
-  tags: [citation, bibliography, research, sources, dedup, url-tracking, link-health]
-  related_skills: [deep-research, notebooklm-mode, entity-research]
----
+# Citation database (absorbed from source-tracker)
 
-# Source Tracker
+The source-tracker skill was retired and its tooling absorbed into deep-research; the scripts live at `scripts/source_db.py` and `scripts/url_health.py` relative to the deep-research skill directory. Command paths in this document were updated accordingly; behavior is unchanged from the last published source-tracker version.
+
 
 ## Overview
 
-Source Tracker is a small persistent citation manager for research workflows.
+Citation database is a small persistent citation manager for research workflows.
 Research sources often scatter across browser tabs, notes, temporary files, and
 separate sessions. URLs get cited once and then disappear, duplicates accumulate
 as `http`/`https` or `www` variants, and bibliography export becomes a manual
@@ -26,7 +17,8 @@ variants, re-check stale links, and export bibliographies in Markdown, BibTeX,
 CSV, or JSON.
 
 The database path is configurable with `--db-path` or the
-`SOURCE_TRACKER_DB` environment variable. If neither is set, commands use
+`SOURCE_TRACKER_DB` environment variable (the variable name deliberately keeps
+the source-tracker name for backward compatibility with existing setups). If neither is set, commands use
 `./sources.db` relative to the current working directory.
 
 ## Quick Start
@@ -215,7 +207,7 @@ array of distinct topic strings.
 
 ## URL Normalization Rules
 
-Source Tracker uses two levels of URL handling:
+Citation database uses two levels of URL handling:
 
 1. **Canonical storage URL**
    - Lowercase scheme and host.
@@ -307,13 +299,13 @@ python scripts/source_db.py add \
 Run weekly health checks with the cron scheduler. Example crontab entry:
 
 ```cron
-0 9 * * 1 cd /path/to/source-tracker && SOURCE_TRACKER_DB=/path/to/sources.db python scripts/url_health.py --stale-days 30 --batch-size 100 >> /path/to/source-health.log 2>&1
+0 9 * * 1 SOURCE_TRACKER_DB=/path/to/sources.db python scripts/url_health.py --stale-days 30 --batch-size 100 >> /path/to/source-health.log 2>&1
 ```
 
 Use small batches for very large databases to avoid long scheduler jobs:
 
 ```cron
-0 9 * * 1 cd /path/to/source-tracker && python scripts/url_health.py --db-path /path/to/sources.db --stale-days 30 --batch-size 50
+0 9 * * 1 python scripts/url_health.py --db-path /path/to/sources.db --stale-days 30 --batch-size 50
 ```
 
 ## Output Formats
@@ -325,7 +317,7 @@ Use small batches for very large databases to avoid long scheduler jobs:
 - **JSON** — array of full source objects, including `session_id` and normalized
   URL fields.
 
-See `references/export-formats.md` for concrete examples.
+See `citation-export-formats.md` for concrete examples.
 
 ## Common Pitfalls
 

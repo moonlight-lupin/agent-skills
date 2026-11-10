@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Persistent source tracker CLI for research citations.
+"""Persistent citation-database CLI for research citations.
 
 Stores cited URLs in SQLite, performs URL variant deduplication, and exports
 bibliographies in Markdown, BibTeX, CSV, or JSON. The tool is intentionally
@@ -150,7 +150,7 @@ def fetch_title(url: str, timeout: int = 10) -> Optional[str]:
     never block adding a source record.
     """
     try:
-        request = urllib.request.Request(url, headers={"User-Agent": "source-tracker/1.0"})
+        request = urllib.request.Request(url, headers={"User-Agent": "deep-research-citation-db/1.0"})
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read(262_144)
             charset = response.headers.get_content_charset() if response.headers else None
@@ -477,7 +477,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """Run the source tracker CLI."""
+    """Run the citation-database CLI."""
     parser = build_parser()
     args = parser.parse_args(argv)
     db_path = resolve_db_path(getattr(args, "db_path", None) or getattr(args, "db_path_global", None))

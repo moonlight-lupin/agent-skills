@@ -3,7 +3,7 @@ name: news-monitoring
 description: "Use when a topic or news stream needs recurring monitoring — cover it with web search, multi-language sources, digest formatting, and automated delivery via Hermes cron jobs. Covers search strategy, source selection, Chinese-language platforms, and digest templates."
 license: MIT
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   hermes:
@@ -240,6 +240,10 @@ Set `context_from: ["<job_id>"]` on the cron job (using the job's own ID) so eac
 **Chinese (Traditional):** HK01, 香港經濟日報 HKET, 明報 Ming Pao, 文匯報 Wen Wei Po, 東方日報 on.cc, Now財經, 信報 HKEJ, 香港商報
 
 **Industry-specific:** PBSA News, Global Student Living, Centurion announcements (SGX-listed PBSA REIT)
+
+### Source database and link health
+
+For monitoring topics that run for weeks, record digest sources in the citation database shipped with the deep-research skill (`../deep-research/scripts/source_db.py`; workflow doc at `../deep-research/references/citation-schema.md`). Add each article at digest build time with `--topic <monitoring topic> --type news` and an explicit `--db-path` or `SOURCE_TRACKER_DB` per topic, so separate monitors do not fragment into near-duplicate tags. Before a major digest or monthly rollup, run `../deep-research/scripts/url_health.py --stale-days 30` against that database so dead links are caught before the reader clicks them.
 
 ## Pitfalls
 

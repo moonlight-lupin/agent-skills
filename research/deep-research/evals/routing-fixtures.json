@@ -17,11 +17,11 @@
       "id": "dr-02-boundary-fact-check",
       "request": "Is it true that more than half of new cars sold in Norway in 2025 were fully electric? Check this and show your sources.",
       "expected_routing": {
-        "skill": "fact-checker",
-        "reason": "A single, specific claim to verify with a confidence rating goes to fact-checker; deep-research handles broad multi-question topics (its fact-check report category covers claims that surface DURING a wider report).",
-        "not": ["deep-research", "news-monitoring"]
+        "skill": "deep-research",
+        "reason": "Since fact-checker retired (its claim-verification role absorbed into deep-research), a single, specific claim to verify routes to deep-research: its fact-check report category, evidence-basis gates, and citation discipline cover claim-level verification.",
+        "not": ["news-monitoring"]
       },
-      "required_output_fields": ["verdict with confidence rating", "cited sources", "source independence assessment"],
+      "required_output_fields": ["evidence for/against two-column table", "preliminary verdict", "evidence-basis tags ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]) with an evidence key", "numbered inline citations [N] matching the source table"],
       "forbidden_patterns": ["(?i)as an ai language model", "(?i)i don't have access to", "(?i)\\bverdict: false\\b"]
     },
     {

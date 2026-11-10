@@ -25,9 +25,6 @@ agent_skills/
 │   ├── notebooklm-mode/              ← NotebookLM-style source vault + grounded answers
 │   ├── people-enrichment/            ← PDL person/company enrichment/search to styled .xlsx
 │   ├── library-rag/                  ← Nemotron-3-Embed-1B + sqlite-vec semantic search engine
-│   ├── source-tracker/               ← persistent citation database + URL health + bibliography export
-│   ├── fact-checker/                 ← targeted claim verification + confidence rating + cited reports
-│   ├── media-analyzer/               ← rhetorical technique detection (loaded language, framing, omission)
 │   ├── endpoint-probe/               ← API/MCP surface discovery (REST, GraphQL, SOAP, JSON-RPC)
 │   └── youtube-topic-research/       ← YouTube search + transcript summarization
 ├── mlops/                            ← model evaluation and ops skills
@@ -71,19 +68,16 @@ New skills are added as folders under the relevant domain directory.
 | [image-studio](creative/image-studio/) | creative | Staged fal.ai image gen/edit/upscale/cleanup with cost logging + `--dry-run` | pexels-stock-photos |
 | [clips-studio](creative/clips-studio/) | creative | Staged fal.ai short-video: text-to-video, animate still, camera moves | image-studio |
 | [pexels-stock-photos](creative/pexels-stock-photos/) | creative | Free real-world stock photos (Pexels API, 20k/month) with attribution handling | image-studio |
-| [deep-research](research/deep-research/) | research | Iterative research engine: structured evidence, source quality ranking (primary/secondary/tertiary), refute polarity, overview-first reports, four-label evidence-basis discipline ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]), deterministic validation gates (claim-support, citations, structure), verbatim quote anchoring, per-round search budgets, provider-neutral search and page-reader fallbacks, referent disambiguation probe, firmware support-status triangulation recipe, provider head-to-head benchmarking, follow-up report revision | fact-checker, source-tracker |
+| [deep-research](research/deep-research/) | research | Iterative research engine: structured evidence, source quality ranking (primary/secondary/tertiary), refute polarity, overview-first reports, four-label evidence-basis discipline ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]), deterministic validation gates (claim-support, citations, structure), verbatim quote anchoring, per-round search budgets, provider-neutral search and page-reader fallbacks, referent disambiguation probe, firmware support-status triangulation recipe, provider head-to-head benchmarking, follow-up report revision, persistent citation DB scripts (absorbed source-tracker) | — |
 | [entity-research](research/entity-research/) | research | Cited company/person dossiers: ownership, adverse media, sanctions, litigation; optional cited organisation-evidence run (Exa Agent API) | deep-research |
 | [people-enrichment](research/people-enrichment/) | research | PDL person/company lookup → styled `.xlsx`; email-list enrichment (free triage, one lookup per domain); shared mailboxes never kept as a person's email | entity-research |
 | [library-rag](research/library-rag/) | research | Semantic search over personal library (Nemotron-3-Embed-1B + sqlite-vec), incremental + prune-missing | notebooklm-mode |
 | [notebooklm-mode](research/notebooklm-mode/) | research | Source-grounded Q&A from a source vault, strict or augmented grounding | library-rag, deep-research |
-| [news-monitoring](research/news-monitoring/) | research | Recurring news digests with cron delivery + multi-language + dedup | source-tracker |
+| [news-monitoring](research/news-monitoring/) | research | Recurring news digests with cron delivery + multi-language + dedup | — |
 | [youtube-topic-research](research/youtube-topic-research/) | research | YouTube search → transcript → summary pipeline | notebooklm-mode |
-| [source-tracker](research/source-tracker/) | research | Persistent citation DB: URL dedup, topic tags, link health, bibliography export | deep-research, fact-checker |
-| [fact-checker](research/fact-checker/) | research | Claim verification → confidence rating (verified→outdated) + cited report | deep-research, source-tracker |
-| [media-analyzer](research/media-analyzer/) | research | Rhetorical technique detection (loaded language, framing, omission) — not political labels | fact-checker, deep-research |
 | [endpoint-probe](research/endpoint-probe/) | research | Discover API/MCP surfaces (REST, GraphQL, SOAP, JSON-RPC) — probe script + interpretation guide | website-scraping |
 | [model-compare](mlops/model-compare/) | mlops | Blind multi-model A/B comparison: simple, tools, coding, review modes + embedding benchmark | — |
-| [website-scraping](web-scraping/website-scraping/) | web-scraping | Recon → lightest extraction tool → JSONL + run manifest | source-tracker |
+| [website-scraping](web-scraping/website-scraping/) | web-scraping | Recon → lightest extraction tool → JSONL + run manifest | — |
 | [fill-template](productivity/fill-template/) | productivity | Bulk-fill Word/Excel templates from a data table (mail-merge) | — |
 | [travel-itinerary](productivity/travel-itinerary/) | productivity | Business-trip itineraries from emails/PDFs → Markdown + `.ics` + chat variants | — |
 | [decision-log](productivity/decision-log/) | productivity | ADR-style decision journal with superseding chains + cron review reminders | — |

@@ -3,12 +3,12 @@ name: deep-research
 description: "Use when the user asks for \"deep research\", a \"research report on\", a \"comprehensive analysis of\", to \"look into X in depth\", to \"write a report on X\", or any question needing multi-source synthesis beyond a single search — an autonomous multi-step deep research engine implementing an iterative Think → Search → Extract → Synthesize → Stop loop. The LLM drives every decision: what to search, what's relevant, what's missing, and when to stop. Produces a cited, magazine-quality report with inline citations, category-specific formatting, and research stats. For entity vetting/dossiers use entity-research; for news digests use news-monitoring; for source-grounded Q&A use notebooklm-mode."
 license: MIT
 metadata:
-  version: 1.11.0
+  version: 1.12.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   hermes:
     tags: [research, deep-research, report, synthesis, iterative, citations, evidence-basis, provenance]
-    related_skills: [news-monitoring, entity-research, notebooklm-mode, youtube-topic-research, fact-checker, source-tracker]
+    related_skills: [news-monitoring, entity-research, notebooklm-mode, youtube-topic-research]
 ---
 
 # Deep Research — Iterative Research Engine
@@ -304,6 +304,16 @@ For larger research tasks (10+ sources) or when the user may want to follow up w
 4. After the report, tell the user: "Sources saved to vault at [path]. You can ask follow-up questions grounded in these sources — say 'notebooklm mode' to query the vault."
 
 This is optional — the skill works fully without a vault for one-off reports.
+
+## Persistent citation database (absorbed source-tracker)
+
+For research that spans sessions, keep a portable SQLite citation database instead of scattering URLs. The scripts live in `scripts/source_db.py` and `scripts/url_health.py` (formerly the standalone source-tracker skill). Full workflow doc: `references/citation-database.md` (schema details in `citation-schema.md`, export formats in `citation-export-formats.md`).
+
+- Add every source at the moment it passes the quality filter, before synthesis: `python scripts/source_db.py add --url URL --topic TOPIC --title TITLE --type web --session-id RUN_ID`. Never add an invented URL — only URLs observed through a real source channel.
+- Database path: set `SOURCE_TRACKER_DB` or pass `--db-path`; for multi-session work use an explicit path (for example `<project>/.hermes/research/sources.db`). The default `./sources.db` depends on the current working directory.
+- Before final delivery: `python scripts/source_db.py dedup` (merges http/https and `www.` URL variants; the survivor keeps the earliest `accessed_at`), then `python scripts/source_db.py export --topic TOPIC --format markdown --output bibliography.md` (also `bibtex`, `csv`, `json`).
+- Link health before final citations: `python scripts/url_health.py --stale-days 30 --batch-size 50` — it HEAD-checks stale URLs and marks HTTP >= 400 as dead (`verified = 0`). Dead links are recorded, not errors.
+- URL normalization: canonical storage lowercases scheme/host, strips fragments and non-root trailing slashes, preserves query strings; dedup comparison additionally treats http/https and `www.` variants as one source.
 
 ## Subagent Mode (optional)
 

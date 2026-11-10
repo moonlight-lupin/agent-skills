@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cron-compatible link health checker for source-tracker databases."""
+"""Cron-compatible link health checker for citation-database databases."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def is_alive(url: str, timeout: int) -> bool:
         return False
     for method in ("HEAD", "GET"):
         try:
-            request = urllib.request.Request(url, method=method, headers={"User-Agent": "source-tracker/1.0"})
+            request = urllib.request.Request(url, method=method, headers={"User-Agent": "deep-research-citation-db/1.0"})
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 code = getattr(response, "status", None)
                 if code is None:
@@ -115,7 +115,7 @@ def check_sources(conn: sqlite3.Connection, stale_days: int = 30, timeout: int =
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line argument parser."""
-    parser = argparse.ArgumentParser(description="Check stale URLs in a source-tracker SQLite database.")
+    parser = argparse.ArgumentParser(description="Check stale URLs in a citation-database SQLite database.")
     parser.add_argument("--db-path", help="SQLite database path (default: SOURCE_TRACKER_DB or ./sources.db)")
     parser.add_argument("--stale-days", type=int, default=30, help="Only check URLs not checked in this many days (default: 30).")
     parser.add_argument("--timeout", type=int, default=10, help="HTTP HEAD timeout per URL in seconds (default: 10).")
