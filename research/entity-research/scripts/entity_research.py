@@ -172,12 +172,18 @@ def _parse_uk_ofsi(raw: bytes) -> list[dict]:
                 idx[col.strip()] = j
             # Display order preserved (Name 6 first, then 1..5) — matching is
             # order-independent, but the joined string is what users see.
-            name_cols = [idx[c] for c in ("Name 6", "Name 1", "Name 2", "Name 3",
-                                          "Name 4", "Name 5") if c in idx]
-            p_idx = idx.get("Regime Name")
-            t_idx = idx.get("Type of entity")
-            if not name_cols:
+            # Display order preserved (Name 6 first, then 1..5) — matching is
+            # order-independent, but the joined string is what users see.
+            # ALL six name columns are required: a partial header must not
+            # silently screen on forenames alone (O-MINOR-1, review round 1).
+            required = ("Name 6", "Name 1", "Name 2", "Name 3", "Name 4", "Name 5")
+            if not all(c in idx for c in required):
                 return []   # layout we cannot read → signal unavailable (graceful)
+            name_cols = [idx[c] for c in required]
+            p_idx = idx.get("Regime Name")
+            # "Type of entity" holds the legal form; "Designation Type" holds the
+            # Individual/Entity/Ship class (parity with the OFAC/UN parsers).
+            t_idx = idx.get("Designation Type", idx.get("Type of entity"))
             continue
         name = " ".join(row[i].strip() for i in name_cols
                         if i < len(row) and row[i] and row[i].strip())

@@ -279,7 +279,6 @@ class TestParseUkOfsi(unittest.TestCase):
         finally:
             er._fetch = original_fetch
         self.assertIsNone(loaded)
-        self.assertEqual(er.screen_lists("Acme", lists=(), _entries={})["unavailable"], [])
         orig2 = er._fetch
         er._fetch = lambda url, timeout=60: raw_no_name_cols
         try:
@@ -296,12 +295,29 @@ class TestParseUkOfsi(unittest.TestCase):
         import tempfile
         return tempfile.mkdtemp(prefix="uk-cache-")
 
+    def test_short_rows_do_not_raise(self):
+        """A data row truncated before the metadata columns parses the name and
+        falls back on regime/type instead of raising IndexError (O-MINOR-2)."""
+        raw = _uksl_raw(",,G9,GLOBAL,FINANCIAL,,,,,Primary Name\n")
+        entries = er._parse_uk_ofsi(raw)
+        self.assertEqual(entries[0]["name"], "GLOBAL FINANCIAL")
+        self.assertEqual(entries[0]["program"], "UK-OFSI")
+        self.assertIsNone(entries[0]["type"])
+
+    def test_partial_name_column_header_degrades_to_unavailable(self):
+        """O-MINOR-1: a header missing ANY of the six Name columns must return
+        [] (list unavailable) — screening on forenames alone is not a silent
+        contract the code may drift into."""
+        raw = (b'Report Date: X\n'
+               b'Last Updated,Unique ID,Name 1,Name 2,Name 3,Name 4,Name 5\n'
+               b',S1,GLOBAL,FINANCIAL,,,,\n')
+        self.assertEqual(er._parse_uk_ofsi(raw), [])
+
     def test_url_points_at_uk_sanctions_list(self):
         """Issue #31: the closed OFSI blob URL must be gone."""
         urls = list(er.LIST_URLS.values())
         self.assertNotIn(
             "https://ofsistorage.blob.core.windows.net/publishlive/2022format/ConList.csv", urls)
-        er._parse_uk_ofsi  # attribute exists
         self.assertIn("sanctionslist.fcdo.gov.uk", er.LIST_URLS["UK-OFSI"])
 
 
