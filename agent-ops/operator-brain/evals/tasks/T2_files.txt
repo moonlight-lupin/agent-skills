@@ -1,0 +1,1 @@
+Three files sit in your workspace: notes_a.txt, notes_b.txt, notes_c.txt. Report the line count of each and say which of them contain the word TODO. Then in one closing line, summarize what the notes are about. No questions.
