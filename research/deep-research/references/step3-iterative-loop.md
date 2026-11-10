@@ -77,6 +77,7 @@ Run one `web_search` per query (plus `query_variants` when two distinct angles s
 - **Budget the fetches.** ≤2 full-page fetches per round; run-wide ≤4 for moderate, ≤6 for complex reports (simple reports rarely need any). Track URLs already fetched — never re-fetch across rounds. Count page fetches in the stats block.
 - **Keep evidence source types separate.** A snippet supports what it *states* — at most `[SOURCED]`, never independently corroborated. The fetched page text is the verbatim-quote substrate for §3c anchoring: a claim whose snippet was thin must be re-anchored to the page text before its snippet goes in the store.
 - **Reading tools.** donsetch `web_fetch` modes are the primary reading path (`scan`/`read`/`deep` budgets, `focus`/`section` for targeted reading, `toc` for structure); built-in `web_extract` (head+tail with an on-disk full-text path) is the fallback.
+- **Other providers, for a named reason only.** When the reading tools cannot read a page (a PDF, a script-built page), a key quote keeps failing `check-quote`, or search stays thin on the 2nd refinement rung or cannot target the subject's country or language, step up to whichever page reader or search provider the user has connected — any vendor, judged by what it returns. Paid tools are quoted once per run and approved first; fallback reads count against the fetch budget; cite the page, never the tool. Procedure: `references/search-and-fetch-fallbacks.md`.
 
 ```
 web_extract(urls=["url1", "url2"])
