@@ -7,7 +7,6 @@ metadata:
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [prompting, behavior, quality, reasoning, agent-ops]
-  related_skills: [controlled-english-output]
 ---
 
 # Operator Brain — Behavioral Stack
