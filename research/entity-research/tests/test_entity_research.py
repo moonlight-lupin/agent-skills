@@ -194,32 +194,78 @@ class TestParseOfacSdn(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# _parse_uk_ofsi — UK OFSI CSV parser
+# ---------------------------------------------------------------------------
+# _parse_uk_ofsi — UK Sanctions List CSV parser (FCDO; issue #31: the old
+# OFSI ConList.csv blob returns 409 since the Consolidated List closed 2026-01)
 # ---------------------------------------------------------------------------
 
+_UKSL_HEADER = (
+    "Last Updated,Unique ID,OFSI Group ID,Name 6,Name 1,Name 2,Name 3,"
+    "Name 4,Name 5,Name type,Regime Name,Type of entity\n"
+)
+
+def _uksl_raw(rows: str, header: str = _UKSL_HEADER, report: str = "Report Date: 10-Nov-2026\n"):
+    return (report + header + rows).encode("utf-8")
+
+
 class TestParseUkOfsi(unittest.TestCase):
-    """_parse_uk_ofsi: multi-column name join, header skip."""
+    """Header-driven parse of the UK Sanctions List CSV."""
 
-    def test_basic_parse(self):
-        raw = b'Last Updated,2024-01-01\nName 6,Name 1,Name 2,Name 3,Name 4,Name 5,Group Type\n,,GLOBAL,FINANCIAL,,HOLDINGS,Entity\n,,NORTHWIND,,LOGISTICS,,,Entity\n'
+    def test_names_join_across_name6_to_name1(self):
+        raw = _uksl_raw(
+            ",AFG0001,12703,HAJI KHAIRULLAH,HAJI SATTAR,,,,,Primary Name,"
+            "The Afghanistan (Sanctions) (EU Exit) Regulations 2020,Entity\n"
+        )
         entries = er._parse_uk_ofsi(raw)
-        self.assertEqual(len(entries), 2)
-        self.assertEqual(entries[0]["name"], "GLOBAL FINANCIAL HOLDINGS")
-        self.assertEqual(entries[0]["program"], "UK-OFSI")
-        self.assertEqual(entries[1]["name"], "NORTHWIND LOGISTICS")
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["name"], "HAJI KHAIRULLAH HAJI SATTAR")
+        self.assertEqual(entries[0]["program"],
+                         "The Afghanistan (Sanctions) (EU Exit) Regulations 2020")
+        self.assertEqual(entries[0]["type"], "Entity")
 
-    def test_skips_header_rows(self):
-        """First two rows (Last Updated + header) are skipped."""
-        raw = b'Last Updated,2024-01-01\nName 6,Name 1,Name 2,Name 3,Name 4,Name 5\n,,GLOBAL,FINANCIAL,,\n'
+    def test_names_in_middle_gap_positions(self):
+        raw = _uksl_raw(
+            ",,G7,GLOBAL,FINANCIAL,,,,,Primary Name,Regime A,Entity\n"
+            ",,G8,,NORTHWIND,LOGISTICS,,,,Primary Name,Regime A,Entity\n"
+        )
+        entries = er._parse_uk_ofsi(raw)
+        self.assertEqual([e["name"] for e in entries],
+                         ["GLOBAL FINANCIAL", "NORTHWIND LOGISTICS"])
+
+    def test_defaults_when_regime_and_type_columns_shifted_away(self):
+        raw = (b'Report Date: X\n'
+               b'Last Updated,Unique ID,Name 6,Name 1,Name 2,Name 3,Name 4,Name 5\n'
+               b',N1,GLOBAL,FINANCIAL,,,,\n')
+        entries = er._parse_uk_ofsi(raw)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["program"], "UK-OFSI")   # fallback keeps the legacy label
+        self.assertIsNone(entries[0]["type"])
+
+    def test_skips_report_date_and_header_rows(self):
+        raw = _uksl_raw(",,S1,GLOBAL,FINANCIAL,,,,,Primary Name,R,Entity\n")
         entries = er._parse_uk_ofsi(raw)
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["name"], "GLOBAL FINANCIAL")
 
-    def test_empty_name_skipped(self):
-        """Rows where all 6 name columns are empty are skipped."""
-        raw = b'Last Updated,2024-01-01\nName 6,Name 1,Name 2,Name 3,Name 4,Name 5\n,,,,,,\n,,ACME,,,,\n'
+    def test_empty_name_row_skipped(self):
+        raw = _uksl_raw(",,,,,,,,,,,,\n,,S2,ACME,,,,,,,,\n")
         entries = er._parse_uk_ofsi(raw)
         self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["name"], "ACME")
+
+    def test_unreadable_layout_returns_empty_signal_unavailable(self):
+        """A header without Name columns degrades to [] -> the list reports
+        unavailable instead of mis-joining unrelated columns."""
+        raw = b'Report Date: X\nA,B,C\n1,2,3\n'
+        self.assertEqual(er._parse_uk_ofsi(raw), [])
+
+    def test_url_points_at_uk_sanctions_list(self):
+        """Issue #31: the closed OFSI blob URL must be gone."""
+        urls = list(er.LIST_URLS.values())
+        self.assertNotIn(
+            "https://ofsistorage.blob.core.windows.net/publishlive/2022format/ConList.csv", urls)
+        er._parse_uk_ofsi  # attribute exists
+        self.assertIn("sanctionslist.fcdo.gov.uk", er.LIST_URLS["UK-OFSI"])
 
 
 # ---------------------------------------------------------------------------

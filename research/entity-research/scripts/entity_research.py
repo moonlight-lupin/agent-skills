@@ -3,9 +3,9 @@
 This handles the DETERMINISTIC bits; the actual research (web search / fetch, the
 deep-research engine, PDL) is agent-driven per SKILL.md. Two pieces:
 
-  * screen_lists(name) — name-match the public consolidated SANCTIONS lists (OFAC SDN +
-    Consolidated, UK-OFSI, UN; extensible) and return POTENTIAL-MATCH SIGNALS. Fetched live (cached), degrades
-    gracefully offline. A match is a SIGNAL to escalate to your compliance / AML
+  * screen_lists(name) — name-match the public sanctions lists (OFAC SDN +
+    Consolidated, UK Sanctions List (OFSI), UN; extensible) and return POTENTIAL-MATCH SIGNALS. Fetched live
+    (cached), degrades gracefully offline. A match is a SIGNAL to escalate to your compliance / AML
     function — NOT a determination; NO match is NOT a clearance (the lists aren't
     exhaustive; this is not a professional screening tool like World-Check).
   * dossier(subject, sections, ...) — assemble the cited markdown dossier (the six lenses
@@ -39,12 +39,14 @@ except (AttributeError, ValueError):
 
 # Public consolidated lists (official government sources — public domain). URLs drift —
 # override the constants if they move. Coverage: US (OFAC SDN + non-SDN Consolidated),
-# UK (OFSI), UN. National/local autonomous lists often have no clean machine-readable feed —
-# do a manual portal check for the subject's home jurisdiction; absence of a feed is not screening.
+# UK (OFSI's UK Sanctions List), UN. National/local autonomous lists often have no clean
+# machine-readable feed — do a manual portal check for the subject's home jurisdiction; absence
+# of a feed is not screening. The old OFSI Consolidated List feed (ConList.csv) closed 2026-01
+# and returns 409 (issue #31); the UK Sanctions List is now the only UK designation source.
 LIST_URLS = {
     "OFAC-SDN": "https://www.treasury.gov/ofac/downloads/sdn.csv",                            # US
     "OFAC-CONS": "https://www.treasury.gov/ofac/downloads/consolidated/cons_prim.csv",        # US (non-SDN)
-    "UK-OFSI": "https://ofsistorage.blob.core.windows.net/publishlive/2022format/ConList.csv",  # UK
+    "UK-OFSI": "https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.csv",                # UK (OFSI/FCDO)
     "UN": "https://scsanctions.un.org/resources/xml/en/consolidated.xml",                     # UN
 }
 DEFAULT_LISTS = ("OFAC-SDN", "OFAC-CONS", "UK-OFSI", "UN")
@@ -104,7 +106,7 @@ def _match(query: str, entries: list[dict], threshold: float = 0.6) -> list[dict
 # --------------------------------------------------------------------------- #
 # List fetchers (cached, graceful). Parsing is best-effort; formats can change.
 # --------------------------------------------------------------------------- #
-def _fetch(url: str, timeout: int = 30) -> bytes:
+def _fetch(url: str, timeout: int = 60) -> bytes:   # UK list ≈ 50 MB
     req = urllib.request.Request(url, headers={"User-Agent": "entity-research/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:   # noqa: S310 (public gov lists)
         return r.read()
@@ -147,18 +149,45 @@ def _parse_un(raw: bytes) -> list[dict]:
 
 
 def _parse_uk_ofsi(raw: bytes) -> list[dict]:
-    """UK OFSI consolidated list CSV. Line 1 = 'Last Updated,...'; line 2 = header; names
-    are split across the first six columns (Name 6, Name 1..Name 5) — token-set matching is
-    order-independent, so we just join them. Alias rows add recall."""
+    """UK Sanctions List CSV (FCDO — the only UK designation source since the OFSI
+    Consolidated List closed 2026-01; issue #31). Line 1 = 'Report Date: ...'; line 2 =
+    header. Columns are located BY HEADER NAME (the layout moved once already: in the old
+    ConList the name columns led the row; here they sit at a different index) — names are
+    split across 'Name 6'..'Name 1', order-independent token matching just joins them.
+    Regime → program, Type of entity → type, fallbacks keep the old values when a column
+    is absent. Alias rows ('Name type' != Primary Name) add recall."""
     entries = []
     text = raw.decode("utf-8", errors="ignore")
     rows = csv.reader(io.StringIO(text))
-    for i, row in enumerate(rows):
-        if i < 2 or len(row) < 6:                 # skip 'Last Updated' + header
+    header = None
+    idx = {}
+    for row in rows:
+        if header is None:
+            # Row 0 is the 'Report Date: ...' line; the header row is the first row
+            # whose first cell is 'Last Updated'.
+            if len(row) < 2 or row[0].strip().lower() != "last updated":
+                continue
+            header = row
+            for j, col in enumerate(header):
+                idx[col.strip()] = j
+            # Display order preserved (Name 6 first, then 1..5) — matching is
+            # order-independent, but the joined string is what users see.
+            name_cols = [idx[c] for c in ("Name 6", "Name 1", "Name 2", "Name 3",
+                                          "Name 4", "Name 5") if c in idx]
+            p_idx = idx.get("Regime Name")
+            t_idx = idx.get("Type of entity")
+            if not name_cols:
+                return []   # layout we cannot read → signal unavailable (graceful)
             continue
-        name = " ".join(c.strip() for c in row[0:6] if c and c.strip())
+        name = " ".join(row[i].strip() for i in name_cols
+                        if i < len(row) and row[i] and row[i].strip())
         if name:
-            entries.append({"name": name, "type": None, "program": "UK-OFSI", "aliases": []})
+            entries.append({
+                "name": name,
+                "type": (row[t_idx].strip() or None) if t_idx is not None and t_idx < len(row) else None,
+                "program": (row[p_idx].strip() or "UK-OFSI") if p_idx is not None and p_idx < len(row) else "UK-OFSI",
+                "aliases": [],
+            })
     return entries
 
 
@@ -221,8 +250,8 @@ def screen_lists(name: str, lists=DEFAULT_LISTS, cache_dir: str = _CACHE_DIR,
         "name": name, "checked": checked, "unavailable": unavailable, "matches": matches,
         "note": ("SIGNAL ONLY — potential matches must be verified by your compliance / AML "
                  "function; absence of a match is NOT a clearance. Coverage: US (OFAC "
-                 "SDN+Consolidated), UK (OFSI), UN; for national/local autonomous measures do a "
-                 "manual portal check (often no clean feed). "
+                 "SDN+Consolidated), UK (OFSI's UK Sanctions List), UN; for national/local "
+                 "autonomous measures do a manual portal check (often no clean feed). "
                  "Matching is token-based, not fuzzy/phonetic. "
                  + (f"Could not fetch: {', '.join(unavailable)} — do an official-portal web "
                     f"check for those." if unavailable else "")),

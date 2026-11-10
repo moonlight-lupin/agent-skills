@@ -18,8 +18,9 @@ CDD/AML screening function, a compliance decision).
 Official government consolidated lists, fetched live and cached (`~7 days`):
 - **OFAC-SDN** — US Treasury Specially Designated Nationals (≈19k).
 - **OFAC-CONS** — US Treasury Consolidated (non-SDN) list (≈0.4k).
-- **UK-OFSI** — UK consolidated list of asset-freeze targets (≈20k; *this is what catches a UK-only
-  designation an OFAC/UN check misses*).
+- **UK-OFSI** — UK Sanctions List, published by FCDO/OFSI (≈59k rows incl. aliases; *this is what
+  catches a UK-only designation an OFAC/UN check misses*). The old OFSI Consolidated List feed
+  (ConList.csv) closed 2026-01 and now returns 409; this is issue #31's resolution.
 - **UN** — UN Security Council consolidated list (≈1k).
 
 **National / local lists.** Many countries maintain their own autonomous lists, and several have **no
