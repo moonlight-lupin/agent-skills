@@ -3,7 +3,7 @@ name: deep-research
 description: "Use when the user asks for \"deep research\", a \"research report on\", a \"comprehensive analysis of\", to \"look into X in depth\", to \"write a report on X\", or any question needing multi-source synthesis beyond a single search — an autonomous multi-step deep research engine implementing an iterative Think → Search → Extract → Synthesize → Stop loop. The LLM drives every decision: what to search, what's relevant, what's missing, and when to stop. Produces a cited, magazine-quality report with inline citations, category-specific formatting, and research stats. For entity vetting/dossiers use entity-research; for news digests use news-monitoring; for source-grounded Q&A use notebooklm-mode."
 license: MIT
 metadata:
-  version: 1.10.0
+  version: 1.11.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   hermes:
@@ -21,6 +21,9 @@ source quality tiers, and explicit gaps/contradictions sections.
 
 See `references/structured-evidence-format.md` for the evidence.json layer and
 `references/docsgpt-concepts.md` for adaptive-depth concept mapping.
+
+For the "is there updated or custom firmware for device X?" question class, follow
+`references/firmware-support-status-research.md` — vendor download page + official-forum RSS + GitHub-API triangulation recipe.
 
 ## When to use
 
@@ -82,6 +85,24 @@ Before planning, assess whether the question is specific enough to research prod
 > Please provide these details and I'll begin."
 
 If the question is already specific, skip this step entirely and proceed to Step 1.
+
+**Proper-noun referent check (before Round 1):** when the question names a term
+that could refer to either the user's own tooling/environment or a public product
+(a bot name, a codename, a vendor feature, a person), disambiguate the referent
+BEFORE running full rounds. If the user is available, ask once with the plausible
+readings as options; if the user does not answer, proceed on the best
+interpretation, say which one you chose in the plan, and let the user correct
+course cheaply. A wrong referent costs entire rounds of searching and a full
+refocus — it is the most expensive research mistake this loop can make, more so
+than any vague scope.
+
+**Acronym referent probe (cheap, before Round 1):** the same check applies to short
+acronyms that collide with unrelated high-ranking terms — a bare "UI", "MAS", or
+"RAG" matches medical scales, entertainment companies, or storage tech at the same
+rank as the intended referent. Run a 2-3 query precision probe (one query per
+candidate reading) before committing rounds. If the probe is ambiguous, state the
+chosen reading in the plan header AND as an interpretation note at the top of the
+final report, so the user can correct course cheaply instead of re-running the loop.
 
 ## Step 1 — Research Plan
 
@@ -308,6 +329,14 @@ delegate_task(
 - If `web_extract` fails on a URL, note it and move on — don't retry endlessly
 - If `web_search` returns no results, apply the §3a refinement protocol including the identical-rewrite stop
 
+## External provider head-to-head (optional benchmarking)
+
+When the user wants this stack benchmarked against an external research
+provider (e.g. Perplexity), read `references/research-provider-benchmark.md`
+first. Standing rules: same raw question to both sides, no date or scope
+injection; verify the provider's central claims independently before scoring;
+report cost, breadth, and complementary positioning rather than a single winner.
+
 ## Pitfalls
 
 - **Overclaiming basis** — when torn between two labels, pick the weaker one. A source's "about half" stays `~50% [SOURCED]`.
@@ -317,6 +346,8 @@ delegate_task(
 - **Complexity misclassification** — complexity is breadth of synthesis, not how impressive the topic sounds. A narrow factual topic with six sub-questions is moderate.
 - **Token budget fills before the cap** — on long extractions, summarize aggressively when context is tight rather than waiting for the round ceiling.
 - **Word-boundary matching** — "port" matching "transport" or "support" is a false hit; filter on topical relevance, not substring overlap.
+- **Keyless search noise on jurisdiction- or regulator-scoped questions** — when a keyless `web_search` returns `weak:true`/degraded and is dominated by unrelated verticals, re-run with the authority or domain named in the query ("Singapore Monetary Authority", `site:mas.gov.sg`) before concluding anything is absent. Absence from a noisy keyless result set is not evidence of absence — the same query re-scoped routinely returns the primary documents that were missing.
+- **Mid-research re-scope** — when the user narrows the question after Round 1, do not restart the loop on the new scope: run one targeted pass, cite only sources that answer the narrowed scope, and state in the report what changed versus the broader framing.
 - **Store claims are quote-shaped** — the deterministic scorer supports a claim only when ONE stored snippet covers every figure, year AND entity the claim text carries; anything else caps at `partial`−0.01 (strict red for factual). The law, validated live three times in one session: multi-fact claims split per snippet, claim text byte-aligns to its quote, and prose paraphrase stays in the report body. Instances of the same law: **CJK claims** extract no tokens, so even an identical snippet scores ~0.33 — byte-identical claim text (entity axis 1.0) or anchor via `check-quote` (tokenization-free) instead; **glommed capitalized runs** ("Scrape URL FIRECRAWL" → one entity `scrape url`) never set-match a claim that says "Firecrawl" alone; **alphanumeric brand prefixes** ("x402" → figure `402`) cap unless the snippet carries the brand text. Diagnose with the script's `_figures`/`_entities`/`_tokens` helpers before rewriting.
 - **Anchored to the wrong substrate** — `check-quote --source-id` reads `pages/<source_id>.txt`; verify the id resolves to the URL the sentence actually came from before treating a mismatch as fabrication — the same sentence on another page's file gives a false red.
 - **Unanchored snippets** — storing a snippet (or evidence) that never passed `check-quote` is how a smooth paraphrase becomes "evidence": the scorer sees familiar tokens and rates it supported. Verbatim excerpt, checked against the saved page text (`<run_dir>/pages/<source_id>.txt`), repair-once on mismatch — never massage the snippet toward the claim, never splice across paragraphs. No contiguous excerpt exists? The claim is not evidence-backed; store it honestly and let the gate flag it.
