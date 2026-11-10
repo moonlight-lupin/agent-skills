@@ -3,7 +3,7 @@ name: entity-research
 description: "Use when the user says \"research this company / person\", \"background check on X\", \"any negative press / adverse media on X\", \"who owns / who runs X\", \"is X sanctioned / sanctions check on X\", \"vet this vendor / counterparty / candidate / partner\", or \"entity search\" — deep background research on an entity (a company OR a person) into a cited dossier: identity & background, ownership & key management, adverse / negative media, public sanctions-list name-match signals, PEP indications from public research, and litigation / regulatory history. It RESEARCHES and COMPILES with sources; it is NOT a compliance/AML/CDD determination and NOT a sanctions or PEP clearance — a sanctions-list or PEP signal is a SIGNAL to escalate to a human compliance function, never a \"clear\" or \"block\". Research a person only for a legitimate purpose and only from public information."
 license: MIT
 metadata:
-  version: 1.0.1
+  version: 1.1.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
 ---
@@ -41,6 +41,7 @@ Use this skill for general background research and fast public **signals**. Do *
 - **Open web** — `web_search` + `web_extract` for press, litigation, registry mentions, ownership clues, and public PEP indications.
 - **Deep-research engine** — for a thorough pass, hand the entity + lenses to a deep-research engine/skill if available; otherwise run fan-out searches directly.
 - **PDL (people / firmographics)** — run the **`people-enrichment`** skill for the owner / key-management / company layer where appropriate (needs `PDL_API_KEY`).
+- **Organisation evidence via the Exa Agent API (optional, paid)** — for the identity & background lens on **organisations only**: a hosted research agent returns the same cited fields (size, assets, mandate, sector exposure, recent commitments) for a batch of organisations, about US$0.10 a run (ceiling US$1.10; needs `EXA_API_KEY`). Never for people, never for screening, never with your relationship to the organisation in the task. Quote first; label and spot-check every fact; cite the underlying source. See `references/organisation-evidence-exa.md`.
 - **Public sanctions lists** — `scripts/entity_research.py` → `screen_lists(name)` fetches + token-name-matches the official government consolidated lists: **US (OFAC SDN + Consolidated), UK (OFSI), UN**. It returns **potential-match signals** only. It is not fuzzy/phonetic screening and does not cover all local autonomous lists. For a country's **local autonomous measures**, do a manual official-portal check. **A match is a signal to verify with a compliance function; no match is NOT a clearance**.
 
 ## Workflow
@@ -49,6 +50,7 @@ Use this skill for general background research and fast public **signals**. Do *
 2. **Plan the research** — break the entity into 3-6 research sub-questions across the lenses (e.g. "Who owns X?", "Any litigation against X?", "Is X on any sanctions list?"). Define success criteria: what would a complete dossier cover? This plan guides which lenses to prioritize and prevents skipping lenses.
 3. **Run the lenses** — fan-out web search per lens; PDL for people/firmographics; `screen_lists()` for public sanctions-list signals; manual official/public checks for PEP indications and local sanctions lists. **Capture the source URL + date for every claim.**
    - **Date grounding (mandatory).** Before searching, ground in the real current date: "Today's date is {current date}. Use {current year} in queries — never a year inferred from training data."
+   - **Organisations with thin background facts** (or several needing the same facts) — offer the optional Exa evidence run with its cost, and run it only on a go-ahead (`references/organisation-evidence-exa.md`).
    - **Quality filter.** Discard thin/irrelevant results before extraction: landing pages, aggregator stubs (<100 words of substantive content), pages with keyword overlap but no actual relevance (word-boundary match entity name, not substring), and duplicate URLs.
 4. **Gap analysis** — after the first pass, review findings against the research plan from step 2. Which sub-questions are unanswered? Which lenses have thin coverage? Generate targeted follow-up queries for the gaps and run a second search pass. Repeat once more if significant gaps remain (max 3 passes).
 5. **Weigh** — primary/official sources > reputable press > blogs/forums; allegation vs outcome; recency; corroboration (≥2 independent sources for a serious claim). Flag low-confidence items as such; don't launder rumour into fact.
@@ -99,6 +101,7 @@ A **bare name with no relationship attached is fine** to research on the open we
 - `scripts/entity_research.py` — `screen_lists` (public sanctions-list name-match signal, cached, graceful), `dossier` (assemble the cited markdown dossier + escalation flags), name-normalisation/citation helpers; `--self-test` (offline; matcher + dossier).
 - `references/research-lenses.md` — per-lens checklist + good query patterns + source weighting.
 - `references/boundaries-and-sanctions.md` — the lists, signal-not-determination, false positives, escalation, and person-privacy guardrails.
+- `references/organisation-evidence-exa.md` — the optional Exa Agent API run for cited organisation facts: when to use it, the US$1 minimum budget cap, task wording, labelling and spot-checks.
 
 ## Verification checklist
 
@@ -113,10 +116,11 @@ A **bare name with no relationship attached is fine** to research on the open we
 - [ ] PEP indications, if any, came from public sources and are presented as escalation signals only.
 - [ ] Person research limited to a legitimate purpose and public info only.
 - [ ] Escalation flags listed explicitly; dossier kept local.
+- [ ] If the Exa evidence run was used: organisations only, cost quoted and approved, `usage.emails`/`phoneNumbers` 0, each fact labelled and at least one spot-checked, the underlying source cited.
 
 ## Requirements
 
 - Python 3.8+ (stdlib only for `screen_lists`/`dossier`).
 - Session **web search + fetch** tools for the research lenses (not bundled).
 - **Network** for `screen_lists` (public lists) — `--self-test` runs offline.
-- Optional: `PDL_API_KEY` + the `people-enrichment` skill for the people/firmographics layer; a deep-research engine/skill for a deeper pass.
+- Optional: `PDL_API_KEY` + the `people-enrichment` skill for the people/firmographics layer; a deep-research engine/skill for a deeper pass; `EXA_API_KEY` for the organisation-evidence run.

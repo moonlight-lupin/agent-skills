@@ -8,7 +8,8 @@ People Data Labs (PDL) **person & company enrichment / search** skill for AI age
 people-enrichment/
 ├── SKILL.md                       # Workflow doc: 5 commands, dry-run, key handling, PII/data-handling, tuning
 ├── scripts/
-│   └── enrich.py                  # CLI: person-enrich/identify/search, company-enrich/search, --dry-run, --self-test
+│   ├── enrich.py                  # CLI: person-enrich/identify/search, company-enrich/search, --dry-run, --self-test
+│   └── email_list.py              # Email-list enrichment: free triage -> one company lookup per domain -> merge
 └── references/
     ├── sample_input.csv           # Example people input (fictional)
     └── sample_companies.csv       # Example companies input (fictional)
@@ -28,6 +29,7 @@ python scripts/enrich.py --self-test
 python scripts/enrich.py person-enrich --input people.csv --dry-run
 python scripts/enrich.py person-search --company "Northwind Capital" --title director --size 25 --dry-run
 python scripts/enrich.py company-enrich --input companies.csv --output firms.xlsx
+python scripts/email_list.py triage --input emails.csv --out-dir work   # then company-/person-enrich, then merge
 ```
 
 ## Data & privacy

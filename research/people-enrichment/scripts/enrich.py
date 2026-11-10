@@ -166,16 +166,32 @@ def flatten_experience(experience):
     return out
 
 
+# Shared mailboxes are an organisation's address, never a person's (info@, ir@, sales@ ...).
+ROLE_LOCALPARTS = {
+    "info", "ir", "investor", "investors", "investorrelations", "investor.relations", "enquiries",
+    "enquiry", "inquiries", "inquiry", "contact", "contactus", "admin", "hello", "office", "sales",
+    "support", "help", "hr", "careers", "jobs", "recruitment", "marketing", "media", "press", "pr",
+    "team", "mail", "general", "reception", "accounts", "finance", "billing", "compliance", "legal",
+    "noreply", "no-reply", "webmaster", "service", "customerservice", "ops", "operations",
+}
+
+
+def is_role_address(addr):
+    """True for a shared mailbox (matched on the part before the @)."""
+    local = str(addr or "").strip().lower().split("@", 1)[0]
+    return local in ROLE_LOCALPARTS or local.replace("_", ".") in ROLE_LOCALPARTS
+
+
 def parse_person(data, likelihood, min_likelihood, query_label, match_score=""):
     emails = []
     raw_emails = data.get("emails")
     if isinstance(raw_emails, list):
         for e in raw_emails:
             addr = e.get("address") if isinstance(e, dict) else e
-            if isinstance(addr, str) and addr:
+            if isinstance(addr, str) and addr and not is_role_address(addr):
                 emails.append(addr)
     work_email = data.get("work_email")
-    if isinstance(work_email, str) and work_email:
+    if isinstance(work_email, str) and work_email and not is_role_address(work_email):
         emails.insert(0, work_email)
     raw_phones = data.get("phone_numbers")
     phones = [p for p in raw_phones if isinstance(p, (str, int))] if isinstance(raw_phones, list) else []

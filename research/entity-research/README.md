@@ -15,7 +15,8 @@ entity-research/
 │   └── entity_research.py            # screen_lists (public sanctions name-match), dossier builder, --self-test
 └── references/
     ├── research-lenses.md            # Per-lens checklist, query patterns, source weighting
-    └── boundaries-and-sanctions.md   # The lists, signal-not-determination, false positives, privacy guardrails
+    ├── boundaries-and-sanctions.md   # The lists, signal-not-determination, false positives, privacy guardrails
+    └── organisation-evidence-exa.md  # Optional paid Exa Agent API run for cited organisation facts
 ```
 
 ## Requirements

@@ -72,8 +72,8 @@ New skills are added as folders under the relevant domain directory.
 | [clips-studio](creative/clips-studio/) | creative | Staged fal.ai short-video: text-to-video, animate still, camera moves | image-studio |
 | [pexels-stock-photos](creative/pexels-stock-photos/) | creative | Free real-world stock photos (Pexels API, 20k/month) with attribution handling | image-studio |
 | [deep-research](research/deep-research/) | research | Iterative research engine: structured evidence, source quality ranking (primary/secondary/tertiary), refute polarity, overview-first reports, four-label evidence-basis discipline ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]), deterministic validation gates (claim-support, citations, structure), verbatim quote anchoring, per-round search budgets, follow-up report revision | fact-checker, source-tracker |
-| [entity-research](research/entity-research/) | research | Cited company/person dossiers: ownership, adverse media, sanctions, litigation | deep-research |
-| [people-enrichment](research/people-enrichment/) | research | PDL person/company lookup → styled `.xlsx` | entity-research |
+| [entity-research](research/entity-research/) | research | Cited company/person dossiers: ownership, adverse media, sanctions, litigation; optional cited organisation-evidence run (Exa Agent API) | deep-research |
+| [people-enrichment](research/people-enrichment/) | research | PDL person/company lookup → styled `.xlsx`; email-list enrichment (free triage, one lookup per domain); shared mailboxes never kept as a person's email | entity-research |
 | [library-rag](research/library-rag/) | research | Semantic search over personal library (Nemotron-3-Embed-1B + sqlite-vec), incremental + prune-missing | notebooklm-mode |
 | [notebooklm-mode](research/notebooklm-mode/) | research | Source-grounded Q&A from a source vault, strict or augmented grounding | library-rag, deep-research |
 | [news-monitoring](research/news-monitoring/) | research | Recurring news digests with cron delivery + multi-language + dedup | source-tracker |
