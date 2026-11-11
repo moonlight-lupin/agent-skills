@@ -191,6 +191,19 @@ The gateway can serve the Desktop workspace in a browser on its own listener. It
    Do not use Cloudflare quick (temp) tunnels (`cloudflared tunnel --url`): the `trycloudflare.com` URL rotates on every restart, and `public_url` needs a fixed https:// address for the sign-in gate and callbacks. Only named tunnels qualify.
 
    Then keep the webapp on `host: 127.0.0.1` and set `public_url: https://hermes.<domain>` — sign-in turns on with it; `trusted_proxies` stays empty because cloudflared proxies from the host loopback. Verify: `systemctl status cloudflared`, `curl -I https://hermes.<domain>`, `hermes webapp --status`.
+
+   **Cloudflare MCP (optional, same Cloudflare-account precondition):** when the customer wants the agent to manage their Cloudflare account directly (DNS records, tunnels, cache), register Cloudflare's official remote MCP server — it exposes the whole Cloudflare API (2,500+ endpoints) as `search`/`execute`/`docs` tools. Create a scoped API token (least privilege: Zone.DNS Edit on the customer's one zone — not account-wide), store it in `~/.hermes/.env` as `CF_API_TOKEN`, and add:
+
+   ```yaml
+   mcp_servers:
+     cloudflare:
+       enabled: true
+       url: https://mcp.cloudflare.com/mcp
+       headers:
+         Authorization: Bearer ${CF_API_TOKEN}
+   ```
+
+   Verify with a probe (list the zone's DNS records). OAuth is the alternative — the server redirects to Cloudflare for authorization — but the scoped token keeps the blast radius to one zone. Flag the trust decision: once enabled, the agent can edit the customer's DNS.
 3. Restart the gateway (it reads `webapp.enabled` at start): `hermes gateway restart`
 4. Verify: `hermes webapp --status` reports serving; open the URL (one-use sign-in link or the sign-in-gated address for non-loopback).
 
