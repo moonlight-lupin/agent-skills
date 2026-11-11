@@ -821,6 +821,7 @@ Walk top to bottom during Step 19; every item must pass before declaring onboard
 | Gateway | `systemctl status hermes-gateway` + test message |
 | Dashboard | `systemctl status hermes-dashboard` + URL accessible |
 | Dashboard auth | Browser shows login page (LAN mode) or SSH tunnel works (loopback) |
+| Webapp | `hermes webapp --status` reports serving; URL opens in browser (one-use link loopback, sign-in for non-loopback) |
 | Memory | `mnemosyne_recall` returns results |
 | Search (primary) | `mcp_donsetch_web_search` test query returns results; session info shows donsetch connected with 3 tools |
 | Search (fallback) | `web_search` test query returns results via keyless firecrawl |

@@ -148,6 +148,30 @@ Hermes is plugin-based since v0.23. Bundled plugins ship disabled — none load 
 
 **Done:** bundled plugin set reviewed. `disk-cleanup` enabled (or explicitly declined and recorded). Customer answered on `security-guidance`. Enabled set recorded for the Step 19 snapshot.
 
+## Step 5d — Webapp (Desktop workspace in a browser)
+
+The gateway can serve the Desktop workspace in a browser on its own listener. It is **off until enabled**.
+
+1. Enable with the loopback default (SSH-tunnel access, most secure):
+
+   ```yaml
+   # config.yaml — edit directly; hermes config set stringifies nested values
+   webapp:
+     enabled: true
+     host: 127.0.0.1        # 127.0.0.1/::1 = this machine only; 0.0.0.0/:: = other machines
+     port: 9120
+     public_url: ""         # set when a reverse proxy or tunnel serves it at its own https:// address
+   ```
+
+2. Decide the exposure with the customer:
+   - **Loopback only** — reach it over SSH tunnel like the dashboard.
+   - **`public_url` or `host: 0.0.0.0`/`::`** — requires a dashboard sign-in provider (Step 5b basic auth or OAuth) or the gateway serves native clients only; `hermes webapp --status` says so. Set `dashboard.trusted_proxies` when a proxy is in front (the Webapp honors `X-Forwarded-*` only from loopback and those addresses).
+   - In a container, use `host: 0.0.0.0` — a published port cannot reach the container loopback.
+3. Restart the gateway (it reads `webapp.enabled` at start): `hermes gateway restart`
+4. Verify: `hermes webapp --status` reports serving; open the URL (one-use sign-in link or the sign-in-gated address for non-loopback).
+
+**Done:** webapp enabled (or declined and recorded). Exposure decided with the customer. Gateway restarted. `hermes webapp --status` confirms serving.
+
 ## Step 6 — Approvals and terminal backend
 
 | Setting | Value | Command |
@@ -446,7 +470,7 @@ Schedule: every 30 days. Delivery: customer's home channel.
 1. Run `hermes doctor`
 2. Walk the verification checklist — `references/setup-details.md` § "Verification checklist" — and check every item before declaring onboarding complete (includes the plugin-baseline and memory-provider rows).
 
-3. Present config snapshot: provider, model, aux model, gateway platform, memory backend, search backend, browser backend, compression settings, cron jobs, soul.md path, profile name
+3. Present config snapshot: provider, model, aux model, gateway platform, memory backend, search backend, browser backend, webapp (enabled + exposure), compression settings, cron jobs, soul.md path, profile name
 4. Present pass/fail for each item
 
 **Done:** all verification items checked. Config snapshot presented. Failures flagged with troubleshooting steps.
