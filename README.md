@@ -38,7 +38,7 @@ agent_skills/
 │   ├── scheduled-summary/            ← cron-driven cross-session digest for messaging platforms
 │   ├── file-organizer/               ← LLM-powered directory organizer: scan → propose → confirm → move
 │   ├── receipt-compiler/             ← phone-camera receipt photos → straightened B&W A4 expense-claim PDF
-│   ├── task-brief/                   ← goal/context/constraints brief compiled + confirmed before substantial tasks
+│   ├── task-brief/                   ← goal/done-when/constraints brief before substantial tasks; reusable prompts
 │   ├── marp-deck/                    ← Marp Markdown decks → PPTX/PDF/HTML render
 │   └── pdf2epub/                     ← text-layer PDF book → structured EPUB (cover, TOC nav, illustrations, endnotes; classifier calibration rules absorbed)
 ├── agent-ops/                        ← agent infrastructure and maintenance skills
@@ -83,7 +83,7 @@ New skills are added as folders under the relevant domain directory.
 | [scheduled-summary](productivity/scheduled-summary/) | productivity | Cron-driven cross-session digest — surfaces activity invisible on chat platforms | decision-log, news-monitoring |
 | [file-organizer](productivity/file-organizer/) | productivity | LLM-powered directory organizer: scan → propose structure → confirm → chunked moves | — |
 | [receipt-compiler](productivity/receipt-compiler/) | productivity | Phone-camera receipt photos → straightened B&W scans → A4 expense-claim PDF with confirmation gate | pdf |
-| [task-brief](productivity/task-brief/) | productivity | Goal/context/constraints/tooling brief compiled and confirmed before substantial work starts | — |
+| [task-brief](productivity/task-brief/) | productivity | Goal/done-when/context/constraints/tooling brief compiled and confirmed before substantial work starts; reusable-prompt mode for recurring work | — |
 | [pdf2epub](productivity/pdf2epub/) | productivity | Text-layer PDF book → structured EPUB: cover, printed-TOC nav, inline illustrations, linked endnotes; classifier calibration rules absorbed into `references/calibration.md` | document-toolkit, opendataloader-pdf |
 | [marp-deck](productivity/marp-deck/) | productivity | Marp presentations: Markdown source of truth → PDF/PPTX/HTML, with themes, SVG components, PPTX import, and render tests | — |
 | [claude-plugin-converter](agent-ops/claude-plugin-converter/) | agent-ops | Two-phase converter: analyze Claude Code plugins → generate installable Hermes plugins | — |

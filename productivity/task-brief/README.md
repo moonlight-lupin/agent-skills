@@ -4,7 +4,9 @@ Prompt-quality skill for AI agents: before substantial work starts, the agent co
 **task brief** — **Goal** (what "done" looks like) · **Context** · **Constraints** (the
 organisation's standing rules injected automatically) · **Assumptions** (flagged fills) ·
 **Tooling** (which installed skill does the work) — confirms it with the user, executes against
-it, then closes the loop against the Goal line. At most 2–3 clarifying questions, and only where
+it, then closes the loop against its **Done when** tests (2–5 checkable lines, vague words swapped
+for formats, thresholds and dates). **Reusable-prompt mode** saves the brief as a structured
+prompt (`[task-name]-prompt.md`) for recurring work instead of running it. At most 2–3 clarifying questions, and only where
 the answer would change the output; skips itself on trivial asks.
 
 The user never has to write a better prompt — the agent does the structuring, and a one-word
