@@ -44,6 +44,9 @@ Generate queries that target the **gaps**, not repeat what's already found.
 **Frozen constraints on rewrite:** the time window and domain scope stay fixed across rounds and rewrites — a weak result is not permission to broaden them. On empty or thin results, only the query text changes:
 - 1st empty → broader query or synonyms. 2nd consecutive → fundamentally different angle/domain/language. 3rd → move on; document as a gap rather than burning rounds on dead-end queries.
 - **Identical-rewrite stop** — if the refined query equals the previous one modulo whitespace, stop refining that angle: move to the gap list, don't re-run the same search.
+- **Near-duplicate skip** — before running any query, compare it with every query already run this session; one that differs only in word order, a synonym or a filler word is the same search — change the angle or drop it.
+
+**Standing instructions from the user:** when the user interjects mid-run ("leave out X", "focus on 2025 deals", "stop on pricing"), record it in the research state as a typed rule — `focus`, `exclude`, `prioritise` or `stop` — apply it from the next round, and keep applying it until the user lifts it (it never lapses because a round "covered" it). List the rules in the stats block.
 
 **Round-outcome classification** (adapted from upstream `search-assessment.ts`): after each round's extraction settles, classify the round outcome and let the reason pick the next move — the taxonomy replaces ad-hoc retry judgement with a bounded, reason-specific response. Classify exactly one of:
 
@@ -95,6 +98,13 @@ Before extracting content, **discard low-quality results**:
 - **Irrelevant**: keyword overlap without topical relevance. Use word-boundary matching for topic terms — "port" should not match "transport" or "support"
 - **Duplicate URLs**: already fetched in a previous round
 - **Non-text**: video-only pages, image boards, login walls with no preview
+
+Then, while extracting (rules: `references/evidence-hygiene.md`):
+
+- **Count one story once.** Pages repeating one press release, filing, report or syndicated article are one **source family**: cite the original and note `[N] = family of [M]` in the research state. `[VERIFIED]` needs two families, not two sites.
+- **Date every time-sensitive fact** with its as-of period and flag it as stale past its shelf life; undated figures are flagged as undated, never used as current.
+- **State the basis of every money figure** — offer vs completion, gross vs net, headline vs effective, 100% vs share — and reconcile conflicting amounts by basis before choosing.
+- **Reports the user supplies** are read locally and cited as "supplied by user".
 
 For each quality source, extract **goal-relevant facts**:
 - What facts in this source address a sub-question from the research plan?
@@ -162,6 +172,9 @@ Findings: [...]
 
 ### Gaps identified:
 - [what's still missing for round N+1 to target]
+
+### Standing instructions:
+- [focus | exclude | prioritise | stop]: [the user's rule, as given] (since round N)
 ```
 
 Synthesis rules:

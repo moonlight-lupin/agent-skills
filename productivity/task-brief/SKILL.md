@@ -3,7 +3,7 @@ name: task-brief
 description: "Use when the user says \"brief this task\", \"scope this properly\", \"what do you need from me\", \"improve my prompt\", \"help me get better output\", \"turn this into a reusable prompt\", \"a prompt I can hand to a colleague\", or hands over a SUBSTANTIAL task — multi-step, multi-document, or a deliverable someone else will read — as a thin one-line request. Compile a task brief BEFORE starting substantial work — pin down the goal with checkable \"done when\" tests, context, constraints (standing rules included automatically), and tooling — confirm with the user, then execute against it. Reusable-prompt mode saves the brief as a structured prompt for recurring work instead of running it. Asks at most 2-3 clarifying questions, only where the answer would change the output; otherwise states assumptions in the brief and proceeds. Not for quick one-step asks — answer those directly."
 license: MIT
 metadata:
-  version: 1.2.0
+  version: 1.3.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   tags: [planning, brief, scoping, productivity, prompts]
@@ -101,7 +101,9 @@ Compile and show this exact shape — short, in plain business language:
    scripts) and name the most specific one that will do the work. If a better-suited
    capability exists but isn't installed, say so as advisory — never make the brief
    depend on something the user doesn't have. If nothing fits, say that too, and
-   proceed with general capability.
+   proceed with general capability. Multi-source research goes to `deep-research`
+   (if installed), which takes the confirmed brief as its plan input — no second
+   round of questions.
 6. **Pre-screen mode compatibility.** As part of the **Tooling** line, check the
    routed skill against what the current environment actually supports — Python
    helpers, credentials, network access, platform gates. If the skill needs
@@ -153,6 +155,9 @@ not after.
 Use it when the user asks for a prompt rather than a result ("turn this into a
 reusable prompt", "improve my prompt so I can reuse it", "write a prompt for the
 team"), or when the task plainly recurs and the user agrees to save it. If the
+recurring work is **research** (a quarterly market scan, a competitor screen) and
+`deep-research` is installed, save it as a deep-research recipe instead — it also holds
+the preferred sources, fields and shelf lives. If the
 recurring work needs scripts, templates or its own checks, it is a skill, not a
 prompt — say so and suggest building one.
 

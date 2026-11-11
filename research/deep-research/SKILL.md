@@ -3,7 +3,7 @@ name: deep-research
 description: "Use when the user asks for \"deep research\", a \"research report on\", a \"comprehensive analysis of\", to \"look into X in depth\", to \"write a report on X\", or any question needing multi-source synthesis beyond a single search — an autonomous multi-step deep research engine implementing an iterative Think → Search → Extract → Synthesize → Stop loop. The LLM drives every decision: what to search, what's relevant, what's missing, and when to stop. Produces a cited, magazine-quality report with inline citations, category-specific formatting, and research stats. For entity vetting/dossiers use entity-research; for news digests use news-monitoring; for source-grounded Q&A use notebooklm-mode."
 license: MIT
 metadata:
-  version: 1.12.0
+  version: 1.13.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
   hermes:
@@ -61,6 +61,11 @@ User question
 **Report output order (overview-first):** Executive Summary → comparison/overview table → detailed analysis per sub-question → contradictions → gaps → conclusion → source table. Readers get the answer and the at-a-glance comparison before the detailed reasoning.
 
 ## Step 0 — Clarification (optional)
+
+**Arriving with a brief.** If the user has already confirmed a task brief (the `task-brief`
+skill) for this research, it is the Step 0 output: carry its Goal, Done-when tests, Context,
+Constraints and Assumptions straight into the Step 1 plan and don't ask its questions again.
+Still run the referent checks below if the brief leaves a name or acronym ambiguous.
 
 Before planning, assess whether the question is specific enough to research productively. This step prevents wasting rounds on a question that's too vague.
 
@@ -128,10 +133,37 @@ Success criteria:
 - [what would comprehensive coverage look like?]
 - [minimum: each sub-question has ≥1 source]
 
+Done when (2–4 checkable tests, one per line):
+- [e.g. "each company row has a dated figure from its own disclosure, or says not found"]
+- [e.g. "every deal value states its basis (offer / completion)"]
+
+Load-bearing claims (the 2–4 facts the conclusion rests on):
+- [claim] — who could observe it: [registry / regulator / company accounts / statistics body]
+  — what would disprove it: [the finding that would overturn it]
+
+Mode: [standard | comparison (items × fields)]   Recipe: [none | research-recipes/<name>.md]
+
 Report category: [factual | comparison | product | how-to | fact-check | explainer]
 
 Complexity: [simple | moderate | complex]
 ```
+
+**Done when.** Turn "a good answer" into 2–4 tests someone could tick or cross on delivery —
+about the substance, not the format: the figures that must be current, the basis every amount
+must state, the question each section must answer. Swap vague words for checks ("latest" →
+the period; "key players" → the named list). They are run at Step 5.5. From a task brief, use
+its Done-when tests.
+
+**Load-bearing claims.** Name the few facts the answer depends on, and for each the party that
+could actually observe it (the evidence route) and the finding that would disprove it. Round 1
+queries go to those owners first — the registry, the regulator, the company's own accounts,
+the statistics series — and round 2's refute query tests the disprove condition.
+
+**Comparison mode and recipes.** A "compare these N things on these M points" question runs as
+an items × fields grid whose outline the user approves before any search, with a search budget
+of at least one query per item plus two. Each item starts from its own latest disclosure,
+cells take the newest figure in the run, and queries off the grid are dropped. A repeated job
+can start from a saved recipe. Both: `references/comparison-mode-and-recipes.md`.
 
 **Complexity assessment and adaptive depth:**
 Classify the question's complexity to determine the maximum number of research rounds. This prevents over-searching simple questions and under-searching complex ones.
@@ -177,6 +209,8 @@ Query rules, fetch budgets, quote anchoring, the synthesis template, the evidenc
 | Query generation, search and fetch, extraction, anchoring, synthesis, or the stopping check | `references/step3-iterative-loop.md` |
 | Evidence-store commands and the three delivery gates | `references/validation-gates.md` |
 | The evidence.json intermediate | `references/structured-evidence-format.md` |
+| Source families, shelf lives, the basis of money figures, user-supplied reports, date forms | `references/evidence-hygiene.md` |
+| A "compare N things on M points" question, or a repeated research job | `references/comparison-mode-and-recipes.md` |
 | The default search or reader fails, or the plan needs a country, language or date filter | `references/search-and-fetch-fallbacks.md` |
 
 1. **3a — Query Generation (gap-driven)** — Breadth comes from the Step 1 preset (simple=2, moderate=3, complex=4). Round 1 targets plan sub-questions; later rounds target gaps and recorded follow-ups.
@@ -196,6 +230,12 @@ Produce the final report. Minimum 800 words (scale with topic complexity).
 **Output order is overview-first**: the reader gets the answer and the at-a-glance comparison *before* the detailed reasoning. Do not bury the comparison table after the per-topic analysis.
 
 Carry each material fact's **evidence-basis tag** inline (§3c), lead on `[VERIFIED]` / `[SOURCED]`, keep `[REASONED]` / `[ESTIMATED]` claims framed as indicative, and paste the **Evidence key** legend below the Sources table so the tags decode.
+
+**Findings, not process, in the body.** The report reads as research on the subject: no
+claim IDs, store or gate mechanics, rebuilt stores, rewordings or tool names in the sections.
+Process facts a reader needs to weigh the evidence go in one plain sentence under Gaps
+("figures rest on search summaries, not full page text"); everything else goes in the stats
+block and `<run_dir>`.
 
 **Synthesis prompt structure:** When writing the final report, explicitly consult: (1) the original question, (2) the research plan (sub-questions, success criteria), (3) the cumulative research state from all rounds, (4) the evidence.json if produced, and (5) the numbered source list. Do not rely on the cumulative state alone if it has been compressed across many rounds — go back to the per-round findings to verify key claims. This prevents detail loss when the research state was aggressively summarized due to token budget pressure.
 
@@ -274,6 +314,11 @@ After the report, output a compact stats block:
 **Deterministic gates** — `scripts/research_validation.py`, stdlib-only, checks structure not judgment. Every report with 5+ sources passes three gates before delivery: `validate-report` (structure), `verify-citations` (inline `[N]` ↔ Sources rows), and `verify-claims --strict` (stored evidence must support each factual claim; a claim stored with `basis: verified` needs sources on ≥2 different sites; at least one `polarity: refute` claim, or `--refute-none "<what you searched>"`). **Loop:** validate → fix → re-run all three, max 3 cycles; still failing → stop and report the remaining problems to the user honestly. Never skip the gates, never deliver with a red gate. Quick 2-3 source reports (no store): `verify-claims` warns instead of failing — record it in the stats block. Full contract, flags, and the failure loop: `references/validation-gates.md`.
 
 **Optional Jev pre-screen.** On instances with TypeSafe Jev configured, add `--jev-prescreen` to `verify-claims` for an advisory semantic pre-check that flags gate false-reds/false-greens before the deterministic run. It degrades to a clean SKIPPED line when Jev is not set up — never blocks, never changes the gate's exit code. See the contract in `references/validation-gates.md`.
+
+**Then run the plan's Done-when tests yourself** — the gates check structure, these check the
+answer. Read the report against each test and fix what fails (a stale figure, an amount without
+its basis); a test that still fails is reported to the user as outstanding, plainly. Record the
+result in the stats block ("done-when: 3/4 met — [the outstanding one]").
 
 **Snippet anchoring prerequisite.** `verify-claims` scores the *stored* snippets — it cannot tell a well-copied quote from a well-paraphrased one. That is what `check-quote` (§3c) is for: a red gate whose snippets never passed `check-quote` means anchoring was skipped, which is itself a defect. Anchor first, store second, gate third.
 
@@ -363,6 +408,23 @@ report cost, breadth, and complementary positioning rather than a single winner.
 - **Unanchored snippets** — storing a snippet (or evidence) that never passed `check-quote` is how a smooth paraphrase becomes "evidence": the scorer sees familiar tokens and rates it supported. Verbatim excerpt, checked against the saved page text (`<run_dir>/pages/<source_id>.txt`), repair-once on mismatch — never massage the snippet toward the claim, never splice across paragraphs. No contiguous excerpt exists? The claim is not evidence-backed; store it honestly and let the gate flag it.
 - **Store CLI ordering and field pairs** — the subcommand must precede `--dir` (`research_validation.py add-claim --dir <d> ...`, never `--dir <d> add-claim`). `add-claim` takes claim+kind+polarity+basis+snippet+source_id; `add-evidence` takes evidence_snippet+source_id — swapping the pairs stores the snippet in source_id and surfaces later as unregistered-source_id warnings. `basis` takes ONLY the four labels — a source TIER name (`primary`/`secondary`) is rejected (rc 2), and `kind` takes no `refute` value: refute is a **polarity**. When looping store calls in a script, check every response's JSON — a rejected call exits 2 silently while the loop's "stored" message lies.
 - **Citation density in the body** — every Sources row must be cited at least once (`verify-citations` fails on uncited rows); required sections (`## Executive Summary`, `## Contradictions`, `## Gaps`, `## Conclusion`) must be `##`-level, not `#`.
+- **One story counted twice** — a press release and three articles reprinting it are one
+  source family; two sites is not two sources. `[VERIFIED]` needs two independent families
+  (`references/evidence-hygiene.md` §1).
+- **A stale figure presented as current** — give every time-sensitive fact its as-of period and
+  flag it past its shelf life; undated figures are flagged as undated (`evidence-hygiene.md` §2).
+- **An offer headline reported as the deal value** — the announced and completion values of one
+  deal are different bases. State the basis of every money figure and reconcile before
+  choosing (`evidence-hygiene.md` §3).
+- **A fixed budget spread across a grid** — nine queries over eight items leaves each a single
+  snippet and no context. Size a comparison run at one query per item plus two.
+- **A stale headline from a search summary** — leading a comparison row with a full-year figure
+  when the same run found the later interim one. Start each item from its own latest
+  disclosure; the newest figure in the run wins.
+- **Searching before the comparison outline is agreed** — a field redefined after the searches
+  means re-running every item.
+- **Process noise in the report** — claim IDs, gate failures and store rebuilds belong in the
+  stats block and the run folder, not in the findings.
 - **Fallback if synthesis fails** — compile raw findings with citations and tags; empty output is the failure mode.
 - **Evidence key** — paste the four-label legend under the Sources table so `[VERIFIED]` / `[SOURCED]` / `[REASONED]` / `[ESTIMATED]` decode.
 
