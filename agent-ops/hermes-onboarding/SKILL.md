@@ -9,6 +9,7 @@ metadata:
   tags: [onboarding, setup, configuration, deployment, customer]
 ---
 
+
 # Hermes Onboarding
 
 Configure a fresh Hermes Agent from a working base chat to a production-ready deployment.
@@ -128,6 +129,24 @@ Hermes has a built-in basic auth provider. Set a username and password so the da
 For loopback-only deployments this is optional (SSH tunnel already gates access). For LAN deployments this is required.
 
 **Done:** basic auth configured. Dashboard shows login page when accessed.
+
+## Step 5c — Plugin baseline
+
+Hermes is plugin-based since v0.23. Bundled plugins ship disabled — none load until you enable them. Discovery order: bundled (`<repo>/plugins/`) → user (`~/.hermes/plugins/`) → project (requires `HERMES_ENABLE_PROJECT_PLUGINS=1`) → pip entry points. On name collision the later source REPLACES the bundled one.
+
+1. Review the bundled set: `hermes plugins list`
+2. Enable the recommended baseline (headless VPS disks fill silently):
+
+   ```bash
+   hermes plugins enable disk-cleanup    # auto-tracks ephemeral files, cleans on session end; /disk-cleanup slash command
+   ```
+
+   Ask the customer about `security-guidance` (write-time dangerous-pattern warnings) — enable if wanted.
+3. Other bundled plugins are use-case driven — leave disabled unless the customer asks: `teams_pipeline` (Teams meeting summaries), `google_meet` (Meet calls + transcription), `image_gen/openai|openai-codex|xai` (image backends), `hermes-achievements` (dashboard tab), `kanban/dashboard` (multi-agent dispatcher board).
+4. Note the distinction: MCP servers (Step 8's DonSeTch) are external processes registered in `mcp:` config; plugins are in-process hooks, tools, and slash commands. Do not convert one into the other.
+5. Memory providers and context engines are configured separately (`hermes memory setup`, `context.engine` in config) — see Step 10.
+
+**Done:** bundled plugin set reviewed. `disk-cleanup` enabled (or explicitly declined and recorded). Customer answered on `security-guidance`. Enabled set recorded for the Step 19 snapshot.
 
 ## Step 6 — Approvals and terminal backend
 
@@ -489,7 +508,7 @@ Suggested actions are conditionally generated per check:
 | Alert | Suggested action |
 |-------|-----------------|
 | High load (> 80% CPU capacity) | Check for runaway processes with `top` or `htop` |
-| Disk above 80% | Run the disk-cleanup skill (`skill_view(name='disk-cleanup')`) |
+| Disk above 80% | Run `/disk-cleanup dry-run` (bundled plugin sweep) or disk-triage for the interactive deep clean (`skill_view(name='disk-triage')`) |
 | Error clusters in logs | Review the most frequent error; schedule a fix if infrastructure issue |
 | Rate limit hits | Check provider quotas or rotate API keys in `~/.hermes/.env` |
 | Timeout clusters | Check network connectivity to affected endpoints |
@@ -560,6 +579,7 @@ Schedule: every 30 days. Delivery: customer's home channel.
 | Soul.md | `~/.hermes/SOUL.md` exists and contains customer input |
 | Skill guardrails | 7 principles loaded from references |
 | Skill-retrieval plugin | `hermes plugins list` shows skill-retrieval installed (enabled or disabled per assessment) |
+| Plugin baseline | `hermes plugins list` shows `disk-cleanup` enabled (or a recorded declination); enabled-plugin set matches the recorded Step 5c decision |
 | Library-rag | `hermes skills list` shows library-rag (if opted in) |
 | Use case | Customer answered, skills recommended |
 
@@ -587,6 +607,7 @@ Also install the `input-token-overheads` skill from this repo (`agent-ops/input-
 ## Common Pitfalls
 
 - **Gateway crash loop with --replace:** Never use `--replace` in systemd unit files for multiple profiles. It SIGTERMs other gateway processes.
+- **Plugin name collision replaces bundled plugins:** a user plugin named like a bundled one silently replaces it. Skill names that collide with plugin names are renamed, not shared — this install's disk-cleanup-skill became `disk-triage` so the bundled `disk-cleanup` plugin stays reachable.
 - **TimeoutStopSec too short:** Always set 240s. Default 90s causes SIGKILL mid-drain on WhatsApp/Telegram bridges.
 - **Cron drift guard:** Unpinned cron jobs fail closed when global model changes. Set cron fleet default early (Step 17).
 - **SearXNG IP reputation:** Google/Brave may block datacenter IPs. No config fix — use residential proxy or accept DDG fallback. This affects the fallback backend only; DonSeTch is the primary search path.

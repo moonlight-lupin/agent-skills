@@ -88,7 +88,7 @@ done < <(df -h 2>/dev/null | tail -n +2)
 if [ "$DISK_ALERTS" -eq 1 ]; then
   REPORT+="## Disk Usage"$'\n'
   REPORT+="${DISK_OUTPUT}"$'\n'
-  ACTIONS+="- **Disk above ${DISK_THRESHOLD}%**: run the disk-cleanup skill to reclaim space (\`skill_view(name='disk-cleanup')\`)"$'\n'
+  ACTIONS+="- **Disk above ${DISK_THRESHOLD}%**: run \`/disk-cleanup dry-run\` (bundled plugin sweep) or use the disk-triage skill (\`skill_view(name='disk-triage')\`) for the interactive deep clean"$'\n'
 else
   ROOT_PCT=$(df -h / 2>/dev/null | tail -1 | awk '{print $5}')
   REPORT+="## Disk Usage"$'\n'
