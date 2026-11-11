@@ -9,7 +9,6 @@ metadata:
   tags: [onboarding, setup, configuration, deployment, customer]
 ---
 
-
 # Hermes Onboarding
 
 Configure a fresh Hermes Agent from a working base chat to a production-ready deployment.
@@ -188,6 +187,8 @@ The gateway can serve the Desktop workspace in a browser on its own listener. It
        service: http://127.0.0.1:9120    # webapp
      - service: http_status:404
    ```
+
+   Do not use Cloudflare quick (temp) tunnels (`cloudflared tunnel --url`): the `trycloudflare.com` URL rotates on every restart, and `public_url` needs a fixed https:// address for the sign-in gate and callbacks. Only named tunnels qualify.
 
    Then keep the webapp on `host: 127.0.0.1` and set `public_url: https://hermes.<domain>` — sign-in turns on with it; `trusted_proxies` stays empty because cloudflared proxies from the host loopback. Verify: `systemctl status cloudflared`, `curl -I https://hermes.<domain>`, `hermes webapp --status`.
 3. Restart the gateway (it reads `webapp.enabled` at start): `hermes gateway restart`
