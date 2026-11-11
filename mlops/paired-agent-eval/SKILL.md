@@ -8,7 +8,7 @@ metadata:
   platforms: [linux, macos, windows]
   hermes:
     tags: [evaluation, benchmark, dev-pipeline, ab-testing]
-    related_skills: [agent-skills-repo-maintenance]
+    related_skills: [agent-skills-repo-maintenance, model-compare]
 ---
 
 # Paired Agent Evaluation

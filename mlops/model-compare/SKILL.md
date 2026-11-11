@@ -18,7 +18,7 @@ metadata:
   platforms: [linux, macos, windows]
   hermes:
     tags: [model, comparison, evaluation, a/b-testing, blind, synthesis, openrouter]
-    related_skills: [deep-research]
+    related_skills: [deep-research, paired-agent-eval]
 ---
 
 
