@@ -3,7 +3,7 @@ name: entity-research
 description: "Use when the user says \"research this company / person\", \"background check on X\", \"any negative press / adverse media on X\", \"who owns / who runs X\", \"is X sanctioned / sanctions check on X\", \"vet this vendor / counterparty / candidate / partner\", or \"entity search\" — deep background research on an entity (a company OR a person) into a cited dossier: identity & background, ownership & key management, adverse / negative media, public sanctions-list name-match signals, PEP indications from public research, and litigation / regulatory history. It RESEARCHES and COMPILES with sources; it is NOT a compliance/AML/CDD determination and NOT a sanctions or PEP clearance — a sanctions-list or PEP signal is a SIGNAL to escalate to a human compliance function, never a \"clear\" or \"block\". Research a person only for a legitimate purpose and only from public information."
 license: MIT
 metadata:
-  version: 1.1.0
+  version: 1.2.0
   author: moonlight-lupin
   platforms: [linux, macos, windows]
 ---
@@ -53,7 +53,7 @@ Use this skill for general background research and fast public **signals**. Do *
    - **Organisations with thin background facts** (or several needing the same facts) — offer the optional Exa evidence run with its cost, and run it only on a go-ahead (`references/organisation-evidence-exa.md`).
    - **Quality filter.** Discard thin/irrelevant results before extraction: landing pages, aggregator stubs (<100 words of substantive content), pages with keyword overlap but no actual relevance (word-boundary match entity name, not substring), and duplicate URLs.
 4. **Gap analysis** — after the first pass, review findings against the research plan from step 2. Which sub-questions are unanswered? Which lenses have thin coverage? Generate targeted follow-up queries for the gaps and run a second search pass. Repeat once more if significant gaps remain (max 3 passes).
-5. **Weigh** — primary/official sources > reputable press > blogs/forums; allegation vs outcome; recency; corroboration (≥2 independent sources for a serious claim). Flag low-confidence items as such; don't launder rumour into fact.
+5. **Weigh** — primary/official sources > reputable press > blogs/forums; allegation vs outcome; recency; corroboration (≥2 independent sources for a serious claim). Flag low-confidence items as such; don't launder rumour into fact. **Little or no public trace:** when the subject barely exists online (no registry hit, no website, no press), list every check that came back empty — which registry, which list, which search, on what date — and state plainly what cannot be verified. Silence is never evidence that the entity exists, is legitimate or is clean; ask the user for documents (certificate of incorporation, register of directors) and flag it for review.
 6. **Assemble** — `dossier(...)` builds the cited markdown dossier (the six lenses + a "not a determination" header + escalation flags). Deliver to chat or save as `.md`.
 7. **Flag escalations** — any sanctions-list signal, PEP indication, serious adverse finding, or integrity concern → call out **"escalate to a compliance / AML reviewer"** explicitly.
 
