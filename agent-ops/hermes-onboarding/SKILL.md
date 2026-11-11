@@ -167,6 +167,29 @@ The gateway can serve the Desktop workspace in a browser on its own listener. It
    - **Loopback only** — reach it over SSH tunnel like the dashboard.
    - **`public_url` or `host: 0.0.0.0`/`::`** — requires a dashboard sign-in provider (Step 5b basic auth or OAuth) or the gateway serves native clients only; `hermes webapp --status` says so. Set `dashboard.trusted_proxies` when a proxy is in front (the Webapp honors `X-Forwarded-*` only from loopback and those addresses).
    - In a container, use `host: 0.0.0.0` — a published port cannot reach the container loopback.
+
+   **Cloudflare Tunnel option (no open ports):** offer when the customer runs a domain on Cloudflare DNS (free plan works) and accepts Cloudflare in the path. Skip for customers without a domain — loopback + SSH tunnel stays the default.
+
+   ```bash
+   curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared
+   cloudflared tunnel login                          # browser token → ~/.cloudflared/cert.pem
+   cloudflared tunnel create hermes-<customer>       # → ~/.cloudflared/<id>.json
+   cloudflared tunnel route dns hermes-<customer> hermes.<domain>
+   cloudflared service install                       # systemd cloudflared.service
+   ```
+
+   `~/.cloudflared/config.yml`:
+
+   ```yaml
+   tunnel: <tunnel-id>
+   credentials-file: /root/.cloudflared/<tunnel-id>.json
+   ingress:
+     - hostname: hermes.<domain>
+       service: http://127.0.0.1:9120    # webapp
+     - service: http_status:404
+   ```
+
+   Then keep the webapp on `host: 127.0.0.1` and set `public_url: https://hermes.<domain>` — sign-in turns on with it; `trusted_proxies` stays empty because cloudflared proxies from the host loopback. Verify: `systemctl status cloudflared`, `curl -I https://hermes.<domain>`, `hermes webapp --status`.
 3. Restart the gateway (it reads `webapp.enabled` at start): `hermes gateway restart`
 4. Verify: `hermes webapp --status` reports serving; open the URL (one-use sign-in link or the sign-in-gated address for non-loopback).
 
