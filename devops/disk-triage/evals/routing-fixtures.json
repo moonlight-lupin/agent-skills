@@ -1,11 +1,11 @@
 {
-  "skill_name": "disk-cleanup",
+  "skill_name": "disk-triage",
   "fixtures": [
     {
       "id": "disk-full",
       "request": "df says 92% full, what can I delete to free up space on this VM?",
       "expected_routing": {
-        "skill": "disk-cleanup",
+        "skill": "disk-triage",
         "reason": "User reports high disk usage and wants to reclaim space",
         "not": [
           "input-token-overheads",

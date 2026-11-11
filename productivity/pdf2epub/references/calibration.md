@@ -1,15 +1,4 @@
----
-name: pdf2epub-calibration
-description: "Use when a converted PDF→EPUB misclassifies lines or covers, e.g. 'footnote links broken', 'page numbers became endnotes', 'cover came out as texture fragment', 'chapter headings resolve to wrong pages', 'endnote links dangle'. Calibration threshold rules for the pdf2epub pipeline: folio/fnref/footnote classification, endnote-section books, caption handling, front-matter language."
-license: MIT
-metadata:
-  version: 1.2.1
-  author: moonlight-lupin
-  platforms: [linux]
-  hermes:
-    tags: ['pdf', 'epub', 'calibration', 'font-classification']
-    related_skills: ['pdf2epub']
----
+# PDF→EPUB Classifier Calibration (absorbed from pdf2epub-calibration v1.2.1)
 
 # PDF→EPUB Classifier Calibration
 

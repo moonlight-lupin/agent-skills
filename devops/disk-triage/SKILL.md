@@ -1,5 +1,5 @@
 ---
-name: disk-cleanup
+name: disk-triage
 description: "Use when df says disk is above 80% full or the user wants to reclaim storage space on a VM."
 license: MIT
 metadata:

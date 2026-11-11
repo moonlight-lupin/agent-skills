@@ -15,7 +15,7 @@ Usage:
   python3 compare.py --mode tools --prompt "What's the latest Python version?" --models "ollama-cloud:glm-5.2" "ollama-cloud:kimi-k2.5"
   python3 compare.py --mode tools --test A --models "ollama-cloud:glm-5.2" "ollama-cloud:kimi-k2.5"
   python3 compare.py --mode coding --test J --models "ollama-cloud:glm-5.2" "ollama-cloud:qwen3-coder:480b"
-  python3 compare.py --mode review --test O --models "ollama-cloud:glm-5.2" "ollama-cloud:kimi-k2.5" --judge "ollama-cloud:glm-5.2"
+  python3 compare.py --mode review --test O --models "ollama-cloud:glm-5.3-flash" "ollama-cloud:kimi-k2.5" --judge "ollama-cloud:glm-5.3-flash"
   python3 compare.py --list-providers
   python3 compare.py --list-tests
   python3 compare.py --list-models ollama-cloud
@@ -62,6 +62,10 @@ PROVIDERS = {
         "auth_header": "Authorization",
         "auth_scheme": "Bearer",
         "paid": True,
+        # Reasoning arms on OpenRouter burn the max_tokens budget on thinking
+        # tokens before any content. Without this override calls default to
+        # 8192 and paid reasoning arms return empty content (tok_out=8192).
+        "max_tokens": 32768,
     },
     "deepseek": {
         "base_url": "https://api.deepseek.com/v1/chat/completions",
@@ -77,6 +81,17 @@ PROVIDERS = {
         # (e.g. H3 thread-safe cache: 32768 reasoning tokens, 0 content, 316s).
         # reasoning_effort=low converges: 1425 reasoning tok, 5155ch content, 22s.
         "payload_extra": {"reasoning_effort": "low"},
+    },
+    "upstage": {
+        # Upstage Solar direct API. Confirmed live 2026-09-02 with solar-pro4
+        # (reports as solar-pro4-260806, cutoff Feb 2026). Tool calling via
+        # OpenAI `tools` param — verify before running --mode tools tests.
+        "base_url": "https://api.upstage.ai/v1/solar/chat/completions",
+        "key_env": "UPSTAGE_API_KEY",
+        "auth_header": "Authorization",
+        "auth_scheme": "Bearer",
+        "paid": True,
+        "max_tokens": 16384,
     },
 }
 
@@ -822,8 +837,33 @@ def call_model_with_tools(provider: str, model: str, messages: list, timeout: in
 # ─── Real tool execution ────────────────────────────────────────────────────
 
 def execute_web_search(query: str, limit: int = 5) -> str:
-    """Execute a real web search via SearXNG (if configured) with DDGS fallback."""
-    # Try SearXNG first, only if a self-hosted instance is configured via env.
+    """Execute a real web search. DonSeTch CLI first, then SearXNG, then DDGS."""
+    # Try DonSeTch CLI first (multi-engine, reranked; confirmed clean results
+    # 2026-09-02 where SearXNG returned off-topic junk for the same queries).
+    try:
+        import subprocess, tempfile
+        result = subprocess.run(
+            ["donsetch", "search", "--max-results", str(min(limit, 12)), "--json", query],
+            capture_output=True, text=True, timeout=30,
+        )
+        # donsetch logs (onnx/rerank lines) go to stdout before the JSON; find first '{'
+        raw = result.stdout[result.stdout.find("{"):] if "{" in result.stdout else ""
+        if result.returncode == 0 and raw:
+            data = json.loads(raw)
+            if data.get("ok"):
+                formatted = []
+                for r in (data.get("meta", {}).get("results") or [])[:limit]:
+                    formatted.append({
+                        "title": r.get("title", ""),
+                        "url": r.get("url", ""),
+                        "snippet": (r.get("snippet") or "")[:300],
+                    })
+                if formatted:
+                    return json.dumps({"results": formatted, "engine": "donsetch"})
+    except Exception:
+        pass
+
+    # Try SearXNG next, only if a self-hosted instance is configured via env.
     searxng_url = os.environ.get("SEARXNG_URL", "").rstrip("/")
     try:
         if not searxng_url:
@@ -1358,8 +1398,9 @@ def main():
             sys.exit(1)
         model_specs.append((provider, model_id))
 
-    if len(model_specs) < 2:
-        print("Error: need at least 2 models to compare")
+    # Allow 1-model runs (solo scoring / smoke tests); comparison needs 2+.
+    if len(model_specs) < 1:
+        print("Error: need at least 1 model")
         sys.exit(1)
     if len(model_specs) > 4:
         print("Error: max 4 models per comparison")
@@ -1390,7 +1431,7 @@ def main():
 
     if args.mode == "tools":
         # Multi-turn tool calling — run each model's loop concurrently
-        max_turns = effective_max_turns if 'effective_max_turns' in dir() else MAX_TOOL_TURNS
+        max_turns = effective_max_turns if 'effective_max_turns' in locals() else MAX_TOOL_TURNS
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             futures = {}
             for i, (provider, model_id) in enumerate(model_specs):

@@ -8,7 +8,7 @@
         "skill": "input-token-overheads",
         "reason": "User reports context window filling and high input token cost",
         "not": [
-          "disk-cleanup",
+          "disk-triage",
           "hermes-onboarding"
         ]
       },

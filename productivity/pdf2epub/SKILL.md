@@ -3,7 +3,7 @@ name: pdf2epub
 description: "Use when converting a PDF book to EPUB, e.g. 'pdf to epub', 'convert this PDF book for my e-reader', 'EPUB with cover and TOC', 'pdf to ebook for kobo/kindle'. Builds a text-layer PDF into an EPUB with cover image, one section per chapter, a parsed 目录/Contents TOC, inline illustrations, and footnote endnotes. Text-layer PDFs only — scanned PDFs route to document-toolkit OCR."
 license: MIT
 metadata:
-  version: 1.2.1
+  version: 1.3.0
   author: moonlight-lupin
   platforms: [linux]
   hermes:
@@ -66,7 +66,7 @@ Learned from the Beeke book: page 1 had a full-bleed wood-grain texture (1500×1
 
 ## Common Pitfalls
 
-- Superscript flags are unreliable for footnote refs; gate on size + position (see pdf2epub-calibration).
+- Superscript flags are unreliable for footnote refs; gate on size + position (see references/calibration.md).
 - Caption text visible at an illustration crop's top edge is usually part of the publisher's raster asset, not page bleed — don't crop art away to remove it.
 - Run the engine inside an environment that has pymupdf, ebooklib, and PIL installed; a bare system python without them fails on import.
 - Never classify lines before sections resolve — endnote-section detection needs the section list (classification gains an endnote-pages set from resolved sections).
@@ -134,6 +134,6 @@ EOF
 
 BEEKE-Covenant-Children (96 pp, CJK QuarkXPress-style): printed 目录 page 3 → 5 chapters resolved; cover = full-page 200-DPI render, visually verified complete; title from cover fonts; 58 notes dense per chapter (23/5/25/5); 41 noterefs all resolve, 0 broken targets, 0 duplicate ids; 94 folios dropped.
 
-BEEKE-Parenting-zh (405 pp, CJK): global-endnotes book — 127 notes in one 注释 chapter (sec030), 50 cross-file noterefs secNNN.xhtml#fnc30-N + back-links; 32 nav sections 前言→注释 incl 第二十/二十一章 + 附录1; 4 inline crops; cover 200-DPI render. Cross-file hrefs must not double-#'d (see calibration).
+BEEKE-Parenting-zh (405 pp, CJK): global-endnotes book — 127 notes in one 注释 chapter (sec030), 50 cross-file noterefs secNNN.xhtml#fnc30-N + back-links; 32 nav sections 前言→注释 incl 第二十/二十一章 + 附录1; 4 inline crops; cover 200-DPI render. Cross-file hrefs must not double-#'d (see references/calibration.md).
 
 Engine A/B: koreyba/Claude-Skill-pdf-to-epub was trialed on the same book and lost on TOC (3 chapters), nav, cover, title, and endnote cleanliness — not adopted. Alternatives live upstream, not in this skill's tree.

@@ -8,7 +8,7 @@
         "skill": "hermes-onboarding",
         "reason": "User wants to deploy gateway and dashboard as persistent services \u2014 core onboarding step",
         "not": [
-          "disk-cleanup",
+          "disk-triage",
           "input-token-overheads"
         ]
       },
