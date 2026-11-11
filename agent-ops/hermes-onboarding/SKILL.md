@@ -257,11 +257,16 @@ If the extraction succeeds, no action needed. If customer wants a pinned backend
 
 ## Step 10 — Memory (Mnemosyne)
 
-1. Enable Mnemosyne: `hermes memory setup` → select Mnemosyne
-2. Confirm `NVIDIA_API_KEY` is set (from Step 3) — Mnemosyne uses it for embeddings
-3. Verify memory works: `mnemosyne_recall({"query": "test", "limit": 1})`
+Memory providers are now plugins. `hermes memory setup` is a single-select provider picker — the bundled list is `retaindb` / `byterover`; catalog providers (`honcho`, `hindsight`, `supermemory`, …) install via `hermes plugins install <name>`. Mnemosyne is a user-installed provider plugin (pip `mnemosyne-hermes`) — same surface, not an external catalog entry. The built-in MEMORY.md/USER.md memory stays active alongside any provider.
 
-**Done:** Mnemosyne enabled. Embedding key confirmed. Memory recall verified.
+1. Install and enable Mnemosyne as the provider plugin: `pip install mnemosyne-hermes`, then `hermes memory setup` → select Mnemosyne (or set `memory.provider: mnemosyne` in config.yaml directly — `hermes config set` stringifies nested values)
+2. Point embeddings at NVIDIA NIM: in the provider's own config surface `~/.hermes/mnemosyne/config.yaml` set `embeddings_via_api: true`, `embedding_api_url: https://integrate.api.nvidia.com/v1`, `embedding_model: nvidia/nemotron-3-embed-1b`, and `embedding_api_key: <NVIDIA key>` (the `NVIDIA_API_KEY` from Step 3). Hermes's two memory sections: the agent-side knobs live under `memory.mnemosyne:` in `~/.hermes/config.yaml` (sleep/reflect/sync/tools); the provider internals live in `~/.hermes/mnemosyne/config.yaml`.
+3. Verify the embedding dimension: `embedding_dim: 2048` — the value nemotron-3-embed-1b returns. The sqlite-vec virtual tables (`vec_episodes`, `vec_working`, `vec_facts`) fix the dimension at creation; a different `embedding_dim` breaks inserts and vector recall. If the customer switches embedding models, re-embed into fresh tables — do not edit the dim under existing vec tables.
+4. Verify end to end: `mnemosyne_recall({"query": "test", "limit": 1})` returns results, and `hermes memory status` shows `Provider: mnemosyne`.
+
+Run the memory provider's gap check if anything misbehaves: `skill_view(name='hermes-memory-provider')` covers unavailable providers and recall gaps.
+
+**Done:** Mnemosyne provider plugin selected and active. Provider config surface written with NVIDIA embeddings. Embedding dimension verified 2048 before first vectors land. Recall verified.
 
 ## Step 11 — Skill writing guardrails
 
@@ -285,103 +290,12 @@ hermes plugins install moonlight-lupin/agent-skills/plugins/skill-retrieval --no
 
 Run the assessment to measure skill count and overhead ratio:
 
-```bash
-python3 -c "
-import yaml, pathlib, glob, os, re, sys
-
-# Count skills the way Hermes resolves them: discovery helpers when importable
-# (honors named profiles, external_dirs, plugin-bundled skills, symlinks),
-# glob fallback for standalone contexts.
-count = 0; total_chars = 0
-try:
-    from hermes_constants import get_skills_dir
-    from agent.skill_utils import get_all_skills_dirs, get_project_skills_dirs, iter_skill_index_files
-    from agent.prompt_builder import _parse_skill_file, _skill_should_show, extract_skill_conditions, _current_session_platform_hint
-    hint = _current_session_platform_hint() or None
-    seen = set()
-    for root in list(get_project_skills_dirs()) + list(get_all_skills_dirs()):
-        for f in iter_skill_index_files(root, 'SKILL.md'):
-            try:
-                ok, fm, desc = _parse_skill_file(f)
-                if not ok or not desc: continue
-                name = fm.get('name', '')
-                if name in seen: continue
-                if not _skill_should_show(extract_skill_conditions(fm), None, None, hint): continue
-                seen.add(name); count += 1
-                total_chars += min(len(desc), 200)
-            except Exception: pass
-    # Plugin-bundled skills also occupy the system prompt (keyed prefix:name)
-    from hermes_constants import get_hermes_home
-    plugins_root = get_hermes_home() / 'plugins'
-    if plugins_root.is_dir():
-        for pdir in sorted(plugins_root.iterdir()):
-            pskills = pdir / 'skills'
-            if not pdir.is_dir() or pdir.name.startswith('.') or not pskills.is_dir(): continue
-            for f in iter_skill_index_files(pskills, 'SKILL.md'):
-                try:
-                    ok, fm, desc = _parse_skill_file(f)
-                    if not ok or not desc: continue
-                    name = fm.get('name', '')
-                    if name in seen: continue
-                    if not _skill_should_show(extract_skill_conditions(fm), None, None, hint): continue
-                    seen.add(name); count += 1
-                    total_chars += min(len(desc), 200)
-                except Exception: pass
-except ImportError:
-    for f in glob.glob(os.path.expanduser('~/.hermes/skills/**/SKILL.md'), recursive=True):
-        try:
-            text = pathlib.Path(f).read_text()
-            m = re.match(r'^---\n(.*?)\n---\n', text, re.DOTALL)
-            if not m: continue
-            fm = yaml.safe_load(m.group(1))
-            if not fm: continue
-            desc = fm.get('description', '')
-            if desc:
-                count += 1
-                total_chars += min(len(desc), 200)
-        except Exception: pass
-
-desc_tokens = total_chars // 4
-
-# Context window: provider-aware resolution when Hermes is importable
-# (covers OpenRouter probing and cached per-model metadata), else config,
-# else 128K default.
-ctx = 0
-try:
-    from model_tools import _resolve_active_context_length
-    ctx = int(_resolve_active_context_length() or 0)
-except Exception:
-    pass
-if not ctx:
-    try:
-        with open(os.path.expanduser('~/.hermes/config.yaml')) as fh:
-            cfg = yaml.safe_load(fh) or {}
-        ctx = int(cfg.get('model', {}).get('context_length', 0))
-    except Exception:
-        pass
-if not ctx:
-    ctx = 128000
-
-skill_ratio = desc_tokens / ctx if ctx else 0
-SKILL_COUNT_THRESHOLD = 50
-SKILL_RATIO_THRESHOLD = 0.05  # 5% of context from skill descriptions alone
-
-print(f'Skills: {count}')
-print(f'Skill description tokens: ~{desc_tokens} ({skill_ratio:.1%} of {ctx} context)')
-print(f'Thresholds: skill count > {SKILL_COUNT_THRESHOLD} OR skill ratio > {SKILL_RATIO_THRESHOLD:.0%}')
-
-if count > SKILL_COUNT_THRESHOLD or skill_ratio > SKILL_RATIO_THRESHOLD:
-    print('RECOMMEND: enable skill-retrieval plugin')
-else:
-    print('RECOMMEND: keep disabled — overhead within healthy range')
-"
-```
+Run the assessment script from `references/setup-details.md` § "Skill-count and token-overhead assessment script" (heredoc it into `python3 - <<'PY'`).
 
 Two thresholds trigger the recommendation:
 
-- **Skill count > 50** — the full skill list in the system prompt exceeds ~2.5K tokens. The plugin's compact index (~2.3K) saves more than it costs.
-- **Skill description overhead > 5%** of context window — skill descriptions alone at 5% push total overhead above 15% when combined with fixed costs (tool schemas, system prompt, behavioral rules). The 15% threshold is the upper bound of the healthy range from the `input-token-overheads` skill. Load that skill for the full overhead audit if the customer wants a deeper analysis.
-
+- **Skill count > 50** — the full skill list in the system prompt exceeds ~2.5K tokens; the plugin's compact index (~2.3K) saves more than it costs.
+- **Skill description overhead > 5%** of context window — descriptions alone at 5% push total overhead above 15% when combined with fixed costs.
 ### 12c — Activate if recommended
 
 ```bash
@@ -494,28 +408,7 @@ Create 4 scheduled crons + document 1 triggered procedure:
 
 The backup+update cron runs in agent mode (not no_agent) because the post-update health check may need to re-apply dashboard patches that `hermes update` overwrites. A no_agent script cannot re-apply patches or run `skill_view`.
 
-The weekly health check script (`~/.hermes/scripts/weekly_health_check.sh`) chains four checks into one report:
-
-1. **Host status** — detects host type (Raspberry Pi, VM, bare metal, Mac, Windows/WSL) via `systemd-detect-virt` and `/proc/device-tree/model`. Reports uptime and load average.
-2. **Disk usage** — `df -h` across all mounts. Alerts when any mount exceeds 80%.
-3. **Log anomalies** — runs `log-analyzer` scan (`analyze_logs.py --since 7d --quiet`) + `state_failures.py --quiet --days 7`. Reports error clusters, rate limits, timeouts, tool failures, crashes, and session failures.
-4. **Input token overhead** — counts skills and measures skill-description token overhead against context window. Alerts when skill count > 50 or skill overhead > 5% of context. Recommends enabling skill-retrieval plugin.
-
-The script always outputs a report (even when healthy) and includes a **Suggested Actions** section with specific remediation steps when alerts are found. The cron delivers the report to the customer's home channel.
-
-Suggested actions are conditionally generated per check:
-
-| Alert | Suggested action |
-|-------|-----------------|
-| High load (> 80% CPU capacity) | Check for runaway processes with `top` or `htop` |
-| Disk above 80% | Run `/disk-cleanup dry-run` (bundled plugin sweep) or disk-triage for the interactive deep clean (`skill_view(name='disk-triage')`) |
-| Error clusters in logs | Review the most frequent error; schedule a fix if infrastructure issue |
-| Rate limit hits | Check provider quotas or rotate API keys in `~/.hermes/.env` |
-| Timeout clusters | Check network connectivity to affected endpoints |
-| Tools below 95% success rate | Review failing tool calls and check configurations |
-| Skill overhead exceeds threshold | Enable skill-retrieval plugin (`hermes plugins enable skill-retrieval`) |
-
-When all checks pass, the Suggested Actions section reads: "No actions needed. All checks passed."
+The weekly health check script (`~/.hermes/scripts/weekly_health_check.sh`) chains four checks (host status, disk usage, log anomalies, input-token overhead) into one report with a conditionally generated Suggested Actions section. Design details and the per-alert remediation table: `references/setup-details.md` § "Weekly health check design". The cron delivers to the customer's home channel.
 
 Install the script during onboarding:
 
@@ -551,37 +444,7 @@ Schedule: every 30 days. Delivery: customer's home channel.
 ## Step 19 — Verification summary
 
 1. Run `hermes doctor`
-2. Verify each item:
-
-| Item | Check |
-|------|-------|
-| Gateway | `systemctl status hermes-gateway` + test message |
-| Dashboard | `systemctl status hermes-dashboard` + URL accessible |
-| Dashboard auth | Browser shows login page (LAN mode) or SSH tunnel works (loopback) |
-| Memory | `mnemosyne_recall` returns results |
-| Search (primary) | `mcp_donsetch_web_search` test query returns results; session info shows donsetch connected with 3 tools |
-| Search (fallback) | `web_search` test query returns results via keyless firecrawl |
-| Web routing | SOUL.md contains the web-routing section (donsetch first, built-in for single-fact lookups) |
-| Extraction | `web_extract` test URL returns content |
-| Browser | CDP browser opens and navigates |
-| Crons | `hermes cron list` shows 5 jobs (incl. DonSeTch weekly update) |
-| Weekly health check | `~/.hermes/scripts/weekly_health_check.sh` exists and is executable |
-| Input token audit | `hermes cron list` shows a 30-day audit job; `input-token-overheads` skill installed and `scripts/audit.py` runs |
-| Timezone | `hermes config get timezone` matches customer input |
-| Approvals | `hermes config get approvals.mode` returns `smart` |
-| Terminal backend | `hermes config get terminal.backend` matches detection |
-| Compression | `hermes config get compression.threshold` matches model context |
-| Cron fleet default | `hermes config get cron.model` is set |
-| Toolsets | `hermes tools list` shows only needed toolsets enabled |
-| Verbosity | `hermes config get display.tool_progress` matches customer choice |
-| show_cost | `hermes config get display.show_cost` returns `true` |
-| Profile | `hermes profile list` shows customer profile |
-| Soul.md | `~/.hermes/SOUL.md` exists and contains customer input |
-| Skill guardrails | 7 principles loaded from references |
-| Skill-retrieval plugin | `hermes plugins list` shows skill-retrieval installed (enabled or disabled per assessment) |
-| Plugin baseline | `hermes plugins list` shows `disk-cleanup` enabled (or a recorded declination); enabled-plugin set matches the recorded Step 5c decision |
-| Library-rag | `hermes skills list` shows library-rag (if opted in) |
-| Use case | Customer answered, skills recommended |
+2. Walk the verification checklist — `references/setup-details.md` § "Verification checklist" — and check every item before declaring onboarding complete (includes the plugin-baseline and memory-provider rows).
 
 3. Present config snapshot: provider, model, aux model, gateway platform, memory backend, search backend, browser backend, compression settings, cron jobs, soul.md path, profile name
 4. Present pass/fail for each item
@@ -604,6 +467,12 @@ Also install the `input-token-overheads` skill from this repo (`agent-ops/input-
 
 **Done:** use case recorded. Relevant skills recommended and installed. `input-token-overheads` skill installed for the Step 18 audit cron.
 
+## Files
+
+- `references/setup-details.md` — config snippets, systemd templates, Soul.md template, DonSeTch web routing, skill-count assessment script, weekly health check design, verification checklist
+- `scripts/donsetch_update.sh` — DonSeTch release-binary self-updater (Step 8e cron)
+- `scripts/weekly_health_check.sh` — consolidated weekly health report installer source (Step 18 cron)
+
 ## Common Pitfalls
 
 - **Gateway crash loop with --replace:** Never use `--replace` in systemd unit files for multiple profiles. It SIGTERMs other gateway processes.
@@ -617,6 +486,6 @@ Also install the `input-token-overheads` skill from this repo (`agent-ops/input-
 
 ## Verification
 
-Step 19's verification table is the single source of truth for setup completeness. Do not duplicate it here.
+The Step 19 verification checklist (references § Verification checklist) is the single source of truth for setup completeness. Do not duplicate it here.
 
 All items must pass before declaring onboarding complete. Failed items get troubleshooting steps from the Common Pitfalls section.
