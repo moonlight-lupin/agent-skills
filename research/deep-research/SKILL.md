@@ -8,7 +8,7 @@ metadata:
   platforms: [linux, macos, windows]
   hermes:
     tags: [research, deep-research, report, synthesis, iterative, citations, evidence-basis, provenance]
-    related_skills: [news-monitoring, entity-research, notebooklm-mode, youtube-topic-research]
+    related_skills: [news-monitoring, entity-research, notebooklm-mode]
 ---
 
 # Deep Research — Iterative Research Engine

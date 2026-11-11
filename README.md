@@ -25,8 +25,7 @@ agent_skills/
 │   ├── notebooklm-mode/              ← NotebookLM-style source vault + grounded answers
 │   ├── people-enrichment/            ← PDL person/company enrichment/search to styled .xlsx
 │   ├── library-rag/                  ← Nemotron-3-Embed-1B + sqlite-vec semantic search engine
-│   ├── endpoint-probe/               ← API/MCP surface discovery (REST, GraphQL, SOAP, JSON-RPC)
-│   └── youtube-topic-research/       ← YouTube search + transcript summarization
+│   └── endpoint-probe/               ← API/MCP surface discovery (REST, GraphQL, SOAP, JSON-RPC)
 ├── mlops/                            ← model evaluation and ops skills
 │   └── model-compare/                ← blind multi-model A/B comparison + embedding benchmark
 ├── web-scraping/                     ← web data-extraction skills
@@ -51,7 +50,8 @@ agent_skills/
 ├── software-development/              ← skill development, review, and methodology skills
 │   └── skill-quality-review/          ← batch skill audit: 9 checks, writing-for-agents levers, efficacy testing
 ├── devops/                           ← infrastructure and system maintenance skills
-│   └── disk-cleanup/                 ← triage survey → safe/ask buckets → execute → verify delta
+│   ├── disk-cleanup/                 ← triage survey → safe/ask buckets → execute → verify delta
+│   └── paired-agent-eval/            ← paired A/B pilot harness: matched task pairs, blinded defect scoring, behavioral text-variant batteries
 └── plugins/                          ← installable Hermes Agent plugins
     ├── skill-retrieval/              ← BM25 retrieval that injects the top-K relevant skills per turn
     ├── dev-pipeline/              ← five-stage development pipeline (grill/spec/test-evals/build/review-commit) with a pre_tool_call create-gate hook
@@ -74,7 +74,6 @@ New skills are added as folders under the relevant domain directory.
 | [library-rag](research/library-rag/) | research | Semantic search over personal library (Nemotron-3-Embed-1B + sqlite-vec), incremental + prune-missing | notebooklm-mode |
 | [notebooklm-mode](research/notebooklm-mode/) | research | Source-grounded Q&A from a source vault, strict or augmented grounding | library-rag, deep-research |
 | [news-monitoring](research/news-monitoring/) | research | Recurring news digests with cron delivery + multi-language + dedup | — |
-| [youtube-topic-research](research/youtube-topic-research/) | research | YouTube search → transcript → summary pipeline | notebooklm-mode |
 | [endpoint-probe](research/endpoint-probe/) | research | Discover API/MCP surfaces (REST, GraphQL, SOAP, JSON-RPC) — probe script + interpretation guide | website-scraping |
 | [model-compare](mlops/model-compare/) | mlops | Blind multi-model A/B comparison: simple, tools, coding, review modes + embedding benchmark | — |
 | [website-scraping](web-scraping/website-scraping/) | web-scraping | Recon → lightest extraction tool → JSONL + run manifest | — |
@@ -95,6 +94,7 @@ New skills are added as folders under the relevant domain directory.
 | [operator-brain](agent-ops/operator-brain/) | agent-ops | 10-module behavioral stack from Anthropic's Fable 5 and Fable 5.1 guides: act, lead with outcome, ground every claim, narrate long work, stay surgical | — |
 | [hermes-onboarding](agent-ops/hermes-onboarding/) | agent-ops | 21-step customer onboarding: gateway, dashboard, memory, search, guardrails, maintenance crons | disk-cleanup, log-analyzer |
 | [disk-cleanup](devops/disk-cleanup/) | devops | Triage disk space: survey all mounts → safe/ask buckets → execute approved set → verify delta | — |
+| [paired-agent-eval](devops/paired-agent-eval/) | devops | Does tiered pipeline processing justify its cost: matched single-agent vs pipeline pairs, acceptance suites, blinded severity-weighted defect scoring; behavioral skill-text variant A/B batteries | — |
 | [dev-pipeline](plugins/dev-pipeline/) | plugins | Five-stage development pipeline: grill → spec → test-evals → build → review-commit, planned by S0-S3 complexity and reviewed by R0-R3 risk (T0-T3 review-tier aliases), with a review-lessons library and a pre_tool_call create-gate that blocks new software-development skills unless a single-use allow flag is consumed | skill-quality-review |
 | [skill-governance](plugins/skill-governance/) | plugins | Consolidated skill provenance and governance: manifest fingerprints + drift acks and advisory-only contrastive probes behind one composed hook surface, conservative `governance.records` join, non-destructive legacy state import, and one clearance Automation Blueprint (`/blueprint`-adopted, no self-installed cron; sole successor to the retired skill-manifest + contrastive-advisor plugins) | — |
 

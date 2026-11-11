@@ -319,7 +319,6 @@ Other skills can feed source files into a vault:
 
 | Skill | How it feeds | Source type |
 |-------|-------------|-------------|
-| `youtube-topic-research` | `--export-vault` flag exports reviewed videos as `NNN_youtube_*.md` source files with transcript extracts, visual/demo notes, metadata | `youtube` |
 | Manual research | Agent saves web extracts directly into `sources/` | `web`, `pdf`, `user-provided` |
 
 When a feeder skill writes sources, run `reindex_vault()` to index them into the vault's RAG DB before Response/Output roles use the vault.
@@ -332,7 +331,6 @@ When a feeder skill writes sources, run `reindex_vault()` to index them into the
 | "What does the vault say about...", "Summarize..." | Response | Direct |
 | "Create slides/notes/infographic from the vault" | Output | Direct |
 | "Check what's in the vault" | Response | Direct |
-| "Find YouTube videos and add to vault" | youtube-topic-research → feeder | Direct |
 | "Study John 3:16", "Study Genesis 5 with Calvin", "What does {commentator} say about {passage}" | Research → Response | Direct + `references/book-study.md` |
 | Ambiguous — research vs answer | Ask: new sources, or answer from existing vault? | — |
 

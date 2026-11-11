@@ -8,7 +8,7 @@ metadata:
   platforms: [linux, macos, windows]
   hermes:
     tags: [news, monitoring, digest, cron, research, chinese, HK, PBSA]
-    related_skills: [deep-research, youtube-topic-research, website-scraping]
+    related_skills: [deep-research, website-scraping]
 ---
 
 # News Monitoring & Digest Delivery
@@ -272,7 +272,7 @@ For monitoring topics that run for weeks, record digest sources in the citation 
 
 `evals/routing-fixtures.json` holds lightweight contract fixtures — sample
 request → expected routing (including when a request should go to
-`deep-research` or `youtube-topic-research` instead), required digest output
+`deep-research` instead), required digest output
 fields, and forbidden output patterns. They are specs, not run against a live
 model; the repo-root `tests/test_routing_fixtures.py` validates they stay well-formed and
 route to real skills.
