@@ -154,6 +154,9 @@ single source of truth; this list exists so violations are checkable at a glance
 - Skip the converge loop at S2/S3 → §9 (final review passing ≠ spec intent satisfied end-to-end)
 - Exceed the complexity band's converge cap (S2: 2, S3: 3) without escalating to the human → §9
 - Accept a reviewer verdict without evidence → §6 ("APPROVED" without a written report file is a claim)
+- Launch a bounded CLI arm job with `&` inside a foreground call — the subshell is killed when the call returns; arm jobs must run as Hermes background jobs with notify enabled
+- Share one log path between concurrent dispatches — each dispatch writes its OWN absolute log path
+- Run a gate claude review without route isolation (clean config dir without the settings `env` block) — `--model` resolves against the wrong provider
 
 ## Final verification rule
 

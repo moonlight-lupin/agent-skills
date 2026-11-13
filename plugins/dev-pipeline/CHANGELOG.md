@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased — CLI arm runner
+
+- New tool `tools/run_arm.py`: wraps exactly one bounded CLI arm dispatch
+  (claude / codex / muse) and writes a machine-readable run record (JSON) plus
+  a combined stdout+stderr log, each at its own absolute path. Refuses
+  `--dangerously-skip-permissions`, applies role-scoped `--allowedTools`
+  whitelists, route-isolates gate claude reviews through a clean config dir
+  (settings `env` block removed), auto-adds codex `--skip-git-repo-check`
+  outside git repos, and aborts pre-dispatch on a muse meter/quota block
+  (zero burn). Exit-code contract: 0 success, 2 bad args/paths, 3 missing
+  reviewer `VERDICT:` line, 4 underlying CLI failed, 5 meter/quota abort.
+- New unit tests `tests/test_arm_runner.py`: verdict extraction, run-record
+  building from a fake log/blob, gate config-dir copy logic, codex flag
+  building, and the muse quota-abort path (monkeypatched usage call — no
+  live CLI, no network).
+- Dispatch guards added to the `build` and `review-commit` SKILL.md
+  pitfalls: arm jobs run as Hermes background jobs with notify enabled
+  (never `&` in a foreground call), one absolute log path per concurrent
+  dispatch, and route isolation for gate claude reviews.
+
 ## v0.3.0 — risk-first routing
 
 - Separate **complexity S0–S3** (planning/decomposition) from **risk R0–R3**

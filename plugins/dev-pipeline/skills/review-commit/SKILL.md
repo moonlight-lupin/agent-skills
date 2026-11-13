@@ -111,6 +111,16 @@ line per round (`confirm-round-protocol.md` § Ledger) records the counts the
 stop conditions read. If the count doesn't fall, stop — another round won't
 fix a fix that made things worse.
 
+## Pitfalls — CLI arm dispatch guards
+
+- Never launch a bounded CLI arm job with `&` inside a foreground call — the
+  subshell is killed when the call returns. Arm jobs must run as Hermes
+  background jobs with notify enabled.
+- Each concurrent dispatch writes its OWN absolute log path — two dispatches
+  sharing one log corrupt both runs' records.
+- Gate claude reviews need route isolation (a clean config dir without the
+  settings `env` block) or `--model` resolves against the wrong provider.
+
 ## Lessons (load on demand)
 
 `review-lessons` is the index. Common ones:
