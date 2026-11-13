@@ -2,9 +2,11 @@
 """Bounded CLI arm dispatch runner for the dev-pipeline plugin.
 
 Wraps exactly ONE CLI arm dispatch (``claude`` / ``codex`` / ``muse``), writes
-the combined stdout+stderr to an absolute log path, and writes a
-machine-readable run-record JSON to an absolute record path. The outcome maps
-onto a small exit-code contract:
+the combined stdout+stderr to an absolute log path (which must NOT already
+exist — it is opened exclusively, so two concurrent dispatches can never
+share one log), and writes a machine-readable run-record JSON to an
+absolute record path (must be absolute; may be created later, after the
+dispatch). The outcome maps onto a small exit-code contract:
 
     0  success (reviewer runs must end in a parsable VERDICT line)
     2  bad arguments/paths, or a refused ``--dangerously-skip-permissions``
@@ -42,8 +44,21 @@ DEFAULT_MODEL = {
     "muse": "muse-spark-1.3",
 }
 
-# NEVER passed to a bounded arm dispatch; refused with a clear error.
-FORBIDDEN_FLAG = "--dangerously-skip-permissions"
+# Provider-routing / model-selection env keys stripped from reviewer (gate)
+# claude children. Without this the child inherits routing vars from
+# os.environ / --env-file and the clean gate config dir does not isolate
+# the route. Unrelated vars are left in place.
+ANTHROPIC_PROVIDER_ENV_KEYS = (
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_SMALL_FAST_MODEL",
+    "ANTHROPIC_MODEL_ERROR_HINT",
+)
 
 CLAUDE_CODER_ALLOWED_TOOLS = " ".join(
     [
@@ -73,7 +88,11 @@ class QuotaAbortError(Exception):
     """Meter/quota abort before dispatch — maps to exit code 5."""
 
 
-VERDICT_RE = re.compile(r"VERDICT:\s*(APPROVE|REJECT|SHIP)\b", re.IGNORECASE)
+# A verdict must be a line of its own: this anchored pattern must match the
+# WHOLE line, so an inline or quoted match inside a longer line never counts.
+VERDICT_LINE_RE = re.compile(
+    r"^VERDICT:\s*(APPROVE|REJECT|SHIP)\s*$", re.IGNORECASE
+)
 CODEX_TOKENS_RE = re.compile(r"tokens\s+used\s*:?\s*([0-9][0-9,]*)", re.IGNORECASE)
 MUSE_RESET_RE = re.compile(
     r"reset(?:s|ting)?(?:\s+date)?(?:\s+(?:on|at|by))?\s*[:\-]?\s*"
@@ -88,6 +107,7 @@ MUSE_BLOCK_RES = (
     re.compile(r"quota\s+exceeded", re.IGNORECASE),
     re.compile(r"rate[- ]limit(?:ed|ing)?", re.IGNORECASE),
     re.compile(r"usage\s+limit", re.IGNORECASE),
+    re.compile(r"\b429\b"),
 )
 # server_sent_no_usage is benign: can happen before the first use in a
 # new window — proceed, do not abort.
@@ -105,18 +125,42 @@ def default_gate_config_dir() -> Path:
     return Path.home() / ".cache" / "dev-pipeline" / "claude-gate-config"
 
 
-def extract_verdict(log_text):
-    """Return the last ``VERDICT: (APPROVE|REJECT|SHIP)`` in the FINAL 200 chars.
+def _verdict_from_last_line(text):
+    """Anchor-match the LAST non-blank line of ``text`` against the verdict
+    pattern. An inline or quoted match inside a longer line never counts.
+    """
+    if not text:
+        return None
+    for raw in reversed(text.splitlines()):
+        line = raw.strip()
+        if line:
+            match = VERDICT_LINE_RE.match(line)
+            return match.group(1).upper() if match else None
+    return None
 
-    None when the tail carries no verdict line (or the log is empty).
+
+def extract_verdict(log_text, arm=None):
+    """Return the reviewer verdict ("APPROVE"|"REJECT"|"SHIP") or None.
+
+    For claude arms (``--output-format json``) the log ends with the JSON
+    result blob, not a bare VERDICT line: the verdict is taken from the
+    LAST parsed JSON blob's ``result`` string — its last non-blank line must
+    fully match ``^VERDICT: (APPROVE|REJECT|SHIP)$``. Only when no blob
+    parses (e.g. a non-json claude run, codex, muse) fall back to the log
+    text: the last non-blank line of the WHOLE log, anchor-matched against
+    the same pattern. Inline or quoted matches inside longer lines are
+    never accepted.
     """
     if not log_text:
         return None
-    tail = log_text[-200:]
-    matches = VERDICT_RE.findall(tail)
-    if not matches:
-        return None
-    return matches[-1].upper()
+    if arm == "claude":
+        blob = extract_last_json_object(log_text)
+        if isinstance(blob, dict):
+            result = blob.get("result")
+            if isinstance(result, str):
+                return _verdict_from_last_line(result)
+            return None
+    return _verdict_from_last_line(log_text)
 
 
 def extract_last_json_object(text):
@@ -207,7 +251,7 @@ def build_run_record(
     elif arm == "codex":
         record["tokens_used"] = parse_codex_tokens_used(log_text)
     if role == "reviewer":
-        record["verdict"] = extract_verdict(log_text)
+        record["verdict"] = extract_verdict(log_text, arm=arm)
     return record
 
 
@@ -242,7 +286,11 @@ def prepare_gate_config_dir(gate_dir, credentials_src, settings_src):
 
 
 def load_env_file(path):
-    """Parse KEY=VALUE lines (``#`` comments and blanks skipped) into a dict."""
+    """Parse KEY=VALUE lines (``#`` comments and blanks skipped) into a dict.
+
+    Raises OSError when the file cannot be read (mapped to exit 2 by the
+    caller).
+    """
     env = {}
     for raw in Path(path).read_text(encoding="utf-8").splitlines():
         line = raw.strip()
@@ -250,6 +298,19 @@ def load_env_file(path):
             continue
         key, _, value = line.partition("=")
         env[key.strip()] = value.strip()
+    return env
+
+
+def strip_provider_env(env):
+    """Remove ANTHROPIC_PROVIDER_ENV_KEYS from ``env`` (in place).
+
+    Used for reviewer (gate) claude runs: the clean gate config dir must be
+    the only thing controlling provider routing and model selection, so
+    routing vars inherited from os.environ / --env-file are stripped.
+    Unrelated vars are left untouched.
+    """
+    for key in ANTHROPIC_PROVIDER_ENV_KEYS:
+        env.pop(key, None)
     return env
 
 
@@ -265,13 +326,33 @@ def is_inside_git_repo(start):
         current = parent
 
 
+def validate_extra_args(extra_args):
+    """Reject ``--extra-arg`` values that could override the built-in
+    safety envelope (maps to exit 2):
+
+    * any ``--allowedTools`` — extra args are appended AFTER the role's own
+      ``--allowedTools``, so a second one would override the role's tool
+      whitelist;
+    * ``--dangerously-skip-permissions`` in any spelling (case, hyphens,
+      underscores, camelCase) — never passed to a bounded arm run.
+    """
+    for arg in extra_args:
+        if arg == "--allowedTools" or arg.startswith("--allowedTools"):
+            raise UsageError(
+                "refusing dispatch: --extra-arg --allowedTools would "
+                "override the role's tool whitelist"
+            )
+        normalized = re.sub(r"[^a-z0-9]", "", arg.lower())
+        if "dangerously" in normalized and "permission" in normalized:
+            raise UsageError(
+                "refusing dispatch: --dangerously-skip-permissions (or a "
+                "variant spelling) is never passed to a bounded arm run"
+            )
+
+
 def build_claude_args(model, prompt, role, extra_args):
     """Build the claude CLI args (after the program name)."""
-    if FORBIDDEN_FLAG in extra_args:
-        raise UsageError(
-            f"refusing dispatch: {FORBIDDEN_FLAG} is never passed to a "
-            "bounded arm run"
-        )
+    validate_extra_args(extra_args)
     args = ["-p", prompt, "--model", model, "--output-format", "json"]
     if role == "coder":
         args += ["--allowedTools", CLAUDE_CODER_ALLOWED_TOOLS]
@@ -327,8 +408,10 @@ def interpret_muse_usage(text):
 def _muse_usage_output(env):
     """Run the muse usage/meter query and return its combined output.
 
-    A failed/unavailable query is treated like benign no-usage-data: it can
-    happen before the first use in a new window and must not burn anything.
+    A failed query (cannot run, or exits nonzero) is a METER FAILURE, not a
+    clean bill of health: it raises QuotaAbortError (exit 5, zero burn)
+    unless the output carries the benign ``server_sent_no_usage`` marker,
+    which can happen before the first use in a new window.
     """
     try:
         proc = subprocess.run(
@@ -339,8 +422,18 @@ def _muse_usage_output(env):
             timeout=120,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        return f"usage query unavailable: {exc}"
-    return "\n".join(part for part in (proc.stdout, proc.stderr) if part)
+        text = f"usage query unavailable: {exc}"
+        failed = True
+    else:
+        text = "\n".join(part for part in (proc.stdout, proc.stderr) if part)
+        failed = proc.returncode != 0
+    benign = any(no_data.search(text) for no_data in MUSE_NO_DATA_RES)
+    if failed and not benign:
+        raise QuotaAbortError(
+            "muse usage/meter query failed; meter state unknown. Aborting "
+            "the dispatch with zero burn."
+        )
+    return text
 
 
 def muse_quota_gate(env):
@@ -356,9 +449,15 @@ def muse_quota_gate(env):
 
 
 def _write_record(record_path, record):
-    Path(record_path).write_text(
-        json.dumps(record, indent=2) + "\n", encoding="utf-8"
-    )
+    """Write the run record; an unwritable/parentless path maps to exit 2."""
+    try:
+        Path(record_path).write_text(
+            json.dumps(record, indent=2) + "\n", encoding="utf-8"
+        )
+    except OSError as exc:
+        raise UsageError(
+            f"cannot write --record-path ({record_path}): {exc}"
+        )
 
 
 def parse_args(argv=None):
@@ -373,7 +472,11 @@ def parse_args(argv=None):
     parser.add_argument("--role", required=True, choices=ROLES)
     parser.add_argument("--workdir", required=True, help="directory to run the CLI in")
     parser.add_argument("--prompt-file", required=True, help="file holding the dispatch prompt")
-    parser.add_argument("--log-path", required=True, help="ABSOLUTE path for combined stdout+stderr")
+    parser.add_argument(
+        "--log-path",
+        required=True,
+        help="ABSOLUTE path for combined stdout+stderr (must NOT already exist)",
+    )
     parser.add_argument("--record-path", required=True, help="ABSOLUTE path for the run-record JSON")
     parser.add_argument("--model", help="model override (arm default otherwise)")
     parser.add_argument(
@@ -395,28 +498,35 @@ def _run(args):
     log_path = Path(args.log_path)
     record_path = Path(args.record_path)
 
-    if FORBIDDEN_FLAG in args.extra_arg:
-        raise UsageError(
-            f"refusing dispatch: {FORBIDDEN_FLAG} is never passed to a "
-            "bounded arm run"
-        )
+    validate_extra_args(args.extra_arg)
     if not log_path.is_absolute() or not record_path.is_absolute():
         raise UsageError("--log-path and --record-path must be absolute paths")
     if not workdir.is_dir():
         raise UsageError(f"--workdir is not an existing directory: {workdir}")
     if not prompt_file.is_file():
         raise UsageError(f"--prompt-file does not exist: {prompt_file}")
-    if log_path.exists() and log_path.stat().st_size > 0:
+    # The log path must not exist at ALL (any size): combined with the
+    # exclusive "x" open below, two concurrent dispatches can never both
+    # pass the check and share one log (no TOCTOU window).
+    if log_path.exists():
         raise UsageError(
-            f"--log-path already has content ({log_path}); refusing so two "
+            f"--log-path already exists ({log_path}); refusing so two "
             "concurrent dispatches never share one log"
         )
 
     model = args.model or DEFAULT_MODEL[arm]
-    prompt = prompt_file.read_text(encoding="utf-8")
+    try:
+        prompt = prompt_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise UsageError(f"cannot read --prompt-file ({prompt_file}): {exc}")
     env = dict(os.environ)
     if args.env_file:
-        env.update(load_env_file(args.env_file))
+        try:
+            env.update(load_env_file(args.env_file))
+        except OSError as exc:
+            raise UsageError(
+                f"cannot read --env-file ({args.env_file}): {exc}"
+            )
 
     started = datetime.now().astimezone()
 
@@ -425,8 +535,13 @@ def _run(args):
             muse_quota_gate(env)
         except QuotaAbortError as exc:
             message = str(exc)
-            with open(log_path, "w", encoding="utf-8") as handle:
-                handle.write(message + "\n")
+            try:
+                with open(log_path, "x", encoding="utf-8") as handle:
+                    handle.write(message + "\n")
+            except OSError as exc2:
+                raise UsageError(
+                    f"cannot open --log-path ({log_path}): {exc2}"
+                )
             record = build_run_record(
                 arm=arm,
                 role=role,
@@ -446,12 +561,18 @@ def _run(args):
     if arm == "claude":
         cli = ["claude"] + build_claude_args(model, prompt, role, args.extra_arg)
         if role == "reviewer":
-            gate_dir = prepare_gate_config_dir(
-                default_gate_config_dir(),
-                Path.home() / ".claude" / CREDENTIALS_NAME,
-                Path.home() / ".claude" / SETTINGS_NAME,
-            )
+            try:
+                gate_dir = prepare_gate_config_dir(
+                    default_gate_config_dir(),
+                    Path.home() / ".claude" / CREDENTIALS_NAME,
+                    Path.home() / ".claude" / SETTINGS_NAME,
+                )
+            except OSError as exc:
+                raise UsageError(f"cannot prepare gate config dir: {exc}")
             env["CLAUDE_CONFIG_DIR"] = str(gate_dir)
+            # Route isolation is only real if the child also loses provider
+            # routing vars inherited from os.environ / --env-file.
+            strip_provider_env(env)
     elif arm == "codex":
         cli = [
             "codex"
@@ -460,22 +581,38 @@ def _run(args):
         cli = ["muse"] + build_muse_args(model, prompt, args.extra_arg)
 
     exit_code = None
+    # Exclusive create: "x" fails if the log appeared since the precondition
+    # check above (FileExistsError is an OSError → clean exit 2).
     try:
-        with open(log_path, "w", encoding="utf-8") as handle:
+        log_handle = open(log_path, "x", encoding="utf-8")
+    except OSError as exc:
+        raise UsageError(f"cannot open --log-path ({log_path}): {exc}")
+    try:
+        with log_handle:
             proc = subprocess.run(
                 cli,
                 cwd=str(workdir),
                 env=env,
-                stdout=handle,
+                stdout=log_handle,
                 stderr=subprocess.STDOUT,
             )
         exit_code = proc.returncode
     except OSError as exc:
-        with open(log_path, "a", encoding="utf-8") as handle:
-            handle.write(f"dispatch error: {exc}\n")
+        # The CLI itself failed to spawn: map to the CLI-failed exit code so
+        # the record never carries a null exit_code for a dispatch that did
+        # not run.
+        exit_code = EXIT_CLI_FAILED
+        try:
+            with open(log_path, "a", encoding="utf-8") as handle:
+                handle.write(f"dispatch error: {exc}\n")
+        except OSError:
+            pass
 
     ended = datetime.now().astimezone()
-    log_text = log_path.read_text(encoding="utf-8")
+    try:
+        log_text = log_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise UsageError(f"cannot read back --log-path ({log_path}): {exc}")
     record = build_run_record(
         arm=arm,
         role=role,
@@ -511,6 +648,11 @@ def main(argv=None):
     try:
         return _run(args)
     except UsageError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ARGS
+    except OSError as exc:
+        # Belt-and-braces: any precondition-style OSError still maps to a
+        # clean exit 2, never a traceback.
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_ARGS
 

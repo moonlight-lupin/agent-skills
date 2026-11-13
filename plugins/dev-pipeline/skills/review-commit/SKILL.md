@@ -116,10 +116,11 @@ fix a fix that made things worse.
 - Never launch a bounded CLI arm job with `&` inside a foreground call — the
   subshell is killed when the call returns. Arm jobs must run as Hermes
   background jobs with notify enabled.
-- Each concurrent dispatch writes its OWN absolute log path — two dispatches
-  sharing one log corrupt both runs' records.
-- Gate claude reviews need route isolation (a clean config dir without the
-  settings `env` block) or `--model` resolves against the wrong provider.
+- Write each concurrent dispatch to its own absolute log path. Two
+  dispatches sharing one log corrupt both runs' records.
+- Run gate claude reviews with route isolation: a clean config dir whose
+  settings copy has no env block. Otherwise `--model` resolves against the
+  wrong provider.
 
 ## Lessons (load on demand)
 

@@ -1,9 +1,12 @@
 """Unit tests for the CLI arm runner tool (plugins/dev-pipeline/tools/run_arm.py).
 
-Covers ONLY: verdict extraction, run-record building from a fake log + fake
-claude JSON blob, the clean-config-dir copy logic (tmp dirs), codex flag
-building with and without a git repo, and the muse quota-abort path
-(monkeypatched usage call — no live CLI calls, no network).
+Covers ONLY: verdict extraction (claude JSON-blob result + plain-log
+fallback), run-record building from a fake log + fake claude JSON blob,
+the clean-config-dir copy logic (tmp dirs), codex flag building with and
+without a git repo, the muse quota/meter abort path (monkeypatched usage
+call — no live CLI calls, no network), extra-arg safety validation,
+reviewer provider-env stripping, and the exit-code contract for failed
+preconditions (no live CLIs are spawned: subprocess is monkeypatched).
 """
 import importlib.util
 import json
@@ -24,14 +27,23 @@ _spec.loader.exec_module(run_arm)
 # verdict extraction
 # --------------------------------------------------------------------------
 
-def test_verdict_found_at_tail():
+# Codex/muse-style log: the verdict must be the LAST non-blank line.
+def test_verdict_found_as_final_line():
     log = "finding A ...\nfinding B ...\nVERDICT: APPROVE\n"
     assert run_arm.extract_verdict(log) == "APPROVE"
 
 
-def test_verdict_last_match_in_tail_wins():
-    log = "VERDICT: REJECT\nfinal answer: VERDICT: SHIP\n"
-    assert run_arm.extract_verdict(log) == "SHIP"
+def test_verdict_must_be_last_nonblank_line():
+    # An earlier VERDICT line followed by any later text does not count.
+    log = "VERDICT: REJECT\nfinal answer follows\n"
+    assert run_arm.extract_verdict(log) is None
+
+
+def test_verdict_inline_match_in_longer_line_rejected():
+    log = "final answer: VERDICT: SHIP\n"
+    assert run_arm.extract_verdict(log) is None
+    # Quoted matches inside a longer line never count either.
+    assert run_arm.extract_verdict('note "VERDICT: SHIP" was said\n') is None
 
 
 def test_verdict_reject_and_ship_forms():
@@ -39,40 +51,79 @@ def test_verdict_reject_and_ship_forms():
     assert run_arm.extract_verdict("VERDICT: SHIP\n") == "SHIP"
 
 
-def test_verdict_beyond_final_200_chars_is_missing():
-    filler = "x" * 250
-    log = "VERDICT: APPROVE\n" + filler
+def test_verdict_superseded_by_trailing_text_is_missing():
+    # The verdict sits before a later filler line, so the last non-blank
+    # line is not a verdict line.
+    log = "VERDICT: APPROVE\n" + "x" * 250 + "\n"
     assert run_arm.extract_verdict(log) is None
 
 
-def test_verdict_missing_or_lowercase():
+def test_verdict_missing_empty_and_lowercase_keyword():
     assert run_arm.extract_verdict("all good, no verdict line\n") is None
     assert run_arm.extract_verdict("") is None
+    # The keyword is case-insensitive, but still anchored to the whole line.
     assert run_arm.extract_verdict("verdict: approve\n") == "APPROVE"
 
 
-# --------------------------------------------------------------------------
-# run-record building (fake log + fake claude JSON blob)
-# --------------------------------------------------------------------------
-
-def fake_claude_log(verdict_line="VERDICT: SHIP\n"):
+# Claude arms run with --output-format json: the log ends with the JSON
+# blob, and the verdict lives in the blob's "result" string.
+def fake_claude_log(verdict_line="VERDICT: SHIP"):
+    result = "summary of the review\n" + verdict_line
     blob = json.dumps(
         {
             "type": "result",
             "subtype": "success",
+            "result": result,
             "num_turns": 4,
             "total_cost_usd": 0.0123,
             "usage": {"input_tokens": 210, "output_tokens": 55},
         }
     )
+    # Real shape: warning lines, then the blob LAST (no bare VERDICT line
+    # after it).
     return (
         "warning: low disk\n"
         "warning: something else\n"
         + blob
         + "\n"
-        + verdict_line
     )
 
+
+def test_claude_verdict_taken_from_result_blob():
+    # The combined log ends with the JSON blob, so a verdict can only be
+    # extracted from the blob's "result" string.
+    assert run_arm.extract_verdict(fake_claude_log(), arm="claude") == "SHIP"
+    assert (
+        run_arm.extract_verdict(fake_claude_log("VERDICT: REJECT"), arm="claude")
+        == "REJECT"
+    )
+
+
+def test_claude_verdict_outside_blob_is_ignored_when_blob_parses():
+    # A blob parses, but its "result" carries no verdict: a VERDICT line
+    # elsewhere in the log does not rescue it.
+    blob = json.dumps({"result": "no verdict here", "num_turns": 1})
+    log = "VERDICT: APPROVE\n" + blob + "\n"
+    assert run_arm.extract_verdict(log, arm="claude") is None
+
+
+def test_claude_nonjson_log_falls_back_to_last_log_line():
+    # A non-json claude run: no blob parses, so the whole log's last
+    # non-blank line is anchor-matched.
+    log = "thinking...\nVERDICT: APPROVE\n"
+    assert run_arm.extract_verdict(log, arm="claude") == "APPROVE"
+
+
+def test_claude_inline_verdict_in_result_rejected():
+    blob = json.dumps(
+        {"result": "final answer: VERDICT: APPROVE", "num_turns": 2}
+    )
+    assert run_arm.extract_verdict(blob + "\n", arm="claude") is None
+
+
+# --------------------------------------------------------------------------
+# run-record building (fake log + fake claude JSON blob)
+# --------------------------------------------------------------------------
 
 def started_and_ended():
     started = datetime.now().astimezone()
@@ -125,19 +176,27 @@ def test_claude_coder_record_has_null_verdict():
 
 
 def test_nested_json_object_does_not_shadow_outer_blob():
-    # The inner usage object starts LAST; the record must still read the
-    # outer blob (the "last complete" object means top-level, not innermost).
+    # The nested usage object inside the LAST top-level blob starts later
+    # than that blob's opening brace, but only top-level spans compete: the
+    # record must read the last TOP-LEVEL blob, not the innermost object.
     log = (
         "noise\n"
-        '{"result":"partial","usage":{"output_tokens":9}}\n'
         + json.dumps(
             {
+                "result": "partial review",
+                "usage": {"output_tokens": 9},
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "result": "second pass\nVERDICT: APPROVE",
                 "num_turns": 7,
                 "total_cost_usd": 0.5,
                 "usage": {"output_tokens": 120},
             }
         )
-        + "\nVERDICT: APPROVE\n"
+        + "\n"
     )
     started, ended = started_and_ended()
     record = run_arm.build_run_record(
@@ -155,6 +214,7 @@ def test_nested_json_object_does_not_shadow_outer_blob():
     assert record["turns"] == 7
     assert record["cost_usd"] == 0.5
     assert record["tokens_out"] == 120
+    assert record["verdict"] == "APPROVE"
 
 
 def test_codex_record_parses_tokens_used_line():
@@ -346,3 +406,166 @@ def test_muse_quota_gate_passes_on_healthy_usage(monkeypatch):
     )
     info = run_arm.muse_quota_gate(env={})
     assert info["status"] == "ok"
+
+
+def test_muse_usage_bare_429_text_is_blocked(monkeypatch):
+    monkeypatch.setattr(
+        run_arm,
+        "_muse_usage_output",
+        lambda env: "429 Too Many Requests",
+    )
+    with pytest.raises(run_arm.QuotaAbortError):
+        run_arm.muse_quota_gate(env={})
+
+
+class _FakeProc:
+    def __init__(self, returncode, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def test_muse_usage_query_nonzero_exit_aborts(monkeypatch):
+    # A failed usage query is a meter failure, not a clean bill of health.
+    monkeypatch.setattr(
+        run_arm.subprocess,
+        "run",
+        lambda *a, **k: _FakeProc(2, stdout="meter backend error"),
+    )
+    with pytest.raises(run_arm.QuotaAbortError):
+        run_arm.muse_quota_gate(env={})
+
+
+def test_muse_usage_query_spawn_failure_aborts(monkeypatch):
+    def boom(*a, **k):
+        raise OSError("no such program")
+
+    monkeypatch.setattr(run_arm.subprocess, "run", boom)
+    with pytest.raises(run_arm.QuotaAbortError):
+        run_arm.muse_quota_gate(env={})
+
+
+def test_muse_usage_query_nonzero_exit_with_benign_marker_allowed(monkeypatch):
+    # server_sent_no_usage is benign even on a nonzero exit: it can happen
+    # before the first use in a new window — must NOT abort.
+    monkeypatch.setattr(
+        run_arm.subprocess,
+        "run",
+        lambda *a, **k: _FakeProc(
+            1, stderr="server_sent_no_usage: no usage data yet"
+        ),
+    )
+    info = run_arm.muse_quota_gate(env={})
+    assert info["status"] == "no_data"
+
+
+# --------------------------------------------------------------------------
+# extra-arg safety validation (whitelist injection)
+# --------------------------------------------------------------------------
+
+def test_extra_arg_allowedtools_is_rejected():
+    # Extra args are appended AFTER the role's --allowedTools, so a second
+    # one would override the role's tool whitelist — refuse it.
+    for extra in (["--allowedTools", "Bash"], ["--allowedTools=Write"]):
+        with pytest.raises(run_arm.UsageError):
+            run_arm.build_claude_args("glm-5.3", "p", "coder", extra)
+    with pytest.raises(run_arm.UsageError):
+        run_arm.validate_extra_args(["--allowedToolsBash"])
+
+
+def test_extra_arg_dangerously_skip_permissions_any_spelling():
+    for arg in (
+        "--dangerously-skip-permissions",
+        "--DANGEROUSLY-SKIP-PERMISSIONS",
+        "--dangerously_skip_permissions",
+        "--dangerouslySkipPermissions=true",
+    ):
+        with pytest.raises(run_arm.UsageError):
+            run_arm.validate_extra_args([arg])
+
+
+def test_extra_arg_normal_values_pass():
+    run_arm.validate_extra_args(["--verbose", "a plain value"])
+    args = run_arm.build_claude_args("glm-5.3", "prompt", "reviewer", ["--verbose"])
+    assert args[0] == "-p"
+    assert args[-1] == "--verbose"
+
+
+# --------------------------------------------------------------------------
+# reviewer env isolation (provider routing keys)
+# --------------------------------------------------------------------------
+
+def test_strip_provider_env_removes_routing_keys_only():
+    env = {
+        "PATH": "/usr/bin",
+        "ANTHROPIC_BASE_URL": "https://example.invalid",
+        "ANTHROPIC_AUTH_TOKEN": "token",
+        "ANTHROPIC_API_KEY": "key",
+        "ANTHROPIC_MODEL": "model",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "haiku",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "sonnet",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": "opus",
+        "ANTHROPIC_SMALL_FAST_MODEL": "fast",
+        "ANTHROPIC_MODEL_ERROR_HINT": "hint",
+        "SOME_UNRELATED_VAR": "kept",
+    }
+    out = run_arm.strip_provider_env(dict(env))
+    for key in run_arm.ANTHROPIC_PROVIDER_ENV_KEYS:
+        assert key not in out
+    assert out["PATH"] == "/usr/bin"
+    assert out["SOME_UNRELATED_VAR"] == "kept"
+
+
+# --------------------------------------------------------------------------
+# exit-code contract via main() (preconditions → clean exit 2)
+# --------------------------------------------------------------------------
+
+def _base_argv(tmp_path, **overrides):
+    options = {
+        "--arm": "claude",
+        "--role": "coder",
+        "--workdir": str(tmp_path),
+        "--prompt-file": str(tmp_path / "prompt.txt"),
+        "--log-path": str(tmp_path / "run.log"),
+        "--record-path": str(tmp_path / "run.json"),
+    }
+    options.update(overrides)
+    (tmp_path / "prompt.txt").write_text("do the thing\n")
+    argv = []
+    for flag, value in options.items():
+        argv += [flag, value]
+    return argv
+
+
+def test_missing_env_file_exits_2_clean_stderr(tmp_path, capsys):
+    rc = run_arm.main(
+        _base_argv(tmp_path) + ["--env-file", str(tmp_path / "missing.env")]
+    )
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "Traceback" not in err
+    assert not (tmp_path / "run.log").exists()
+
+
+def test_existing_log_path_exits_2(tmp_path):
+    (tmp_path / "run.log").write_text("leftover\n")
+    rc = run_arm.main(_base_argv(tmp_path))
+    assert rc == 2
+
+
+def test_spawn_failure_record_carries_exit_4(tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise OSError("no such program")
+
+    monkeypatch.setattr(run_arm.subprocess, "run", boom)
+    rc = run_arm.main(_base_argv(tmp_path, **{"--arm": "codex"}))
+    assert rc == 4
+    record = json.loads((tmp_path / "run.json").read_text())
+    assert record["exit_code"] == 4
+    assert "dispatch error" in (tmp_path / "run.log").read_text()
+
+
+def test_unwritable_record_path_raises_usage_error(tmp_path):
+    with pytest.raises(run_arm.UsageError):
+        run_arm._write_record(tmp_path / "no" / "dir" / "run.json", {"x": 1})
