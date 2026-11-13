@@ -109,12 +109,17 @@ MUSE_BLOCK_RES = (
     re.compile(r"usage\s+limit", re.IGNORECASE),
     re.compile(r"\b429\b"),
 )
-# server_sent_no_usage is benign: can happen before the first use in a
-# new window — proceed, do not abort.
+# server_sent_no_usage can happen before the first use in a new window —
+# proceed, do not abort.
+# Only these keep a dispatch going; a FAILED query may only be excused by
+# MUSE_BENIGN_ON_FAILURE_RES (a strict subset of this tuple).
 MUSE_NO_DATA_RES = (
     re.compile(r"server_sent_no_usage", re.IGNORECASE),
     re.compile(r"no\s+usage\s+data", re.IGNORECASE),
 )
+# Failed meter queries are excused ONLY by this marker; the looser
+# no-usage-data phrasing does not prove the meter is healthy.
+MUSE_BENIGN_ON_FAILURE_RES = (MUSE_NO_DATA_RES[0],)
 
 # The usage/meter query run before every muse dispatch (monkeypatch point).
 MUSE_USAGE_CMD = ("muse", "usage")
@@ -427,7 +432,9 @@ def _muse_usage_output(env):
     else:
         text = "\n".join(part for part in (proc.stdout, proc.stderr) if part)
         failed = proc.returncode != 0
-    benign = any(no_data.search(text) for no_data in MUSE_NO_DATA_RES)
+    benign = any(
+        marker.search(text) for marker in MUSE_BENIGN_ON_FAILURE_RES
+    )
     if failed and not benign:
         raise QuotaAbortError(
             "muse usage/meter query failed; meter state unknown. Aborting "

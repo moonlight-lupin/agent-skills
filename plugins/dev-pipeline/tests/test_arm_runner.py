@@ -459,6 +459,20 @@ def test_muse_usage_query_nonzero_exit_with_benign_marker_allowed(monkeypatch):
     assert info["status"] == "no_data"
 
 
+def test_muse_usage_query_nonzero_exit_generic_no_usage_data_aborts(monkeypatch):
+    # On a FAILED query only server_sent_no_usage is a benign marker; a
+    # generic "no usage data" does not prove the meter is healthy — abort.
+    monkeypatch.setattr(
+        run_arm.subprocess,
+        "run",
+        lambda *a, **k: _FakeProc(
+            1, stderr="warning: no usage data in response"
+        ),
+    )
+    with pytest.raises(run_arm.QuotaAbortError):
+        run_arm.muse_quota_gate(env={})
+
+
 # --------------------------------------------------------------------------
 # extra-arg safety validation (whitelist injection)
 # --------------------------------------------------------------------------
