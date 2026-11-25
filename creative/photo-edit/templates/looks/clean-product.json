@@ -1,0 +1,3 @@
+{"_about": "E-commerce/catalogue: neutral whites, bright, accurate colour. Use white_balance region on the backdrop if auto is ambiguous.",
+ "white_balance": {"mode": "auto", "strength": 1.0}, "exposure": 0.2, "whites": 15,
+ "highlights": -10, "shadows": 15, "contrast": 5, "vibrance": 5}
