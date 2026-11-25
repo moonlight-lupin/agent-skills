@@ -17,7 +17,8 @@ agent_skills/
 ├── creative/                         ← image and video generation workflows
 │   ├── image-studio/                 ← staged fal.ai image generation/editing/cleanup
 │   ├── clips-studio/                 ← staged fal.ai short-video generation/animation/camera moves
-│   └── pexels-stock-photos/          ← free real-world stock photo search + download (Pexels API)
+│   ├── pexels-stock-photos/          ← free real-world stock photo search + download (Pexels API)
+│   └── photo-edit/                   ← local measured photo editing, subject-aware reframing, shaped frames
 ├── research/                         ← source-grounded research, enrichment, and RAG skills
 │   ├── deep-research/                ← iterative research engine with structured evidence, source quality ranking, refute polarity, four-label evidence-basis discipline, deterministic validation gates, verbatim quote anchoring, per-round search budgets
 │   ├── entity-research/              ← cited entity/person background dossiers + sanctions signals
@@ -67,6 +68,7 @@ New skills are added as folders under the relevant domain directory.
 | [image-studio](creative/image-studio/) | creative | Staged fal.ai image gen/edit/upscale/cleanup with cost logging + `--dry-run` | pexels-stock-photos |
 | [clips-studio](creative/clips-studio/) | creative | Staged fal.ai short-video: text-to-video, animate still, camera moves | image-studio |
 | [pexels-stock-photos](creative/pexels-stock-photos/) | creative | Free real-world stock photos (Pexels API, 20k/month) with attribution handling | image-studio |
+| [photo-edit](creative/photo-edit/) | creative | Local, measured photo editing: exposure/WB/colour from metrics, straighten, subject-aware reframe, resize/sharpen, mats, polaroids and shaped cut-outs (heart, circle, star…) with a subject-visibility check and blind A/B vision review; no paid API | image-studio |
 | [deep-research](research/deep-research/) | research | Iterative research engine: structured evidence, source quality ranking (primary/secondary/tertiary), refute polarity, overview-first reports, four-label evidence-basis discipline ([VERIFIED]/[SOURCED]/[REASONED]/[ESTIMATED]), deterministic validation gates (claim-support, citations, structure), verbatim quote anchoring, per-round search budgets, provider-neutral search and page-reader fallbacks, referent disambiguation probe, firmware support-status triangulation recipe, provider head-to-head benchmarking, source families / shelf lives / money-figure bases, items × fields comparison mode and research recipes, checkable done-when tests, follow-up report revision, persistent citation DB scripts (absorbed source-tracker) | — |
 | [entity-research](research/entity-research/) | research | Cited company/person dossiers: ownership, adverse media, sanctions, litigation; optional cited organisation-evidence run (Exa Agent API) | deep-research |
 | [people-enrichment](research/people-enrichment/) | research | PDL person/company lookup → styled `.xlsx`; email-list enrichment (free triage, one lookup per domain); shared mailboxes never kept as a person's email | entity-research |
