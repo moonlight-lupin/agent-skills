@@ -106,7 +106,7 @@ cat <plugin_name>/mcp_config.yaml >> ~/.hermes/config.yaml
 | Manifest (`plugin.json`) | `plugin.yaml` | Plugin root | ✅ Direct field mapping |
 | Skills (`skills/*/SKILL.md`) | Bundled skills | `skills/*/SKILL.md` + `ctx.register_skill()` | ✅ Frontmatter remap |
 | Commands (`commands/*.md`) | Slash commands | `ctx.register_command()` in `__init__.py` | ⚠️ Simpler format, needs wrapping |
-| Hooks (`hooks/hooks.json`) | Plugin hooks | `hooks.py` + `ctx.register_hook()` | ⚠️ ~10/30 events have equivalents |
+| Hooks (`hooks/hooks.json`) | Plugin hooks | `hooks.py` + `ctx.register_hook()` | ⚠️ 10 direct + 9 partial of 30 events (Hermes has 50 plugin hook events) |
 | Agents (`agents/*.md`) | Delegation skills | `skills/<agent-name>/SKILL.md` | ⚠️ Paradigm shift |
 | MCP servers (`.mcp.json`) | MCP config | `mcp_config.yaml` snippet | ✅ Config format translation |
 | LSP servers (`.lsp.json`) | ❌ No equivalent | — | ⏭️ Skipped, noted in report |
@@ -139,13 +139,13 @@ Key mappings:
 - `Stop` → `post_llm_call` (closest match)
 - `PermissionRequest` → `pre_approval_request`
 
-Events with no Hermes equivalent: `PostToolBatch`, `PreCompact`, `PostCompact`, `Notification`, `FileChanged`, `WorktreeCreate/Remove`, `CwdChanged`, `InstructionsLoaded`, `ConfigChange`, `TeammateIdle`, `Elicitation`, `TaskCreated/Completed`.
+Events with no Hermes equivalent: `PostToolBatch`, `Setup`, `FileChanged`, `WorktreeCreate/Remove`, `CwdChanged`, `InstructionsLoaded`, `ConfigChange`, `TeammateIdle`, `TaskCreated/Completed`.
 
 ## Hook Type Mapping
 
 | Claude Hook Type | Hermes Implementation | Notes |
 |---|---|---|
-| `command` (shell) | Python callback in `hooks.py` using `subprocess` | Or shell hook in config.yaml |
+| `command` (shell) | Python callback in `hooks.py` using `subprocess` | Or a shell hook in config.yaml — Hermes shell hooks use the Claude Code wire format (exit code 2 = block) |
 | `http` (POST to URL) | Python callback using `httpx.post()` | Straightforward |
 | `mcp_tool` (call MCP tool) | Python callback using `ctx.dispatch_tool()` | Map scoped tool names |
 | `prompt` (LLM eval) | ⚠️ No direct equivalent | Note in MANUAL_STEPS — could spawn one-shot agent |
@@ -186,7 +186,7 @@ When the user's task matches this agent's specialty, delegate it:
 
 3. **Agent paradigm shift** — Claude has standalone agent definitions. Hermes uses `delegate_task` at runtime. The converter wraps each agent as a delegation skill, but the behavior won't be identical.
 
-4. **Many hook events have no Hermes equivalent** — ~20 of 30 Claude events can't be converted. The report lists them clearly.
+4. **Many hook events have no Hermes equivalent** — 11 of 30 Claude events can't be converted. The report lists them clearly.
 
 5. **`prompt` and `agent` hook types** — No direct Hermes equivalent. These are noted in MANUAL_STEPS for the user to implement manually if needed.
 
