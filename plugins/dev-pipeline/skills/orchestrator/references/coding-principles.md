@@ -102,9 +102,12 @@ Reviews apply this through the severity rule in
 
 ## Builder block
 
-Paste this block verbatim into every implementer brief and fix brief
-(`build/references/per-task-workflow.md`, `review-commit/references/fix-brief-template.md`,
-`review-commit/references/workflow-steps.md` Step 1).
+`briefs/scripts/stamp_brief.py` stamps this block into every builder brief as
+`{{BUILDER_BLOCK}}` (implementer, fix and feature briefs:
+`build/references/per-task-workflow.md`, `briefs/references/fix-brief-template.md`,
+`briefs/references/feature-build-brief.md`,
+`review-commit/references/workflow-steps.md` Step 1). Keep it a single fenced
+block directly under this heading: the script reads the first fence here.
 
 ```
 CODING PRINCIPLES (dev-pipeline):

@@ -1,0 +1,117 @@
+# Example machine config: Hermes as the controller, with Claude Code as the sole
+# coding arm on env-routed providers.
+# It is MH's setup, from the design doc "Claude Code as Sole Coding Arm" (2026-11-13).
+# To use it, copy it to ~/.hermes/dev-pipeline/lanes.toml and edit it there.
+# It holds env var NAMES only. Keys stay in the environment (~/.hermes/.env).
+#
+# Lanes whose key is unset are skipped. The OpenCode Go and DeepSeek rungs
+# stay dormant until their accounts exist (doc section 8).
+
+schema = "dev-pipeline-lanes.v1"
+
+[harness]
+controller = "hermes"     # dispatches rounds, verifies, runs the Opus review, commits (doc 2.1)
+coding = "claude-code"    # architect, test-writer and coder are blind `claude -p` roles (doc 2.2)
+
+[claude_code]
+version_pin = "2.1.300"   # trial pin (doc 9.6). Dispatches set DISABLE_AUTOUPDATER=1
+blinding = "config-dir"   # a CLAUDE_CONFIG_DIR per role (doc 3). The Opus lane overrides this below
+role_root = "~/.hermes/dev-pipeline/roles"
+
+[providers.ollama-cloud]
+kind = "anthropic-compatible"
+base_url = "https://ollama.com"
+auth_env = "OLLAMA_API_KEY"
+
+[providers.deepseek]
+kind = "anthropic-compatible"
+base_url = "https://api.deepseek.com/anthropic"
+auth_env = "DEEPSEEK_API_KEY"
+
+# OpenCode Go, rung 2 (doc 6.2). Fill in its Anthropic-compatible endpoint once
+# the account exists, then uncomment this block, the glm-flash lane below, and
+# "glm-flash" in the role lists.
+# [providers.opencode-go]
+# kind = "anthropic-compatible"
+# base_url = "<OpenCode Go Anthropic-compatible endpoint>"
+# auth_env = "OPENCODE_API_KEY"
+
+[lanes.glm]
+via = "claude-code"
+provider = "ollama-cloud"
+model = "glm-5.3"
+family = "zhipu"
+
+# [lanes.glm-flash]
+# via = "claude-code"
+# provider = "opencode-go"
+# model = "glm-5.3-flash"
+# family = "zhipu"
+
+[lanes.deepseek]
+via = "claude-code"
+provider = "deepseek"
+model = "deepseek-chat"   # check this against DeepSeek's Anthropic-API model list on first use
+family = "deepseek"
+
+# Opus review arm. Hermes runs it during verification on the MAX login, which
+# env routing never touches (doc 2.1, decision 1). It needs the normal config
+# dir to log in, so it uses no-memory blinding instead of config-dir.
+[lanes.opus]
+via = "claude-code"
+provider = "anthropic"
+model = "opus"
+family = "anthropic"
+blinding = "no-memory"
+
+[lanes.codex]
+model = "gpt-6-sol"
+effort = "high"
+
+[lanes.cursor]
+model = "cursor-grok-4.7-high"
+family = "xai"
+
+[lanes.muse]
+model = "muse-spark-1.3"
+effort = "high"
+
+# The Goldfish spec-review children keep their Hermes one-shot (pinned by MH on 2026-10-26)
+[lanes.goldfish-glm]
+via = "cli"
+binary = ["hermes"]
+model = "glm-5.3"
+family = "zhipu"
+model_args = ["-m", "{model}"]
+review_argv = ["{binary}", "chat", "-Q", "{model_args}", "--provider", "ollama-cloud", "--query-file", "{prompt_file}"]
+code_argv = ["{binary}", "chat", "-Q", "{model_args}", "--provider", "ollama-cloud", "--query-file", "{prompt_file}"]
+
+[roles]
+# Claude Code stays the architect even when a CLI writes the code (doc 3).
+architect = ["glm", "deepseek"]
+test_writer = ["glm", "deepseek"]
+# The coder ladder (doc 6.2 and 11). Muse leaves the coder chain and only reviews.
+coder = ["glm", "deepseek", "codex", "cursor"]
+reviewers = ["codex", "opus", "cursor", "muse"]
+goldfish = ["goldfish-glm", "glm"]
+
+[ladder]
+threshold_pct = 80        # one notch below the tracker's 85% alert (doc 6.1)
+max_rate_limits = 2
+# CLI coders are the last resort, used only for approval-worthy rounds, because
+# they share quota with the gate arms (doc 6.2)
+approval_lanes = ["codex", "cursor"]
+
+[review]
+dispatch = { opus = "controller" }   # Hermes dispatches Opus. Claude Code dispatches codex, cursor and muse (doc 5)
+same_family_seats = "ask"
+
+[review.seats]
+T1 = 1
+T2 = 2                    # codex + opus
+T3 = 3
+gate = 3                  # codex + opus + cursor or muse (the three-reviewer gate is kept)
+
+[pin]
+plugin_version = "0.4.0"
+# master_path = "~/.hermes/plugins/dev-pipeline"   # set it on the Claude Code copy, so it checks against the Hermes master

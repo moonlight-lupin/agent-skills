@@ -1,6 +1,6 @@
 name: dev-pipeline
-version: 0.3.0
-description: "Development pipeline: six stage skills (orchestrator, grill, spec, test-evals, build, review-commit) planned by S0-S3 complexity and reviewed by R0-R3 risk (T0-T3 compatibility), a review-lessons library, and a pre_tool_call create-gate hook that blocks new software-development skills unless a single-use allow flag is consumed. See CHANGELOG.md."
+version: 0.3.2
+description: "Development pipeline: six stage skills (orchestrator, grill, spec, test-evals, build, review-commit) planned by S0-S3 complexity and reviewed by R0-R3 risk (T0-T3 compatibility), a briefs skill (stamped briefs, case tables), a review-lessons library, and a pre_tool_call create-gate hook that blocks new software-development skills unless a single-use allow flag is consumed. See CHANGELOG.md."
 author: moonlight-lupin
 license: MIT
 tags: [dev-pipeline, skills, guardrail, policy-hook]

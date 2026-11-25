@@ -39,9 +39,9 @@ def test_authoritative_stage_router_links_risk_reference():
     assert "size tier first (T0-T3)" not in orchestrator
 
 
-def test_v030_manifest_version_and_review_budget_unchanged():
+def test_manifest_version_and_review_budget_unchanged():
     manifest = (BASE / "plugin.yaml").read_text(encoding="utf-8")
-    assert re.search(r"(?m)^version: 0\.3\.0$", manifest)
+    assert re.search(r"(?m)^version: 0\.3\.2$", manifest)
     tiers = (REF / "size-tiers.md").read_text(encoding="utf-8")
     for expected in ("| T1 ", "| T2 ", "| T3 ", "three-reviewer gate"):
         assert expected in tiers

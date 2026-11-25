@@ -105,6 +105,7 @@ consumes; the full-suite run and final commit happen there.
 
 ## Build doctrine (implementation rules)
 
+- **Stamped briefs** — implementer and fix briefs are stamped with `briefs/scripts/stamp_brief.py` (SHAs, test results, the builder block) — never typed from memory.
 - **Coding principles** — every implementer dispatch pastes the builder block from `orchestrator/references/coding-principles.md` verbatim: state assumptions or report `NEEDS_CONTEXT`, minimum code, every changed line traces to the task, mention unrelated dead code instead of deleting it. The builder reads only its brief, so the block has to be in it.
 - **Dependency injection for mockability** — pass external dependencies in as arguments; never construct them from the environment inside the unit. A class that builds its own HTTP client or reads its own config at construction cannot be tested at a seam without mocks outside a boundary.
 - **SDK-style interfaces over generic fetchers** — one named function per external operation (`create_issue()`, not `fetch("post", "/issues")`). Named SDK surfaces are greppable, mockable, and pinned by tests at one seam.

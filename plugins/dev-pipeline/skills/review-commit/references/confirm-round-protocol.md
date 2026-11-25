@@ -11,6 +11,14 @@ spec-confirmation rounds.
 
 ## Round names
 
+**Every reviewer dispatch after R1 is a confirm round — whatever the brief
+calls it.** A "fix review", "re-close", "re-gate", "verification pass" or a
+single reviewer checking one line: each is a round and counts against the
+budget. One reviewer or three, one finding or twenty, it's one round. Run
+`scripts/review_budget.py round <ledger-dir>` before every dispatch; it
+refuses the rounds this protocol doesn't allow, and the brief's round line is
+stamped from it (`briefs/scripts/stamp_brief.py`).
+
 - **R1 — first review.** Full review of the work's diff against its base
   (after Step A's two-axis pass). Reviewers may report anything in the diff.
 - **R2, R3, … — confirm rounds.** Each one checks the previous fix round. Its
@@ -40,7 +48,18 @@ real fix round if cheap, or left recorded — they never trigger a round on
 their own.
 
 Severity is the orchestrator's call, not the reviewer's: re-rate each finding
-after reproducing it (see *Repro-before-fix*).
+after reproducing it (see *Repro-before-fix*), and record it with
+`review_budget.py finding` (which applies the two caps below).
+
+**Test-only findings are at most MINOR.** A finding about test code alone —
+a fixture date that expires, a test's time zone, an unasserted field, a test
+name — is MINOR whatever the reviewer called it, unless that test is the ONLY
+coverage of a BLOCKING/MAJOR behavior (`--sole-coverage`). Fix them in the
+last real fix round or defer them; they never open a round.
+
+**Every finding gets a class**: the mechanism, input family or invariant it
+belongs to ("revision-state", "pagination", "public-route auth"). The
+same-class stop counts by class, so name it consistently across rounds.
 
 **Reachability sets the ceiling:**
 
@@ -97,9 +116,16 @@ deferred like any other MINOR.
 - With several reviewers, HOLD the fix round until every dispatched reviewer's
   verdict lands, then merge into ONE deduped fix list and fix once. Patching
   between verdicts makes late reviewers judge stale code. A brief-supersede
-  mechanism exists (`fix-brief-template.md`) for a fix dispatch that already
+  mechanism exists (`briefs/references/fix-brief-template.md`) for a fix dispatch that already
   started against an incomplete verdict set — it is a recovery path, not an
   exception to this rule.
+- **Freeze the tracked tree between dispatch and read verdicts.** Reviewer CLI
+  processes run against the checked-out tree: no code edits, no commits to
+  tracked files, no regenerating derived files a reviewer might read until
+  every verdict is in. (A reviewer that catches mid-review churn must re-read
+  every cited region at `git show <target-sha>:<path>` and say so — that
+  weakens its citations and can void the round.) Fix-commits and brief/diff
+  artifacts for the NEXT round wait in the working tree or a scratch dir.
 - Track every dispatch to a read verdict: ledger row per (round, reviewer,
   log path, verdict-read Y/N).
 
@@ -132,9 +158,12 @@ budget — then ask.
    round to get a cleaner report.
 2. **Same-class stop.** The second finding of the same class (same mechanism,
    same input family, same invariant — e.g. a second escaping bypass, a
-   second race on the same lock) → stop patching instances. Write ONE
-   redesign brief that fixes the class, and ask reviewers to probe that class.
-   A third same-class finding means the design is wrong: take it to the user.
+   second race on the same lock) → stop patching instances. Update the rule's
+   case table first (`briefs/references/case-tables.md` — the missing cases
+   are rows), then write ONE redesign brief from the table and ask reviewers
+   to probe that class. A third same-class finding means the design is wrong:
+   take it to the user. (`review_budget.py status` reports REDESIGN at two and
+   refuses the next round at three.)
 3. **No-progress stop.** Open BLOCKING+MAJOR count did not go down from the
    previous round, or a RESOLVED finding re-opened → stop, re-read the code
    yourself, and decide with the user. A fix round that makes things worse is
@@ -165,7 +194,9 @@ true severity and gives the builder a failing case.
 ## Fix rounds
 
 - One fix round per review round: all of that round's reproduced
-  BLOCKING/MAJOR findings, deduped across reviewers, in one brief.
+  BLOCKING/MAJOR findings, deduped across reviewers, in one brief. Never a
+  brief — or a review — per finding: a one-line fix rides in the round's fix
+  diff with everything else, and the next confirm round checks them together.
 - Brief per finding: behavior contract, exact fix, the failing-first test by
   name, "touch only what this finding needs". Multi-mechanism bugs: both
   halves in the same item.
@@ -178,13 +209,28 @@ true severity and gives the builder a failing case.
 - Commit each fix round after your own verification; the next confirm round's
   diff is that commit against the previous round's commit.
 
-## Ledger
+## Ledger — `scripts/review_budget.py`
 
-Keep a per-round line (in chat and in `.hermes/sdd/progress.md` or the loop
-plan): round, commit, fix-diff size, reviewers dispatched, open
-BLOCKING/MAJOR count, NEW-N count, deferred count, verdicts. The user asks
-"status" and expects this instantly — and the counts are what the stop
-conditions read.
+Every loop keeps its ledger in `.hermes/reviews/<loop>/budget.json`,
+maintained only through the script:
+
+```
+review_budget.py init     <dir> --tier T2 [--kind gate]   # before R1
+review_budget.py round    <dir> --scope <diff>            # before EVERY reviewer dispatch
+review_budget.py dispatch <dir> --reviewer codex          # per reviewer in the round
+review_budget.py finding  <dir> --id C1 --severity MAJOR --class revision-state [--test-only] [--unreachable]
+review_budget.py close    <dir>                           # when every verdict is read
+review_budget.py resolve  <dir> --id C1 --status fixed    # after the fix round
+review_budget.py resolve  <dir> --id C1                   # the confirm verdict says RESOLVED
+review_budget.py status   <dir>                           # SHIP / CONTINUE / REDESIGN / ASK-USER
+review_budget.py extend   <dir> --by 1 --reason "..." --approved-by <user>   # the user's decision
+```
+
+`round` refuses (non-zero) when the budget is spent with BLOCKING/MAJOR
+open, when a same-class or no-progress stop applies, and when nothing is
+open (SHIP). Only `extend`, recording the USER's decision, lets the loop
+continue past a refusal. Report `status` to the user when they ask how the
+review is going; it is also what the stop conditions read.
 
 ## Three-reviewer deployment gate
 
@@ -199,6 +245,10 @@ User's standing instruction: before any LIVE deploy, all three reviewer lanes
   means "outside the net diff" — not "outside the last fix diff". A
   gate-round BLOCKING/MAJOR gets one fix round and a re-gate by the reviewers
   that raised it; anything beyond that goes to the user.
+- The gate keeps its own ledger (`review_budget.py init <dir> --kind gate`):
+  the gate round plus ONE re-gate, whatever the tier. The re-gate is a
+  confirm round — it reviews the fix diff, not the net diff again, with the
+  Confirm brief from `briefs/references/review-briefs.md`.
 - For a port/adoption from a public repo, the net diff is the whole session
   delta against the pre-session baseline.
 
@@ -210,6 +260,17 @@ clean) → Step B loop converges → gate round = all three lanes on the NET dif
 re-gate by that reviewer → all three SHIP → push. If the third confirm round
 still left BLOCKING/MAJOR open, budget stop → ask the user before any further
 round. The gate runs only after the loop converges.
+
+## Milestones — the gate never meets a whole product
+
+A gate (or any R1) reviews one milestone: one build phase, one feature, or one
+reviewable slice — a net diff a reviewer can hold in mind, as a guide ≤ ~3,000
+changed lines of code (`stamp_brief.py` refuses review diffs over 5,000 lines
+unless `--allow-large` records why). A greenfield product is reviewed phase by
+phase as it is built (the build plan's phases), each through its own loop and,
+if it goes live, its own gate. A final gate over several milestones reviews
+only what changed since the last milestone that passed, plus the integration
+seams between milestones — never the whole product as its first full review.
 
 ## Spec and design documents
 
@@ -236,3 +297,24 @@ v0.1.x loops ran past ten rounds because these rules stacked:
   rule saying which one wins;
 - even one-line fixes had to go through a builder dispatch, and loose fix
   briefs caused fix-induced regressions that the next round then found.
+
+v0.3.0 had the rules but not the counting, and one gate still ran 15 fix
+rounds and 8 re-close rounds in an evening:
+
+- single-reviewer "fix reviews" (lettered D, E, F … P) were treated as not
+  being rounds, so the budget never applied — now every dispatch after R1 is
+  a round, counted by `review_budget.py`;
+- test-only findings (a fixture month expiring next year, a test's time zone,
+  an unasserted field) were rated MAJOR and each got a round — now capped at
+  MINOR;
+- one-line fixes got their own review round — now they ride in the round's
+  batch;
+- re-close rounds re-reviewed the full 40,000-line diff — now re-gates use the
+  fix diff;
+- a correction rule written as one paragraph was designed by reviewer
+  counterexample, one round per case — now stateful rules get a case table
+  before the build, and the same-class stop sends missing cases back to it;
+- briefs carried facts typed from memory (two different SHAs, stale test
+  counts, "two fix rounds" after fifteen) — now briefs are stamped;
+- the gate was the first full review of the whole product — now gates review
+  one milestone.

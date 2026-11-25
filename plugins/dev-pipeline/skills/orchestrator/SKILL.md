@@ -120,5 +120,7 @@ Load one stage skill at a time — each is separate for context economy.
   v0.2 and should be reconciled with it.
 - **Architecture health** — `improve-codebase-architecture` (outside skill).
 - **Mid-build doubt** — `doubt-driven-development` (outside skill).
+- **Briefs and case tables** — `briefs` (this plugin): every brief another
+  agent acts on, stamped from commands; case tables for rules with state.
 - **Lessons from past loops** — `review-lessons` (this plugin; load one file
   by case, on demand).

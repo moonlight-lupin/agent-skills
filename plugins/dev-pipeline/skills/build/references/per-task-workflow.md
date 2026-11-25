@@ -80,7 +80,7 @@ delegate_task(
     - STATUS must be one of: DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED
     - The full report lists: assumptions made, any unrelated dead code noticed (not deleted)
 
-    <BUILDER BLOCK — paste verbatim from orchestrator/references/coding-principles.md § Builder block>
+    {{BUILDER_BLOCK}}
 
     RED TESTS (written by test-evals — do NOT edit them):
     - tests/models/test_user.py::test_create_user_hashes_password

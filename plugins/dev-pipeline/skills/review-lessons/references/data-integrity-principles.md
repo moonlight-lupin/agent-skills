@@ -5,7 +5,7 @@ across codebases. Reached from SKILL.md ## Pitfalls.
 
 ## Contents
 
-- Invariants and transactions (items 1, 5, 15)
+- Invariants and transactions (items 1, 5, 15, 18)
 - Schema and migration safety (items 3, 4, 11)
 - Idempotency and API contract (items 8, 9, 10)
 - Numeric storage (items 2, 6)
@@ -13,6 +13,8 @@ across codebases. Reached from SKILL.md ## Pitfalls.
 - Module design residue (items 16, 17)
 
 ## Invariants and transactions
+
+18. **Derive audit/diff pictures from successfully-committed rows, not source offers** — a pass that decides supersessions (tombstones, freezes, reversals) from the incoming batch's OFFERED rows conflates intent with effect: rows the conform skips (a protection guard) or rejects (validation failure) never landed, so their presence in the offered set makes the month/state picture look changed when it is not — the pass then reverses or freezes on a fiction. Read the landed-state table (one state row per accepted hash) as the source of truth, and when a skip branch re-offers an already-known row, re-point that row's state ownership to the current batch so the re-offered row stays visible in the picture; otherwise complete re-offers look partial and mixed corrections reverse rows that were actually re-offered. Related: joins that match a nullable source hash to a state hash must cover the fallback-token form in EVERY query direction (the picture query AND the prior-state query) — a join fixed on one side only silently drops rows from the other. Counting bases for protective invariants (a month's retained active posted set) must be queried from the fact table itself, not from join-derived maps that the surrounding bookkeeping mutates — the count must be invariant to its own fix's re-pointing.
 
 1. **Enforce invariants at the DB level** — application-level read-then-insert checks are TOCTOU-vulnerable under concurrent transactions. Two transactions can both observe an acceptable state and insert rows that jointly violate the total. Fix with database triggers that enforce the invariant atomically; keep the application-level check as a faster-path for error messages. The trigger is the authoritative guard.
 
@@ -36,7 +38,7 @@ across codebases. Reached from SKILL.md ## Pitfalls.
 
 ## Idempotency and API contract
 
-8. **Idempotent inserts — suppress duplicates in SQL, never by catching IntegrityError** — on PostgreSQL the unique violation has already aborted the transaction; the catch cannot restore it, so the follow-up commit/select runs against a failed transaction. Use `INSERT ... ON CONFLICT (<col>) DO NOTHING` on both backends. A fix verified only on one backend can hide the other's defect even with a green full suite — keep a gated live-backend test for the duplicate-call path. Guard with a grep-style test: every insert branch carries the conflict clause (exclude the docstring — it names the clause too).
+8. **Idempotent inserts — suppress duplicates in SQL, never by catching IntegrityError** — on PostgreSQL the unique violation has already aborted the transaction; the catch cannot restore it, so the follow-up commit/select runs against a failed transaction. Use `INSERT ... ON CONFLICT (<col>) DO NOTHING` on both backends. A fix verified only on one backend can hide the other's defect even with a green full suite — keep a gated live-backend test for the duplicate-call path. Guard with a grep-style test: every insert branch carries the conflict clause (exclude the docstring — it names the clause too). Reach for `INSERT OR IGNORE` by reflex only when the target is genuinely SQLite-only: it is SQLite dialect, and a dual-driver kernel's Postgres backend passes it through UNTRANSLATED — a green SQLite suite hides a statement that fails the moment the same code runs on Postgres.
 
 9. **Extend existing registration functions by delegation, not by copying their INSERT SQL** — the duplicated copy is where the unsafe suppression pattern reappears.
 

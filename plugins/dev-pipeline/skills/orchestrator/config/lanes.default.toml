@@ -1,0 +1,159 @@
+# dev-pipeline lanes: plugin defaults (schema dev-pipeline-lanes.v1)
+#
+# Every model name and CLI invocation the pipeline uses lives in config, never in a skill.
+# This file ships with the plugin and works on a machine that has only Claude Code.
+# Don't edit it. Override it per machine in ~/.hermes/dev-pipeline/lanes.toml, or
+# ~/.config/dev-pipeline/lanes.toml, or $DEV_PIPELINE_LANES.
+# Override it per project in <repo>/.dev-pipeline/lanes.toml.
+# Overrides merge table by table. A list replaces the whole list.
+#
+# A lane that names a CLI the machine lacks, or a provider whose key is unset,
+# is skipped at resolve time, so this file can list every lane you might use.
+# Check a machine with:  python3 skills/orchestrator/scripts/lanes.py doctor
+
+schema = "dev-pipeline-lanes.v1"
+
+[harness]
+# Who runs the orchestrator and verifies, reviews and commits.
+# One of "hermes" | "claude-code" | "auto" (auto means whichever agent loaded the skill).
+controller = "auto"
+# Where code, briefs and tests are written. "claude-code" means blind `claude -p`
+# role dispatches. "controller" means the controller's own subagents
+# (Hermes delegate_task, or the Claude Code Task tool). "auto" picks
+# claude-code when the `claude` binary is found and controller otherwise.
+coding = "auto"
+
+[claude_code]
+binary = "claude"
+binary_args = []          # a prefix inserted before the flags (tests use it)
+version_pin = ""          # e.g. "2.1.300". When set, `doctor` checks it and dispatches set DISABLE_AUTOUPDATER=1
+# Blinding keeps roles out of each other's context:
+#   "config-dir": a separate CLAUDE_CONFIG_DIR per role. Strongest. Each role dir
+#                 needs its own login unless the lane's provider is env-routed.
+#   "no-memory":  a shared config dir with auto-memory off. Works with a normal
+#                 Claude login.
+# Both modes pass --no-session-persistence.
+blinding = "no-memory"
+role_root = "~/.config/dev-pipeline/roles"
+max_turns = 80
+permission_mode = "acceptEdits"
+allowed_tools = ["Bash", "Read", "Edit", "Write", "Glob", "Grep"]
+# Tools no role may use. Web access belongs to the controller, and only the
+# controller commits. A deny wins over an allow.
+disallowed_tools = [
+  "WebSearch", "WebFetch",
+  "Bash(git commit:*)", "Bash(git push:*)", "Bash(git reset:*)",
+  "Bash(curl:*)", "Bash(wget:*)",
+]
+# Tools a reviewer additionally loses, so reviewers stay read-only.
+reviewer_disallowed_tools = ["Edit", "Write", "NotebookEdit"]
+extra_args = []
+
+# Providers are how a claude-code lane reaches its model.
+#   "anthropic-login": the CLI's own login or ANTHROPIC_API_KEY. Nothing is routed.
+#   "anthropic-compatible": the base_url plus the key from the auth_env env var. The
+#                           dispatch refuses to start when that var is empty, so it
+#                           can never fall back to the Anthropic login.
+[providers.anthropic]
+kind = "anthropic-login"
+
+# ---- lanes ------------------------------------------------------------------
+# via = "claude-code": a blind `claude -p` dispatch, built by lanes.py.
+# via = "cli":         a command template. {binary} {model_args} {effort_args}
+#                      {prompt_file} {prompt_pointer} are filled at dispatch.
+#                      A template whose model or effort is empty drops that arg.
+# via = "controller":  the controller's own subagent. Always available. Its family
+#                      is unknown, so it never counts as an independent family.
+# family: lanes from one model family never fill two review seats, and a lane
+#         never reviews code written by its own family, unless the seat
+#         policy allows it.
+
+[lanes.claude]
+via = "claude-code"
+provider = "anthropic"
+model = ""                # "" means the CLI's default model
+family = "anthropic"
+# A lane may set its own blinding = "config-dir" | "no-memory", which overrides claude_code.blinding
+
+[lanes.codex]
+via = "cli"
+binary = ["codex"]
+model = ""
+effort = "high"           # Codex's default effort can be "none", so always set it
+family = "openai"
+model_args = ["-m", "{model}"]
+effort_args = ["-c", "model_reasoning_effort={effort}"]
+review_argv = ["{binary}", "exec", "--sandbox", "read-only", "{model_args}", "{effort_args}", "{prompt_pointer}"]
+code_argv = ["{binary}", "exec", "--sandbox", "workspace-write", "{model_args}", "{effort_args}", "{prompt_pointer}"]
+
+[lanes.cursor]
+via = "cli"
+binary = ["cursor-agent", "agent"]
+model = ""
+family = "cursor"         # set it to the model's real family when you pin one
+model_args = ["--model", "{model}"]
+review_argv = ["{binary}", "-p", "--output-format", "text", "{model_args}", "{prompt_pointer}"]
+code_argv = ["{binary}", "-p", "--force", "--output-format", "text", "{model_args}", "{prompt_pointer}"]
+
+[lanes.muse]
+via = "cli"
+binary = ["muse"]
+model = ""
+effort = ""
+family = "muse"
+model_args = ["--model", "{model}"]
+effort_args = ["--reasoning-effort", "{effort}"]
+review_argv = ["{binary}", "exec", "--trust-workspace", "--disable-web-tools", "--prompt-file", "{prompt_file}", "{model_args}", "{effort_args}"]
+code_argv = ["{binary}", "exec", "--trust-workspace", "--disable-web-tools", "--prompt-file", "{prompt_file}", "{model_args}", "{effort_args}"]
+
+[lanes.controller]
+via = "controller"
+family = "controller"
+
+# ---- roles ------------------------------------------------------------------
+# Each list is in preference order. The first available lane that isn't
+# skipped wins. The coder list is the escalation ladder.
+[roles]
+architect = ["claude", "controller"]
+test_writer = ["claude", "controller"]
+coder = ["claude", "controller"]
+reviewers = ["codex", "claude", "cursor", "muse", "controller"]
+# Optional: zero-context persona children for the Goldfish spec review. When
+# none of these lanes is available, the role is skipped and no round is blocked.
+goldfish = ["controller"]
+
+[ladder]
+# Usage escalation is off unless the controller passes a usage file
+# (`resolve --usage`). The plugin reads no tracker. The file holds
+# {"<lane or provider>": <percent used>}, and how it is produced is up to
+# each installation.
+threshold_pct = 80
+max_rate_limits = 2       # this many rate-limit errors for one lane in a round skips that lane
+# Coder lanes used only when the round is marked approval-worthy (`--approved`).
+# Use it for CLIs whose quota the review gate also needs.
+approval_lanes = []
+
+[review]
+# Who dispatches each reviewer lane: "runner" (the coding harness, inside the
+# round) or "controller" (the controller, during verification). A lane not
+# listed here defaults to the runner.
+dispatch = {}
+# What to do when not enough independent families are available:
+#   "ask":   fill the seat with a same-family lane and return ASK-USER
+#   "allow": fill it and only note it
+#   "never": leave the seat empty, which is a shortfall and returns ASK-USER
+same_family_seats = "ask"
+
+[review.seats]
+T0 = 0
+T1 = 1
+T2 = 2
+T3 = 3
+gate = 3
+
+[pin]
+# The single-master check. `doctor` compares this plugin's version with the one
+# below, and with plugin.yaml at master_path when that is set. Leave both empty
+# to skip the check.
+plugin_version = ""
+master_path = ""

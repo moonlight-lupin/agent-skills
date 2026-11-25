@@ -218,6 +218,39 @@ wedding check-in's post-deploy rounds):
   grep the served asset for the new value. Do not dispatch a builder for
   a token change; do say so explicitly per the delegation contract.
 
+## Ingest feeds: content-hash idempotence and correction freezes
+
+Feed-style sync (fetch snapshot → conform to facts → revision-diff corrections) adds its own bug
+classes; all four reproduced on a property-data loop:
+
+- **Upstream re-transmits identical records — a content-hash UNIQUE constraint must not turn that into
+  an insert failure.** A real feed repeated ~10% of its lines within one snapshot. The insert path needs
+  an upsert that bumps an `occurrences` counter on the hash key; a repeated identical line is the same
+  logical record (one fact), the counter keeps the multiplicity, and the verbatim on-disk snapshot keeps
+  every line. Verify against the LIVE files before accepting the finding's severity — counting the
+  actual repeated lines in the stored snapshots is what turned a hypothetical into a blocker.
+- **A global content-hash state key outlives any batch it was first landed in.** When conform state is
+  unique per (feed, row_hash) but the fact it points at is batch-owned, a later batch that re-encounters
+  the hash skips the row — so a replacement draft stays stranded in an earlier, paused batch while a
+  later clean batch reverses the predecessor fact without publishing any replacement: the corrected
+  record vanishes from every derived count. Fix shape: in the skip branch, when the state fact is an
+  unposted draft of ANOTHER batch, re-point the fact and the state row to the current batch, and when a
+  month revises cleanly, release any batch-scoped pause earlier batches placed on it. Never let a
+  batch-scoped refusal guard a globally-owned artifact.
+- **A→B→A reverts need re-conform, not skip.** If the source flips to generation B and back to A, the
+  state row for A's hash still exists but A's fact is reversed: skipping on the state row's existence
+  leaves both generations excluded (A reversed, B superseded-reversed) and the record disappears. Bypass
+  the skip when the state's fact is reversed and re-conform as a fresh fact; the revision diff then
+  reverses B normally and exactly one active fact remains. Upsert the state row so the hash re-points at
+  the new generation.
+- **A partial failure freezes the MONTH, not just the failed row.** Excluding only the failed raw row
+  still revises its month — the old posted fact gets reversed with no replacement landed. Exclude the
+  month from revision when any conform of it failed, and make that freeze durable: a post-time hold
+  keyed (feed, batch, month) so bulk posting answers a refusal until a clean re-conform of the same
+  batch revises the month and clears it. Gate hold insertion on the batch actually having draft facts in
+  that month — a batch whose month rows ALL failed has nothing postable and would otherwise hold
+  forever. Portable SQL only: `INSERT OR IGNORE` is SQLite-exclusive; `ON CONFLICT ... DO NOTHING` is not.
+
 ## Auth surface
 
 - **Whitelist public static assets instead of blacklisting the sensitive

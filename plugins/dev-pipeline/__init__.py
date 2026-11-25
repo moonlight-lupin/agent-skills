@@ -162,6 +162,7 @@ _BUNDLED_SKILLS = (
     "grill",
     "orchestrator",
     "review-lessons",   # v0.2: lessons library split out of review-commit
+    "briefs",           # v0.3.1: brief templates, case tables, stamp script
 )
 
 _PLUGIN_SKILL_NAMESPACE = "dev-pipeline"

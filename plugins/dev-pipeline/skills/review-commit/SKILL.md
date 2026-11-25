@@ -2,13 +2,13 @@
 name: review-commit
 description: "Use when the user says 'review loop N times', 'build then review', 'fix and re-review', 'review loop until clean', 'have cursor build, codex review', or wants the dev-pipeline review stage: a two-axis single pass (Standards + Spec, parallel, never merged) FIRST, then a budgeted confirm-round loop on the fix diffs until no BLOCKING/MAJOR is open, then the commit/deploy gate — three-reviewer gate before live deploy, release hygiene before tagging. Also triggers: 'two-axis review', 'confirm rounds', 'review diff until SHIP', 'N confirm rounds', ship gate."
 metadata:
-  version: 2.1.0
+  version: 2.2.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
   hermes:
     tags: [review, code-review, confirm-round, convergence, two-axis, fowler-smells, ship-gate, three-reviewer-gate, commit, push-gate, release-hygiene, cross-model, spec-review]
-    related_skills: [orchestrator, build, test-evals, spec, review-lessons, council-code-review, cli-auth-fallback]
+    related_skills: [orchestrator, build, test-evals, spec, briefs, review-lessons, council-code-review, cli-auth-fallback]
 ---
 
 # Review-Commit
@@ -47,9 +47,18 @@ Step B as named findings. Skipped at T0.
 **All loop rules live in `references/confirm-round-protocol.md`.** Read it
 before R1. The short version:
 
-- **R1** reviews the change's diff with the tier's reviewer lanes.
+- **Every reviewer dispatch after R1 is a confirm round**, whatever the brief
+  calls it (fix review, re-close, re-gate). Run
+  `scripts/review_budget.py round <ledger>` before EVERY dispatch — it counts
+  the rounds and refuses the ones the protocol doesn't allow; only the user's
+  recorded decision (`extend`) gets past a refusal.
+- **R1** reviews the change's diff with the tier's reviewer lanes — one
+  milestone at a time, never a whole product (`confirm-round-protocol.md`
+  § Milestones).
 - **Only BLOCKING/MAJOR keep the loop open.** MINOR/NIT go to the deferred
-  list and never trigger a round.
+  list and never trigger a round. Test-only findings are at most MINOR; every
+  finding gets a class (`review_budget.py finding` applies both).
+- **One fix brief and one review per round** — never a review per finding.
 - **Confirm rounds review the FIX diff**, with full acceptance suite and new adversarial regression checks rerun after each fix.
   Anything outside the fix lines is OUT-OF-SCOPE-N → deferred (unless a
   reproduced BLOCKING).
@@ -66,9 +75,11 @@ Mechanics:
   push, CI): `references/workflow-steps.md`.
 - Dispatching the CLIs (cwd, sandbox, timing, outages, bot mode):
   `references/reviewer-dispatch.md`.
-- Fix briefs: `references/fix-brief-template.md`; new-capability briefs
-  against pre-written tests: `references/feature-build-brief.md`.
+- Briefs (fix, new-capability, R1, confirm, gate) and case tables: the `briefs`
+  skill. Every review brief is stamped by `briefs/scripts/stamp_brief.py`.
 - Spec/design documents instead of code: `references/spec-convergence.md`.
+- Round budget ledger: `scripts/review_budget.py` (usage in
+  `confirm-round-protocol.md` § Ledger).
 - Multi-session or multi-batch loops: `references/persistent-loop-plan.md`
   (`scripts/loop_plan_check.py`, `scripts/attest_file.py`); dispatch capture:
   `references/dispatch-result-contract.md`

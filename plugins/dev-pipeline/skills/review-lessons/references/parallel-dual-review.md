@@ -110,7 +110,7 @@ Rules:
    greps cannot catch per-item shape defects.
 3. **Budget the fix round from the UNION of findings, not the first review** —
    the merged fix brief supersedes the first (see
-   `review-commit/references/fix-brief-template.md` supersede rule and
+   `briefs/references/fix-brief-template.md` supersede rule and
    `review-commit/references/persistent-loop-plan.md` steering rule #6).
 4. **Delta re-reviews converge on different defect classes per reviewer —
    expect each delta round to demand its own fix round.** In the first delta,

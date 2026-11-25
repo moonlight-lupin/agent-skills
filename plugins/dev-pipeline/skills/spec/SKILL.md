@@ -23,6 +23,14 @@ Do the job the user invoked — specifying only, or planning only. The `grill` s
 
 **By complexity** (`orchestrator/references/risk-routing.md`): S0 skips this stage. S1 skips the spec turn — the plan header carries an assumptions line and 3-6 acceptance criteria written as `step → verify: check` (format in `orchestrator/references/coding-principles.md` § Plan format for S0/S1), and the plan is one task. S2/S3 run all turns. Review depth (the risk-derived T-tier) does not select spec turns: an S3/R1 change still gets the full spec with T1 review.
 
+**Case tables for rules with state.** Any rule whose result depends on
+history — corrections, retries, idempotence, rolling windows, caches, sync,
+draft/post lifecycles, permission matrices, time boundaries — gets a case table
+in the plan turn (`briefs/references/case-tables.md`): one row per case, with
+the expected result at the public seam. Prose is not enough: each case it
+leaves out becomes a review round later. S2/S3 always; S1 when such a rule is
+in scope. The table is reviewed once, before the build.
+
 **Test cases, not test code.** For each task the plan names its test cases: behavior, seam (with its seam note), inputs, expected value and where that value comes from. The `test-evals` stage writes the test code and runs it RED; the `build` implementer makes it GREEN.
 
 ## When to Use

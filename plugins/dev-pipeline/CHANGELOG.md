@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.3.2
+
+Reconcile the two dev-pipeline lines: land the briefs/lanes/review-budget
+work (stamped briefs, case tables, orchestrator lanes config, review budget)
+together with the CLI arm runner and its verdict/dispatch gating, and carry the
+live-only confirm-round rule (freeze the tracked tree between dispatch and read
+verdicts). Published plugin version is 0.3.2.
+
+## v0.3.1 — counted rounds, stamped briefs, case tables
+
+**Why:** on one project (Nov 2026) a v0.3.0 three-reviewer gate ran 15 fix
+rounds (D through P) and 8 re-close rounds in an evening. The protocol allows
+one fix round and one re-gate. The rules were there; nothing counted the rounds.
+
+- **Every reviewer dispatch after R1 is a confirm round**, whatever the brief
+  calls it (fix review, re-close, re-gate, verification pass). Single-reviewer
+  "fix reviews" no longer sit outside the budget.
+- **New `review-commit/scripts/review_budget.py`** is the loop's ledger and
+  budget gate, run before every reviewer dispatch. It counts rounds per tier
+  (a gate gets one re-gate) and caps severities. It reports SHIP / CONTINUE /
+  REDESIGN / ASK-USER, and refuses a round when:
+  - the budget is spent with BLOCKING/MAJOR open;
+  - a class has its third BLOCKING/MAJOR finding;
+  - open BLOCKING+MAJOR didn't fall from the previous round;
+  - nothing is open.
+
+  Only `extend`, which records the user's decision, gets past a refusal.
+  Findings move open → fixed → resolved, so a claimed fix isn't a confirmed one.
+- **Test-only findings are capped at MINOR** unless the test is the only
+  coverage of a BLOCKING/MAJOR behavior.
+- **Every finding gets a class**; the same-class stop counts by class.
+- **One fix brief and one review per round**, never one per finding.
+- **Milestones:** R1 and the gate review one milestone (a build phase or
+  feature, as a guide ≤ ~3,000 changed lines), never a whole product as its
+  first full review. Re-gates review the fix diff, not the net diff again.
+- **New `briefs` skill** (bundled; the hook registers it):
+  - The single home for brief templates: implementer (pointer), fix and
+    feature builder briefs (moved from review-commit), and new R1, confirm
+    and gate review briefs with a shared severity block.
+  - **Case tables** (`briefs/references/case-tables.md`): the spec sheet for
+    any rule with state (corrections, retries, idempotence, rolling windows,
+    caches, sync, lifecycles, permission matrices, time boundaries). One row
+    per case, reviewed once before the build, and every row becomes a RED
+    test. A missing row found in review is a design change: update the table
+    first. Wired into the spec plan turn, the plan template's Test-First
+    Gate, test-evals and the same-class stop.
+  - **`briefs/scripts/stamp_brief.py`** fills SHAs, the diff (written to a
+    file, with line and file counts), test-command results, the round line
+    from the budget ledger, and the severity and builder blocks. It refuses
+    to write a brief when:
+    - a placeholder is unfilled;
+    - the brief cites a commit that is neither base nor head;
+    - no review round is open;
+    - the diff passes 5,000 lines without `--allow-large`.
+- Tests: `test_review_budget.py` (9) and `test_stamp_brief.py` (7). The
+  create-gate tests pin eight bundled skill names, and the routing contract
+  test pins 0.3.1.
+- Plugin version 0.3.1. Skill metadata: review-commit 2.2.0, briefs 1.0.0.
+  No hook logic changes beyond the bundled-skill list.
 ## Unreleased — CLI arm runner
 
 - New tool `tools/run_arm.py`: wraps exactly one bounded CLI arm dispatch

@@ -181,9 +181,19 @@ Commit only what the dispatch result's `touchedFiles` captured (see `dispatch-re
 
 ### Step 6 — Review (R1, reviewer lanes for the tier)
 
-Export the diff (`git diff <base>..<build-commit> > <repo>/review-diff-<proj>.diff`)
-and write a review prompt to `<repo>/review-prompt.md` (gitignored; inside the
-repo cwd so every reviewer can read it — see `reviewer-dispatch.md`):
+Before the first dispatch, open the loop's budget ledger and R1:
+
+```bash
+python3 <plugin>/skills/review-commit/scripts/review_budget.py init .hermes/reviews/<loop> --tier T2
+python3 <plugin>/skills/review-commit/scripts/review_budget.py round .hermes/reviews/<loop> --scope round-1.diff
+```
+
+Then write the R1 brief from `briefs/references/review-briefs.md` § R1 and stamp
+it (`briefs/scripts/stamp_brief.py ... --budget .hermes/reviews/<loop>`), which
+exports the diff and fills SHAs, counts and the round line. The example prompt
+below shows the content; the stamped template is the one to send. Keep the
+brief inside the repo cwd (gitignored) so every reviewer can read it — see
+`reviewer-dispatch.md`:
 
 ```markdown
 # Review Task: <project name>
@@ -218,7 +228,7 @@ Do NOT make file changes — review only.
 
 **Fix-brief acceptance gates:** every fix brief carries (a) the acceptance-criterion probes for the fix itself, and (b) at least one standing regression check that must NOT change — e.g. a byte-identical render probe against the PRE-FEATURE baseline (`git show <pre-feature-commit>:<file>`), a spec-named empty-state behavior, a live-install divergence probe. A fix round that satisfies all item probes while breaking a standing property is a failed round: a trend-CSS-gate fix was verified byte-identical against the PREVIOUS round's renderer (which already contained the CSS) instead of the commit BEFORE the feature series began — the wrong baseline reported a false diff and cost a re-derivation before the true baseline was found. Always diff byte-identity against the pre-feature commit, never the previous fix round.
 
-**Post-fix confirmation pass (before ship):** after a fix round, dispatch the ORIGINAL reviewer scoped to the fix diff plus the files it touches: "verify each of your N findings is resolved — not superficially patched — RESOLVED/NOT-RESOLVED per finding, then a final SHIP/DO-NOT-SHIP verdict." A fix round can self-verify green (all tests passing, smoke checks clean) while leaving real residuals: the confirmation pass exists because the builder's fix verification and the reviewer's adversarial probe are different activities. Reproduce every NOT-RESOLVED claim yourself before dispatching the next fix round (see `review-lessons/references/loop-pitfalls.md` — "Reproduce every reviewer finding before it enters a fix brief") — reproduction separates real residuals from reviewer error and hands the builder exact probe scripts.
+**Post-fix confirmation pass (before ship):** this IS a confirm round — open it with `review_budget.py round` first; it counts against the budget like any other. After a fix round, dispatch the ORIGINAL reviewer scoped to the fix diff plus the files it touches: "verify each of your N findings is resolved — not superficially patched — RESOLVED/NOT-RESOLVED per finding, then a final SHIP/DO-NOT-SHIP verdict." A fix round can self-verify green (all tests passing, smoke checks clean) while leaving real residuals: the confirmation pass exists because the builder's fix verification and the reviewer's adversarial probe are different activities. Reproduce every NOT-RESOLVED claim yourself before dispatching the next fix round (see `review-lessons/references/loop-pitfalls.md` — "Reproduce every reviewer finding before it enters a fix brief") — reproduction separates real residuals from reviewer error and hands the builder exact probe scripts.
 
 Dispatch reviewer A (other lanes: `reviewer-dispatch.md`):
 
@@ -270,7 +280,7 @@ Produce a structured review:
 
 ### Step 8 — Fix loop (if issues found + loops remaining)
 
-Write a fix brief for Cursor (template in `fix-brief-template.md`; the brief carries the
+Write a fix brief for Cursor (template in `briefs/references/fix-brief-template.md`, stamped with `briefs/scripts/stamp_brief.py`; the brief carries the
 reproduced, deduplicated findings and named failing tests — the builder never reads the raw
 review log):
 

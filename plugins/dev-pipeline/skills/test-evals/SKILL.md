@@ -35,6 +35,11 @@ rewrite them. The `build` implementer makes them GREEN; it adds a test only
 for behavior the plan missed, and says so. Output of this stage: the test
 files, a RED run log, and one line per test naming the seam note it pins.
 
+**Case tables:** when the plan has a case table for a stateful rule
+(`briefs/references/case-tables.md`), every row becomes one RED test at the
+public seam, named in the table's Test column. A row without a test is a gap
+to report, not to skip.
+
 ## When to Use
 
 - User says "TDD N loops each batch Opus loop" or "batch properly, Opus on each batch before commit"

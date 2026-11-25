@@ -73,6 +73,9 @@ waived merely because the original finding was resolved.
   requested depth.
 - A new or discovered risk boundary upgrades R immediately. Do not silently
   downgrade R after a review passes.
+- Review happens per milestone (one build phase or feature, as a guide
+  ≤ ~3,000 changed lines), never the whole product at once — see
+  `review-commit/references/confirm-round-protocol.md` § Milestones.
 - Converge loop eligibility and caps follow complexity, not the T-tier:
   S0/S1 skip the loop; S2 caps at 2 rounds, S3 at 3
   (see `build/references/converge-loop.md`).

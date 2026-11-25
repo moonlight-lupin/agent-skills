@@ -64,6 +64,7 @@ Continues inside the header template. Skip if no `.hermes/constitution.md` and n
 #### Test-First Gate
 - [ ] Every task names its test cases (behavior, seam, expected value + source) so `test-evals` can write them RED before implementation?
 - [ ] Acceptance criteria from the spec map to test assertions?
+- [ ] Every rule with state has a case table (`briefs/references/case-tables.md`) and every row is a named test case?
 
 #### Integration-First Gate
 - [ ] Contracts / interfaces defined before implementation tasks?
