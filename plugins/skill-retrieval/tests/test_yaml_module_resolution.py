@@ -70,10 +70,27 @@ def test_yaml_module_prefers_hermes_yaml_when_present(monkeypatch):
 
 
 def test_yaml_module_falls_back_to_pyyaml(monkeypatch):
-    """No hermes_yaml -> PyYAML module is used."""
+    """No hermes_yaml -> PyYAML module is used.
+
+    Removing the module from ``sys.modules`` alone is not enough: the import
+    statement then falls through to the finders and imports ``hermes_yaml``
+    from disk again, so on any host where it is importable the assertion gets
+    the real facade instead of the stubbed PyYAML. Block the name at
+    ``builtins.__import__`` as well.
+    """
     monkeypatch.delitem(sys.modules, "hermes_yaml", raising=False)
     fake = _fake_yaml_module("yaml", {"safe_load": lambda s: {}, "YAMLError": _FakeYamlError})
     monkeypatch.setitem(sys.modules, "yaml", fake)
+
+    import builtins
+    real_import = builtins.__import__
+
+    def blocked_import(name, *args, **kwargs):
+        if name == "hermes_yaml":
+            raise ModuleNotFoundError("No module named 'hermes_yaml'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", blocked_import)
     assert br._yaml_module() is fake
 
 
