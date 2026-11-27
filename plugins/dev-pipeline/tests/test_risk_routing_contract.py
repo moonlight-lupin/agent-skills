@@ -5,6 +5,7 @@ automatic runtime router. The orchestrator is a skill-driven policy.
 """
 from pathlib import Path
 import re
+import pytest
 
 BASE = Path(__file__).resolve().parents[1]
 REF = BASE / "skills/orchestrator/references"
@@ -48,25 +49,9 @@ def test_manifest_version_and_review_budget_unchanged():
 
 
 def test_manifest_declares_hooks_tools_and_config_schema():
-    """The plugin manifest must keep its release declarations: the version bump
-    alone must never drop provides_hooks / provides_tools / config_schema."""
-    import tomllib
-    manifest = tomllib.loads((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text())
-    # plugin.yaml is YAML-shaped but has flat TOML-compatible top-level tables
-    import yaml
-
-
-def test_manifest_declares_hooks_tools_and_config_schema():
     """Manifest integrity: the 0.5.0 bump must not drop release declarations."""
-    try:
-        import yaml
-        manifest = yaml.safe_load((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text())
-    except ImportError:
-        manifest = None
-    if manifest is None:
-        from textwrap import dedent  # pragma: no cover
-        import tomllib
-        manifest = tomllib.loads((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text())
+    yaml = pytest.importorskip("yaml")  # plugin.yaml is YAML, not TOML
+    manifest = yaml.safe_load((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text())
     assert manifest.get("provides_hooks"), "manifest lost provides_hooks"
     tools = manifest.get("provides_tools")
     assert tools, "manifest lost provides_tools"

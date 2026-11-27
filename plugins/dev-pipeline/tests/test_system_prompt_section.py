@@ -16,7 +16,7 @@ from pathlib import Path
 PLUGIN_DIR = Path(__file__).resolve().parents[1]
 
 # Host rule (hermes_cli/plugins_dispatch.py _SYSTEM_PROMPT_SECTION_ID_RE):
-# 1-128 chars, lowercase first char, then lowercase alnum / '.' / '_' / '-'.
+# 1-128 chars, a lowercase alnum first char, then lowercase alnum / '.' / '_' / '-'.
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
 # Model/CLI pin strings that must never leak into the always-loaded hint.
