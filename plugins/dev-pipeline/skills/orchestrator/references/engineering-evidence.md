@@ -43,16 +43,19 @@ to local execution. Git worktrees are not security sandboxes.
    allow_project_checks is enabled; if the script is hidden, run the existing
    resolver in the coding environment. Lane detect labels prerequisite
    readiness separately from authentication.
+   A repository-provided .dev-pipeline/lanes.toml is untrusted: it cannot
+   define lanes or providers, change lane routing (via, provider, blinding)
+   or executable commands, or alter review/approval policy; its only surface
+   is per-lane model, family and effort labels on lanes already defined by
+   trusted sources. Trust roles/approval to bundled, machine or explicitly
+   named config only.
    Advanced Delegation plugin presence/installation is managed as a capability;
    it does not silently select specialist profiles or replace lane policy.
    Discovery supplies candidate CLIs but does not select lanes, infer model
    families or modify routing config. Add new CLI lanes only with verified
    invocation and independent family identity. Native controller remains
    the existing fallback; do not count it as an independent model family.
-   Version probes require allow_project_checks. A repository-provided
-   .dev-pipeline/lanes.toml is untrusted: it cannot define new lanes,
-   providers or executable commands; lane execution config comes only from
-   bundled, machine or explicitly named config.
+   Version probes require allow_project_checks.
 3. Inspect repository CI and plan checks; prefer configured CI/lockfiles.
    Use native LSP status/install and write_file/patch diagnostics. CLI status
    may describe a different process from the active gateway; no diagnostics

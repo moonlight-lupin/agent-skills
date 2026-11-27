@@ -95,32 +95,34 @@ def config_sources(explicit: list[str] | None, repo: str | None) -> list[tuple[P
 
 
 # A repository-provided .dev-pipeline/lanes.toml is UNTRUSTED input: any repo
-# the pipeline runs in could otherwise launch an arbitrary executable as a
-# reviewer (gate finding r2-C2, re-found at confirm round 3 in the other exec
-# vectors). Untrusted sources may not define providers or new lanes, may not
-# touch the claude_code harness table (its binary/binary_args/permission_mode/
-# tool lists are execution and permission vectors), and may only add advisory
-# overrides (model, family, ...) to lanes already defined by trusted sources;
-# every per-lane argv template key is stripped even from trusted-lane
-# overrides.
-EXEC_KEYS = {"binary", "review_argv", "code_argv", "model_args", "effort_args"}
-TRUSTED_ONLY_KEYS = {"providers", "claude_code"}
+# the pipeline runs in could otherwise steer reviewer dispatch. Confirm rounds
+# 2-3 walked the whole trust boundary: an untrusted source must not define
+# lanes, providers, or the claude_code harness table, must not change a
+# trusted lane's via/provider/blinding or any argv template, and must not
+# weaken approval policy (roles, ladder, review seats/dispatch). The only
+# untrusted surface is per-lane advisory labels (model, family, effort) on
+# lanes already defined by trusted sources. model/effort values reach argv as
+# single list elements (no shell splitting), so they cannot smuggle flags.
+UNTRUSTED_TOP_KEYS = {"lanes"}
+UNTRUSTED_LANE_KEYS = {"model", "family", "effort"}
 
 
 def strip_untrusted(data: dict, base_cfg: dict) -> dict:
     out = copy.deepcopy(data)
-    for key in TRUSTED_ONLY_KEYS:
-        out.pop(key, None)
-    lanes = out.get("lanes")
+    for key in [k for k in out if k not in UNTRUSTED_TOP_KEYS]:
+        del out[key]
+    lanes = out.get("lanes") or {}
     if isinstance(lanes, dict):
         known = (base_cfg.get("lanes") or {}).keys()
         for lid in list(lanes):
             lane = lanes[lid]
-            if lid not in known:
+            if not isinstance(lane, dict):
+                del lanes[lid]
+            elif lid not in known:
                 del lanes[lid]  # untrusted sources cannot define new lanes
-            elif isinstance(lane, dict):
-                for key in EXEC_KEYS:
-                    lane.pop(key, None)
+            else:
+                for key in [k for k in lane if k not in UNTRUSTED_LANE_KEYS]:
+                    del lane[key]
     return out
 
 
