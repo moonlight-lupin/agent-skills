@@ -36,20 +36,23 @@ class Context:
         assert args["workdir"] == ROOT
         cmd = args["command"]
         self.calls.append((cmd, kwargs))
+        # Real dispatch_tool returns a JSON string; mirror that contract.
+        def as_json(raw):
+            return json.dumps(raw, ensure_ascii=False)
         if cmd in self.responses:
-            return self.responses[cmd]
+            return as_json(self.responses[cmd])
         if cmd == "git rev-parse --show-toplevel":
-            return {"exit_code": 0, "output": ROOT}
+            return as_json({"exit_code": 0, "output": ROOT})
         if cmd == "git rev-parse HEAD":
-            return {"exit_code": 0, "output": self.head}
+            return as_json({"exit_code": 0, "output": self.head})
         if cmd.startswith("git status"):
-            return {"exit_code": 0, "output": self.dirty}
+            return as_json({"exit_code": 0, "output": self.dirty})
         if cmd.startswith("if test"):
-            return {"exit_code": 0, "output": "python"}
+            return as_json({"exit_code": 0, "output": "python"})
         if cmd.startswith("command -v "):
             name = cmd.split()[2]
-            return {"exit_code": 1, "output": ""} if name in self.missing else {"exit_code": 0, "output": "/usr/bin/" + name}
-        return {"exit_code": 0, "output": ""}
+            return as_json({"exit_code": 1, "output": ""} if name in self.missing else {"exit_code": 0, "output": "/usr/bin/" + name})
+        return as_json({"exit_code": 0, "output": ""})
 
 def test_plan_and_registration():
     ctx = Context()
@@ -125,6 +128,14 @@ def test_bad_terminal_envelopes_never_pass():
                 {"exit_code": 0, "environment_recreated": True}, {"exit_code": 0, "status": "degraded"}):
         assert engineering.classify(raw) == "ERROR"
 
+def test_non_json_terminal_response_fails_closed():
+    ctx = Context()
+    tool = engineering.Engineering(ctx)
+    for raw in ("not-json", "", "[]", "null", "3"):
+        ctx.responses["git rev-parse --show-toplevel"] = raw
+        result = tool.snapshot(ROOT, {})
+        assert "error" in result
+
 def test_invalid_input_and_ast_quoting():
     ctx = Context()
     tool = engineering.Engineering(ctx)
@@ -178,7 +189,7 @@ def test_real_git_round_trip(tmp_path):
         def dispatch_tool(self, name, args, **kwargs):
             assert name == "terminal" and args["workdir"] == root
             result = subprocess.run(args["command"], shell=True, cwd=root, capture_output=True, text=True, timeout=15)
-            return {"exit_code": result.returncode, "output": result.stdout + result.stderr}
+            return json.dumps({"exit_code": result.returncode, "output": result.stdout + result.stderr}, ensure_ascii=False)
     tool = engineering.Engineering(RealGit())
     assert tool.run({"root": root, "check": "diff"})["status"] == "PASS"
     assert tool.gate({"root": root})["verdict"] == "ENGINEERING_PASS"

@@ -72,6 +72,9 @@ Evidence binds the canonical root, HEAD and clean tracked/untracked status
 before/after, command and exit code. Ignored files, external dependencies,
 concurrent edits reverted during execution and backend changes are not
 cryptographically attested. Re-run after any dependency or environment
-change. The gate does not authorize release by itself. Avoid concurrent
+change. A check that leaves un-tracked artifacts on disk (for example a
+pytest cache not covered by .gitignore) makes its own run ineligible;
+keep project cache paths ignored so clean-commit reruns classify as
+eligible. The gate does not authorize release by itself. Avoid concurrent
 mutations while checking. The plugin does not enforce organization-wide
 deployment policy; enforce that in protected CI/branch rules.

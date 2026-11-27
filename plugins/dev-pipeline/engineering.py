@@ -232,7 +232,7 @@ class Engineering:
         if version:
             # Resolve the same alias again in terminal; quote output rather
             # than executing it as shell source. Only absolute or catalog-local paths.
-            if valid_path(path) or path in aliases and path.startswith("./"):
+            if valid_path(path) or (path in aliases and path.startswith("./")):
                 r = self.dispatch(shlex.quote(path) + " " + flag, root, kw, 20)
                 result["operational"] = "version_ok" if classify(r) == "PASS" else "version_failed"
                 if classify(r) == "PASS":
@@ -519,7 +519,7 @@ def register_engineering(ctx):
         return handle
     reg("dev_pipeline_engineering_plan", "Suggest fixed checks; not execution",
         {"language": {"type": "string", "enum": list(PROFILES)}, "network": {"type": "boolean"}}, ["language"], plan)
-    reg("dev_pipeline_discover", "Discover tools in active terminal; optional bounded version probes",
+    reg("dev_pipeline_discover", "Discover tools in active terminal; bounded version probes require allow_project_checks",
         {"root": root, "ids": {"type": "array", "items": sid}, "versions": {"type": "boolean"}}, ["root"], wrap(service.discover))
     reg("dev_pipeline_doctor", "Diagnose prerequisites, configured backend and opt-in auth probes",
         {"root": root, "auth": {"type": "string", "enum": list(AUTH)}}, ["root"], wrap(service.doctor))
