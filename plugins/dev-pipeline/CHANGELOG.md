@@ -2,7 +2,7 @@
 
 ## 0.4.1 — gate hardening from the full-plugin review (r2)
 
-- Untrusted lane config: a repository-provided `.dev-pipeline/lanes.toml` can no longer define routes, providers or executable commands, nor touch the claude_code harness table (binary, binary_args, permission_mode, tool lists) or per-lane argv template keys (model_args, effort_args); it may only add advisory overrides (model, family) to trusted lanes. `validate_extra_args` denies permission/sandbox bypass flag variants (`--permission-mode bypassPermissions`, `--sandbox danger-full-access`).
+- Untrusted lane config: a repository-provided `.dev-pipeline/lanes.toml` can no longer define routes, providers or executable commands, nor touch the claude_code harness table (binary, binary_args, permission_mode, tool lists) or per-lane argv template keys (model_args, effort_args); its only surface is per-lane model and effort labels on trusted lanes (family is trusted-only: it feeds the family-independence check for review seats). `validate_extra_args` denies permission/sandbox bypass flag variants (`--permission-mode bypassPermissions`, `--sandbox danger-full-access`).
 - Engineering evidence: degraded terminal envelopes never classify a capability as missing (no installs inside degraded backends); the gate refuses to run when the operator config is unreachable instead of falling back to diff-only; FINDINGS exit codes corrected against probed behavior (go vet/test 1, clippy/cargo-test 101, npm 1); non-string terminal `output` fails closed; JS checks fall back from the project-local binary to PATH; discover reports language-detection failure instead of a silent None; doctor fully covered by tests.
 
 ## 0.4.0 — engineering capability management

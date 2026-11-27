@@ -374,7 +374,7 @@ def test_project_config_overrides_machine_config(env, tmp_path):
     # Reworked at gate round 4 (finding r2-N1): machine config stays in
     # charge of review/approval policy; a repo-local lanes.toml is
     # untrusted and its seats/roles/ladder tables are ignored. Advisory
-    # per-lane labels (model/effort/family) are its only surface.
+    # per-lane labels (model/effort) are its only surface.
     (env["tmp"] / "machine.toml").write_text('[review.seats]\nT1 = 2\n', encoding="utf-8")
     repo = tmp_path / "repo"
     (repo / ".dev-pipeline").mkdir(parents=True)
@@ -557,7 +557,8 @@ def test_repo_lanes_cannot_touch_harness_or_arg_vectors(env):
     cfg1, _ = lanes.load_config(explicit=[str(trusted)], repo=str(repo))
     # The untrusted repo file changes ONLY the advisory model label on a
     # trusted lane: policy tables (roles/ladder/review), routing (via,
-    # provider, blinding) and every exec vector stay trusted-source values.
+    # provider, blinding), family, and every exec vector stay trusted-source
+    # values.
     assert {k: v for k, v in cfg1.items() if k != "lanes"} == {k: v for k, v in cfg0.items() if k != "lanes"}
     codex0 = cfg0["lanes"]["codex"]
     assert cfg1["lanes"]["codex"] == {**codex0, "model": "opus"}
