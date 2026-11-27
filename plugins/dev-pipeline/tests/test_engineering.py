@@ -68,6 +68,7 @@ def test_discovery_separates_binary_and_version():
     ctx = Context()
     tool = engineering.Engineering(ctx)
     ctx.missing.add("codex")
+    ctx.config["allow_project_checks"] = True
     rows = tool.discover({"root": ROOT, "ids": ["claude", "codex"], "versions": True})["capabilities"]
     assert rows[0]["operational"] == "version_ok"
     assert rows[0]["authentication"] == "unknown"
@@ -81,6 +82,7 @@ def test_install_default_deny_and_reprobe():
     assert tool.setup({"root": ROOT, "id": "ruff"})["status"] == "approval_required"
     assert not any("tool install" in cmd for cmd, _ in ctx.calls)
     ctx.config["install_allowlist"] = ["ruff"]
+    ctx.config["allow_project_checks"] = True
     assert tool.setup({"root": ROOT, "id": "ruff"})["status"] == "not_verified"
     assert any(cmd == "uv tool install ruff" for cmd, _ in ctx.calls)
 
@@ -141,3 +143,49 @@ def test_lsp_and_auth_fail_closed():
     assert "error" in tool.doctor({"root": ROOT, "auth": "claude"})
     ctx.responses["hermes lsp status --json"] = {"exit_code": 0, "output": json.dumps({"service": {"enabled": True}, "registry": [{"server_id": "pyright", "binary_status": "installed"}]})}
     assert tool.lsp({"root": ROOT})["servers"][0]["binary_status"] == "installed"
+
+
+def test_inventory_rejects_incomplete_results():
+    ctx = Context()
+    tool = engineering.Engineering(ctx)
+    assert "error" in tool.discover({"root": ROOT})
+
+def test_bubblewrap_plugin_install_respects_allowlist():
+    ctx = Context()
+    ctx.responses["hermes plugins list --json"] = {"exit_code": 0, "output": "[]"}
+    tool = engineering.Engineering(ctx)
+    assert tool.setup({"root": ROOT, "id": "bubblewrap_plugin"})["status"] == "approval_required"
+    ctx.config.update(allow_project_checks=True, install_allowlist=["bubblewrap_plugin"])
+    assert tool.setup({"root": ROOT, "id": "bubblewrap_plugin"})["status"] == "not_verified"
+    assert any(cmd == "hermes plugins install bubblewrap --enable" for cmd, _ in ctx.calls)
+
+def test_hermes_managed_lsp_does_not_require_path():
+    ctx = Context()
+    ctx.responses["hermes lsp status --json"] = {
+        "exit_code": 0, "output": json.dumps({"service": {"enabled": True},
+        "registry": [{"server_id": "pyright", "binary_status": "installed"}]})}
+    tool = engineering.Engineering(ctx)
+    assert tool.probe("pyright", ROOT, {})["operational"] == "hermes_registry_installed"
+
+def test_real_git_round_trip(tmp_path):
+    import subprocess
+    root = str(tmp_path.resolve())
+    def git(*args):
+        subprocess.run(["git", "-C", root, *args], check=True, capture_output=True)
+    git("init")
+    git("-c", "user.email=test@example.invalid", "-c", "user.name=Test", "commit", "--allow-empty", "-m", "init")
+    class RealGit(Context):
+        def dispatch_tool(self, name, args, **kwargs):
+            assert name == "terminal" and args["workdir"] == root
+            result = subprocess.run(args["command"], shell=True, cwd=root, capture_output=True, text=True, timeout=15)
+            return {"exit_code": result.returncode, "output": result.stdout + result.stderr}
+    tool = engineering.Engineering(RealGit())
+    assert tool.run({"root": root, "check": "diff"})["status"] == "PASS"
+    assert tool.gate({"root": root})["verdict"] == "ENGINEERING_PASS"
+    (tmp_path / "new.txt").write_text("dirty\n")
+    assert tool.gate({"root": root})["verdict"] == "NOT_SHIP"
+    git("add", "new.txt")
+    git("-c", "user.email=test@example.invalid", "-c", "user.name=Test", "commit", "-m", "change")
+    assert tool.gate({"root": root})["verdict"] == "NOT_SHIP"
+    assert tool.run({"root": root, "check": "diff"})["status"] == "PASS"
+    assert tool.gate({"root": root})["verdict"] == "ENGINEERING_PASS"

@@ -21,7 +21,9 @@ Prefer pinned versions and project lockfiles in production. Installation is
 verified by a subsequent version probe; no automatic credential setup.
 
 Bubblewrap on Linux: operator installs bwrap and prlimit, runs
-hermes plugins install bubblewrap, enables the plugin, sets terminal.backend
+hermes plugins install bubblewrap --enable (or allowlist bubblewrap_plugin
+and use dev_pipeline_setup where the active terminal can reach the intended
+Hermes profile), sets terminal.backend
 to bubblewrap, terminal.degraded_mode to fail and selects an appropriate
 workspace/network profile. Run hermes doctor on the host. A config read or
 binary discovery does not attest actual isolation. Do not run untrusted
@@ -37,7 +39,8 @@ to local execution. Git worktrees are not security sandboxes.
    availability, or compatibility. Doctor supports auth probes for Claude,
    Codex and gh only; other vendors remain unknown until a real dispatch.
 2. Run existing lanes.py detect/doctor/resolve in the actual coding environment.
-   Discovery supplies candidate CLIs but does not select lanes, infer model
+   Lane detect now labels prerequisite readiness separately from authentication.
+Discovery supplies candidate CLIs but does not select lanes, infer model
    families or modify routing config. Add new CLI lanes only with verified
    invocation and independent family identity. Native controller remains
    the existing fallback; do not count it as an independent model family.

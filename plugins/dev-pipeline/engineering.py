@@ -50,6 +50,7 @@ CATALOG = {
     "trivy": ("security", ("trivy",), "--version", None),
     "snyk": ("security", ("snyk",), "--version", "npm install -g snyk"),
     "bubblewrap": ("isolation", ("bwrap",), "--version", None),
+    "bubblewrap_plugin": ("isolation", (), "", "hermes plugins install bubblewrap --enable"),
     "prlimit": ("isolation", ("prlimit",), "--version", None),
     "docker": ("isolation", ("docker",), "--version", None),
     "uv": ("package", ("uv",), "--version", None),
@@ -65,7 +66,7 @@ CHECKS = {
     "python_types": ("mypy .", "mypy", (1,), False),
     "python_security": ("bandit -r . -x ./.git,./.venv,./venv,./node_modules", "bandit", (1,), False),
     "python_dependencies": ("pip-audit", "pip_audit", (1,), True),
-    "python_tests": ("python -m pytest", "pytest", (1,), False),
+    "python_tests": ("pytest", "pytest", (1,), False),
     "python_coverage": ("coverage run -m pytest && coverage report", "coverage", (), False),
     "js_lint": ("./node_modules/.bin/eslint .", "eslint", (1,), False),
     "js_types": ("./node_modules/.bin/tsc --noEmit", "tsc", (1, 2), False),
@@ -180,8 +181,36 @@ class Engineering:
             return error("Invalid commit SHA")
         return {"root": root, "head": sha, "clean": not status.get("output", "").strip()}
 
+    def plugin_status(self, name, root, kw):
+        raw = self.dispatch("hermes plugins list --json", root, kw, 30)
+        try:
+            rows = json.loads(raw.get("output", "")) if classify(raw) == "PASS" else None
+        except (ValueError, TypeError):
+            rows = None
+        if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
+            return {"installed": "unknown"}
+        matches = [r for r in rows if r.get("name") == name]
+        if len(matches) > 1:
+            return {"installed": "unknown"}
+        if not matches:
+            return {"installed": "missing"}
+        row = matches[0]
+        return {"installed": "present", "version": str(row.get("version", ""))[:100],
+                "configured": row.get("status"), "operational": "not_probed"}
+
     def probe(self, cid, root, kw, version=False):
         category, aliases, flag, recipe = CATALOG[cid]
+        if cid == "bubblewrap_plugin":
+            return {"id": cid, "category": category, "installable": True,
+                    **self.plugin_status("bubblewrap", root, kw)}
+        if cid in LSP_IDS:
+            # Hermes-managed servers may live outside PATH. Prefer its own
+            # registry over a shell lookup, but do not equate this to gateway readiness.
+            observed = self.lsp({"root": root}, **kw)
+            matches = [r for r in observed.get("servers", []) if r.get("id") == LSP_IDS[cid]]
+            if len(matches) == 1 and matches[0].get("binary_status") == "installed":
+                return {"id": cid, "category": category, "installed": "present", "installable": bool(recipe),
+                        "operational": "hermes_registry_installed", "authentication": "not_applicable"}
         # No user-controlled strings in the command. Use explicit local paths,
         # otherwise PATH resolution. sg is also a system group tool, so never
         # accept that alias as ast-grep without a positive version signature.
@@ -231,21 +260,28 @@ class Engineering:
             return error("Invalid root, capability ids or versions")
         if version and (not ids or len(ids) > 3):
             return error("Version probing is bounded to 1–3 explicitly selected capabilities")
+        if version and self.config("allow_project_checks", False) is not True:
+            return error("Operator must enable allow_project_checks before executing version probes")
         langs = self.languages(root, kw)
         if not ids:
             # One shell dispatch for the default inventory; version and auth
             # probes are deliberately separate to avoid slow/networking CLIs.
             lines = []
             for cid, (cat, aliases, flag, recipe) in CATALOG.items():
+                if not aliases:
+                    continue
                 if cid == "ast_grep":
                     aliases = ("ast-grep",)
                 lookup = " || ".join("command -v " + shlex.quote(a) for a in aliases)
                 lines.append("if p=$(" + lookup + "); then printf '%s\\t%s\\n' " + cid + ' "$p"; fi')
-            raw = self.dispatch("; ".join(lines), root, kw)
+            raw = self.dispatch("; ".join(lines) + "; printf '%s\\n' __DEV_PIPELINE_INVENTORY_END__", root, kw)
             if classify(raw) != "PASS":
                 return error("Inventory probe failed; no absence inferred")
             present = {}
-            for line in raw.get("output", "").splitlines():
+            output = raw.get("output", "").splitlines()
+            if not output or output[-1] != "__DEV_PIPELINE_INVENTORY_END__":
+                return error("Incomplete inventory")
+            for line in output[:-1]:
                 cid, sep, path = line.partition("\t")
                 if not sep or cid not in CATALOG or not path or cid in present:
                     return error("Malformed or truncated inventory")
@@ -255,7 +291,13 @@ class Engineering:
                 return error("Inventory output spilled; probe selected ids")
             rows = [{"id": cid, "category": data[0], "installed": "present" if cid in present else "missing",
                      "path": present.get(cid), "installable": bool(data[3]),
-                     "operational": "not_probed", "authentication": "unknown"} for cid, data in CATALOG.items()]
+                     "operational": "not_probed", "authentication": "unknown"} for cid, data in CATALOG.items() if data[1]]
+            rows.append(self.probe("bubblewrap_plugin", root, kw))
+            lsp = self.lsp({"root": root}, **kw)
+            installed_servers = {r["id"] for r in lsp.get("servers", []) if r.get("binary_status") == "installed"}
+            for row in rows:
+                if LSP_IDS.get(row["id"]) in installed_servers:
+                    row.update(installed="present", operational="hermes_registry_installed")
         else:
             rows = [self.probe(cid, root, kw, version) for cid in dict.fromkeys(ids)]
         return {"languages": langs, "capabilities": rows,
@@ -294,7 +336,7 @@ class Engineering:
         val = str(raw.get("output", "")).strip()
         known = ("local", "bubblewrap", "docker", "ssh", "modal", "daytona", "vercel_sandbox")
         backend = val if classify(raw) == "PASS" and val in known else "unknown"
-        return {"configured_backend": backend, "isolation_verified": False,
+        return {"configured_backend": backend, "plugin": self.plugin_status("bubblewrap", root, kw), "isolation_verified": False,
                 "note": "Run hermes doctor on host and configure terminal.degraded_mode=fail. Worktrees are not sandboxes; config is not proof of effective containment."}
 
     def setup(self, args, **kw):
@@ -314,9 +356,13 @@ class Engineering:
         if not isinstance(allowed, list) or cid not in allowed:
             return {"status": "approval_required", "id": cid, "command": recipe,
                     "note": "Operator must add capability id to install_allowlist outside the agent. No sudo, arbitrary URL, or shell installer."}
+        if self.config("allow_project_checks", False) is not True:
+            return error("Operator must enable allow_project_checks before installation in this environment")
         raw = self.dispatch(recipe, root, kw, 180)
         after = self.probe(cid, root, kw, version=True) if classify(raw) == "PASS" else None
-        return {"status": "installed" if after and after.get("operational") == "version_ok" else "not_verified",
+        verified = after and (after.get("operational") in ("version_ok", "hermes_registry_installed")
+                              or cid == "bubblewrap_plugin" and after.get("configured") == "enabled")
+        return {"status": "installed" if verified else "not_verified",
                 "id": cid, "command": recipe, "exit_code": raw.get("exit_code"), "capability": after,
                 "note": "Installation does not authenticate coding agents or select their model."}
 
@@ -427,7 +473,7 @@ class Engineering:
 
     def ast(self, args, **kw):
         root, lang, pattern = args.get("root"), args.get("language"), args.get("pattern")
-        if not valid_path(root) or lang not in ("python", "javascript", "typescript", "tsx", "go", "rust") or not isinstance(pattern, str) or not pattern or len(pattern) > 1000 or "\0" in pattern:
+        if not valid_path(root) or not isinstance(lang, str) or lang not in ("python", "javascript", "typescript", "tsx", "go", "rust") or not isinstance(pattern, str) or not pattern or len(pattern) > 1000 or "\0" in pattern:
             return error("Invalid AST search")
         if self.config("allow_project_checks", False) is not True:
             return error("Operator must enable allow_project_checks")

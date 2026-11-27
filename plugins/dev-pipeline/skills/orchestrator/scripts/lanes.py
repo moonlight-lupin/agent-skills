@@ -202,7 +202,14 @@ def _as_list(v):
 
 
 def detect(cfg: dict) -> list[dict]:
-    return [lane_status(cfg, lid) for lid in cfg.get("lanes", {})]
+    rows = [lane_status(cfg, lid) for lid in cfg.get("lanes", {})]
+    for row in rows:
+        # Existing lane selection remains unchanged. Binary/key presence
+        # is a prerequisite, not proof of a valid login or model entitlement.
+        row["readiness"] = ("controller" if row["via"] == "controller" else
+                            "prerequisites_present" if row["available"] else "unavailable")
+        row["authentication"] = "not_verified"
+    return rows
 
 
 # --------------------------------------------------------------------------- resolve
