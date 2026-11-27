@@ -19,8 +19,8 @@ stage points to:
 
 - `references/risk-routing.md` — authoritative S0-S3 complexity and R0-R3 risk classification
 - `references/size-tiers.md` — compatibility T0-T3 reviewer depths and budgets
-- `references/lanes.md` — which model builds and which review (the only
-  place model names live)
+- `references/lanes.md` — lane roles and rules, which model builds and
+  which review; model pins live in the lanes config
 - `references/coding-principles.md` — how code gets written (think first,
   simplicity, surgical changes, goal-driven), the S0/S1 plan format, the
   unreachable-scenario definition, and the builder block every brief carries
@@ -119,9 +119,10 @@ Load one stage skill at a time — each is separate for context economy.
 
 - **Kanban orchestration** — `kanban-orchestrator` (devops) owns spreading
   tickets across worker lanes.
-- **Model pins** — `references/lanes.md` here. The outside `model-routing`
-  skill covers provider and budget choices; it was older than `lanes.md` at
-  v0.2 and should be reconciled with it.
+- **Model pins** — `config/lanes.default.toml` is the single source
+  (machine overrides merge on top); `references/lanes.md` carries lane roles
+  and rules only. The outside `model-routing` skill covers provider and
+  budget choices; reconcile it with the config before relying on its pins.
 - **Architecture health** — `improve-codebase-architecture` (outside skill).
 - **Mid-build doubt** — `doubt-driven-development` (outside skill).
 - **Briefs and case tables** — `briefs` (this plugin): every brief another

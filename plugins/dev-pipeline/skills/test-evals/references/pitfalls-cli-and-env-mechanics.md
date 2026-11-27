@@ -8,7 +8,7 @@ Read before dispatching a build or review, opening a PR, or diagnosing a CI miss
 - gh PR creation failing
 - Pre-existing CI failures in multiple locations
 - `delegate_task` subagent review is a viable Opus alternative
-- Opus 5.5 high takes 5–8 minutes
+- The high-effort deep review takes 5–8 minutes
 - Claude Code print-mode turn exhaustion
 - Opus multi-file review: name exactly which files to read, demand immediate write, use --max-turns 25
 - Parallel dispatch: Codex review + Cursor build for different files
@@ -48,16 +48,16 @@ Read before dispatching a build or review, opening a PR, or diagnosing a CI miss
     conversation context. Write findings to a file AND return them via
     `output_schema` so you get structured results even if the file write fails.
 
-### Opus 5.5 high takes 5–8 minutes
+### The high-effort deep review takes 5–8 minutes
 
-13. **Opus 5.5 high takes 5–8 minutes** — the `claude-opus-5-5-high`
-    model is thorough but slow. Don't panic at the wait or kill the process
+13. **The high-effort deep review takes 5–8 minutes** — the tier's
+    high-effort reviewer model is thorough but slow. Don't panic at the wait or kill the process
     prematurely. Set `notify_on_complete=true` and continue other work (e.g.
     fixing findings from the Codex review that already completed) while
     waiting. If the user asks for a specific model and you dispatch the wrong
-    one (e.g. `claude-opus-5-medium` instead of `claude-opus-5-5-high`),
-    kill the process and relaunch with the correct model — the user will
-    notice the model name in the output.
+    one (e.g. the medium-effort id instead of the high-effort id the user
+    named), kill the process and relaunch with the correct model — the user
+    will notice the model name in the output.
 
 ### Claude Code print-mode turn exhaustion
 
@@ -82,10 +82,10 @@ Read before dispatching a build or review, opening a PR, or diagnosing a CI miss
 
 ### Opus multi-file review: name exactly which files to read, demand immediate write, use --max-turns 25
 
-20. **Opus multi-file review: name exactly which files to read, demand immediate write, use --max-turns 25** — when reviewing a multi-file diff with Claude Code (`claude -p --model opus`), Opus tries to explore the entire codebase and exhausts `--max-turns` without writing output. The working pattern for multi-file reviews:
+20. **Multi-file review: name exactly which files to read, demand immediate write, use --max-turns 25** — when reviewing a multi-file diff with Claude Code (`claude -p --model "$MULTI_FILE_REVIEW_MODEL"`), the reviewer tries to explore the entire codebase and exhausts `--max-turns` without writing output. The working pattern for multi-file reviews:
     ```bash
     claude -p "$(cat /tmp/opus-review-prompt.md)" \
-      --model opus --allowedTools "Read,Write,Bash" --max-turns 25
+      --model "$MULTI_FILE_REVIEW_MODEL" --allowedTools "Read,Write,Bash" --max-turns 25
     ```
     The prompt MUST:
     - Name exactly which files to read (e.g. "Read ONLY these 4 files: state_store.py, webhook_security.py, ...")

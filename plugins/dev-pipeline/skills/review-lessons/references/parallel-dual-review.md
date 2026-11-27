@@ -31,7 +31,7 @@ When the user asks for both Codex AND Opus to review (e.g. "have codex and opus 
    ```bash
    claude -p \
      "Read /tmp/review-prompt-final.md. Review the diff (git diff <base>..HEAD -- tests/). Write your review to /tmp/review-opus-final.md. Be thorough." \
-     --model opus --max-turns 50 --allowedTools "Read,Bash" \
+     --model "$REVIEWER_MODEL" --max-turns 50 --allowedTools "Read,Bash" \
      2>&1 | tail -5
    ```
    Run with `background=true, notify_on_complete=true`.

@@ -46,7 +46,7 @@ When waiting for a coding agent, ALWAYS set a bounded background timer:
 ONCE and report progress, then re-arm a fresh timer if the build is still
 running. Do not loop-poll between ticks. A timer firing while the build is
 still mid-edit is NOT a stall — check process liveness (`ps aux | grep
-cursor-grok`) and `git status` for fresh edits before assuming anything.
+the builder CLI`) and `git status` for fresh edits before assuming anything.
 Do not arm a second timer for the same in-flight build; one live timer per
 round is enough — the completion notification is the real signal.
 

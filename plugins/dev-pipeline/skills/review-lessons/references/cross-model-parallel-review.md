@@ -42,7 +42,8 @@ codex exec --sandbox danger-full-access \
 ```bash
 claude -p \
   "Read /tmp/review-prompt.md and review the codebase. Write your full review to /tmp/opus-review.md. Do NOT make any changes to source files." \
-  --model opus --allowedTools "Read,Write,Bash" --max-turns 50 --fallback-model sonnet \
+  --model "$REVIEWER_MODEL" --allowedTools "Read,Write,Bash" --max-turns 50 \
+  --fallback-model "$REVIEWER_FALLBACK_MODEL" \
   2>&1
 ```
 
@@ -88,7 +89,7 @@ Classification:
 
 Opus can return `529 Overloaded` during peak hours (happened in this session).
 Recovery:
-- Retry with `--fallback-model sonnet` — Sonnet completes the review, slightly
+- Retry with `--fallback-model "$REVIEWER_FALLBACK_MODEL"` — the fallback lane completes the review, slightly
   lower quality but still valuable for cross-model coverage
 - If Sonnet also fails, retry after 5 minutes
 - The first truncated Opus run (tail -5) still produced partial output —

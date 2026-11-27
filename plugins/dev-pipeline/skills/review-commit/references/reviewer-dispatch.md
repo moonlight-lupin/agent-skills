@@ -1,8 +1,9 @@
 # Reviewer Dispatch — running the builder and reviewer CLIs
 
-How to dispatch the lanes in `orchestrator/references/lanes.md` so a round
+How to dispatch the lanes (roles/rules in `orchestrator/references/lanes.md`; pins in the lanes config) so a round
 produces a verdict instead of an environment error. Model names live in
-`lanes.md`; this file uses `$BUILDER_MODEL`, `$REVIEWER_A_MODEL` etc. for them.
+the lanes config (`orchestrator/config/lanes.default.toml` + a machine
+override); this file uses `$BUILDER_MODEL`, `$REVIEWER_A_MODEL` etc. for them.
 (Extracted in v0.2 from the old `build-review-loop.md` and
 `codex-confirm-loop.md`.)
 
@@ -80,8 +81,8 @@ its path — Muse cannot read `/tmp`, and `claude -p` reads only under its cwd.
 - Usage limit mid-run ("retry at HH:MM"): don't rewrite the prompt. Harvest
   the partial log as leads to reproduce (never as findings), note the reset,
   re-dispatch the IDENTICAL prompt after it.
-- Opus 529 overload: retry with `--fallback-model sonnet`.
-- Builder `resource_exhausted`: drop to the builder fallback in `lanes.md`.
+- Reviewer 529 overload: retry with the fallback model configured on the lane (`--fallback-model <lane fallback>`); the fallback id is a config value, not a remembered name.
+- Builder `resource_exhausted`: drop one effort tier, per the pin-drift rule — the resolved lane's current pin is the source of truth, not a remembered fallback.
 - "Assess yourself instead of <reviewer>": do the confirm yourself against
   the prior round's exact finding list (probe each open item, per-item
   verdicts, check fix-induced regressions), record who was substituted and on
@@ -92,7 +93,7 @@ its path — Muse cannot read `/tmp`, and `claude -p` reads only under its cwd.
   `review-lessons/references/generated-frontmatter-and-reviewer-outages.md`
   §1 (cross-family substitution — one lane re-probes the dead lane's prior
   cases under its own harness). Model names in that lesson are historical;
-  `orchestrator/references/lanes.md` wins.
+  the lanes config wins (`orchestrator/config/lanes.default.toml` + override; resolve with `lanes.py doctor` first).
 - **At the GATE a dead lane cannot be substituted.** The gate requires every
   lane's own SHIP on the net diff (`confirm-round-protocol.md` §
   Three-reviewer deployment gate). If a lane is dead at gate time: record the

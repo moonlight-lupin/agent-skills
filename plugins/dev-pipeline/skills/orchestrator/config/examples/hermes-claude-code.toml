@@ -113,5 +113,5 @@ T3 = 3
 gate = 3                  # codex + opus + cursor or muse (the three-reviewer gate is kept)
 
 [pin]
-plugin_version = "0.4.2"
+plugin_version = "0.4.3"
 # master_path = "~/.hermes/plugins/dev-pipeline"   # set it on the Claude Code copy, so it checks against the Hermes master

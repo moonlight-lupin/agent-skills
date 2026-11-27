@@ -89,25 +89,43 @@ from an allowed file they did not read.
 6. Proceed to `test-evals` with all remaining Nits attached to the plan
    as open review findings, if the user accepted them.
 
-Model selection for the Goldfish children: the **Goldfish children** row in
-`orchestrator/references/lanes.md` § Delegate pins (model, provider, and the
-exact command). Every child runs on that pin, whatever model the dispatching
-session runs. Mechanism: `delegate_task` children cannot pin a per-child
+Model selection for the Goldfish children: declare a `[lanes.goldfish-glm]`
+lane in your machine override TOML (model + provider + family) and list it in
+`[roles] goldfish = [...]`. Resolve the lane with the resolver
+(`skills/orchestrator/scripts/lanes.py resolve`) to get the model and
+provider; the bundled default only sets `roles.goldfish = ["controller"]`,
+which has NO model of its own — with only the controller lane resolving, the
+children inherit the dispatching session's model. Override the lane when you
+want children pinned independently. When the resolved lane HAS no model pin,
+the dispatch command DROPS `-m` and `--provider` entirely (CLI defaults /
+inherited session model) — do not pass empty values. Mechanism: `delegate_task` children cannot pin a per-child
 model (they inherit the parent's model), so dispatch each persona as a
-one-shot child with the command from that row:
+one-shot child with the resolved lane's model and provider:
 
 ```
 hermes chat -Q -m "$GOLDFISH_MODEL" --provider "$GOLDFISH_PROVIDER" --query-file <task-file>
 ```
+
+When the resolved Goldfish lane has no model pin (bundled default: only the
+controller lane resolves), DROP both `-m` and `--provider` — an empty value
+must never be passed:
+
+```
+hermes chat -Q --query-file <task-file>
+```
+
+`$GOLDFISH_MODEL` / `$GOLDFISH_PROVIDER` are the resolved Goldfish lane's
+values (export them from the resolver output before dispatching; do not
+hard-code ids here).
 
 `<task-file>` is `<artifact-dir>/goldfish/<persona-stem>.task.md` and holds
 the full per-child instruction block from the contract above (persona file,
 standard file, artifact path, allow-list, protocol, report destination) —
 never on the command line. Zero-context rules, read-only protocol, and the
 report destination are unchanged; a `-Q` one-shot child is as isolated as a
-`delegate_task` child. They remain NOT reviewer lanes — their pin sits under
-§ Delegate pins in `lanes.md`, not in the lane table, and never counts toward
-a tier's reviewer set. Record the dispatch route (one-shot child, model that
+`delegate_task` child. They remain NOT reviewer lanes — their pin sits in the machine override's
+Goldfish lane, not in a reviewer seat, and never counts toward a tier's
+reviewer set. Record the dispatch route (one-shot child, model that
 ran) in the ledger.
 
 ## Trial envelope (bounded trial — operator policy)

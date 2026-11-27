@@ -35,11 +35,15 @@ See `design-specs` skill for spec format. The brief is the spec's implementation
 ```bash
 cd <project-dir>
 git init
-git add -A
+git add <explicit scaffold paths>
+git status --short   # nothing in the stage you did not name
+git diff --cached | grep -iE 'api[_-]?key|token|secret|password|BEGIN .*PRIVATE KEY' || true   # adjudicate any hit before committing
 git commit -m "initial: pre-build scaffold"
 ```
 
-Codex requires a git repo. Always init before dispatching the review.
+Codex requires a git repo. Always init before dispatching the review. Stage
+explicit paths: a blanket stage sweeps workflow scratch (review diffs, FIXES
+ledgers, attest sidecars) into the tree reviewers then read as your work.
 
 ### Step 2b — Identify integration boundaries (Hermes, before build)
 
@@ -133,7 +137,7 @@ agent -p --force --model "$BUILDER_MODEL" --sandbox disabled \
 Run with `background=true, notify_on_complete=true`. Working directory = project dir.
 
 After the process exits, capture the dispatch result (delegate-result.v1 — see `references/dispatch-result-contract.md`): `python3 <skill-dir>/scripts/capture_dispatch_result.py --repo <project-dir> --task "build R1" --implementer cursor --model <model-that-ran> --exit-code <N> --report <report-file> --out /tmp/<proj>-dispatch-r1.json`. Verification and review start from this file's `touchedFiles`, not from memory.
-- `$BUILDER_MODEL` — the builder lane in `orchestrator/references/lanes.md` (full effort, normal speed — NOT fast)
+- `$BUILDER_MODEL` — the builder lane's pin from the lanes config (`orchestrator/config/lanes.default.toml` + override; resolve with `lanes.py`) — full effort, normal speed (NOT fast)
 - User may specify a different model — respect their choice
 
 ### Step 4 — Verify independently (Hermes)
@@ -173,7 +177,9 @@ The pattern: Hermes verifies *does it run + do tests pass + does it match the sp
 
 ```bash
 cd <project-dir>
-git add -A
+git add <the touchedFiles paths>
+git status --short   # nothing in the stage you did not name
+git diff --cached | grep -iE 'api[_-]?key|token|secret|password|BEGIN .*PRIVATE KEY' || true   # adjudicate any hit before committing
 git commit -m "build: initial implementation (builder lane)"
 ```
 
@@ -308,7 +314,7 @@ Check the stop conditions in `confirm-round-protocol.md` after every round:
 
 ### Step 10 — Review gate before push
 
-**NEVER push without a review pass from reviewer lane A** (the gate's minimum; "Codex review" historically = reviewer lane A). **Exception:** T0 changes with no behavior change may push directly at the user's instruction (review-commit SKILL Step C). The user requires: build → commit → review → fix → push. A prior session pushed code without a separate review pass and the user corrected it explicitly: "Codex review first before push please." (Model pins live in `orchestrator/references/lanes.md`.)
+**NEVER push without a review pass from reviewer lane A** (the gate's minimum; "Codex review" historically = reviewer lane A). **Exception:** T0 changes with no behavior change may push directly at the user's instruction (review-commit SKILL Step C). The user requires: build → commit → review → fix → push. A prior session pushed code without a separate review pass and the user corrected it explicitly: "Codex review first before push please." (Model pins live in the lanes config: `orchestrator/config/lanes.default.toml` + override.)
 
 A green live smoke or e2e run does NOT satisfy this gate: it proves the feature works under production conditions, not that the code is review-clean. Run the review before merge or push even when the smoke evidence is fresh and complete — a verified runtime run is not review approval, and closing the loop without it costs a full user-visible correction round.
 

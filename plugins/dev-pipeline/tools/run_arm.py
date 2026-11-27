@@ -38,10 +38,15 @@ EXIT_QUOTA = 5
 ARMS = ("claude", "codex", "muse")
 ROLES = ("coder", "reviewer")
 
-DEFAULT_MODEL = {
-    "claude": "glm-5.3",
-    "codex": "gpt-6-sol",
-    "muse": "muse-spark-1.3",
+# Model fallback per arm family, from the environment ONLY. The lanes TOML
+# (skills/orchestrator/config/lanes.default.toml, overridden per machine) is
+# the single source for model pins; this harness carries none. Pass --model,
+# or set DEV_PIPELINE_ARM_MODEL_<FAMILY>; without either, dispatch errors
+# instead of guessing a pin.
+DEFAULT_MODEL_ENV_KEYS = {
+    "claude": "DEV_PIPELINE_ARM_MODEL_CLAUDE",
+    "codex": "DEV_PIPELINE_ARM_MODEL_CODEX",
+    "muse": "DEV_PIPELINE_ARM_MODEL_MUSE",
 }
 
 # Provider-routing / model-selection env keys stripped from reviewer (gate)
@@ -380,7 +385,7 @@ def build_codex_args(model, prompt, in_git_repo, extra_args):
     args = ["exec"]
     if not in_git_repo:
         args.append("--skip-git-repo-check")
-    args += ["-m", model, "-c", "model_reasoning_effort=high", prompt]
+    args += (["-m", model] if model else []) + ["-c", "model_reasoning_effort=high", prompt]
     return args + list(extra_args)
 
 
@@ -389,8 +394,7 @@ def build_muse_args(model, prompt, extra_args):
     args = [
         "exec",
         "--trust-workspace",
-        "--model",
-        model,
+        *(["--model", model] if model else []),
         "--reasoning-effort",
         "high",
         prompt,
@@ -530,7 +534,10 @@ def _run(args):
             "concurrent dispatches never share one log"
         )
 
-    model = args.model or DEFAULT_MODEL[arm]
+    # No baked pins here. --model or one of the DEFAULT_MODEL_ENV_KEYS wins;
+    # an empty resolution means "the CLI's own default", exactly like the
+    # bundled lanes TOML's model = "" (argv builders drop the flag when empty).
+    model = args.model or os.environ.get(DEFAULT_MODEL_ENV_KEYS[arm]) or ""
     try:
         prompt = prompt_file.read_text(encoding="utf-8")
     except OSError as exc:
