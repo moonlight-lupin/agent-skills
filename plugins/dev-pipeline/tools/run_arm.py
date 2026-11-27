@@ -534,11 +534,10 @@ def _run(args):
             "concurrent dispatches never share one log"
         )
 
-    model = args.model or os.environ.get(DEFAULT_MODEL_ENV_KEYS[arm])
-    if not model:
-        raise UsageError(
-            f"--model is required for arm '{arm}' (the lanes config owns model "
-            "pins, not this tool; or set " + DEFAULT_MODEL_ENV_KEYS[arm] + ")")
+    # No baked pins here. --model or one of the DEFAULT_MODEL_ENV_KEYS wins;
+    # an empty resolution means "the CLI's own default", exactly like the
+    # bundled lanes TOML's model = "" (argv builders drop the flag when empty).
+    model = args.model or os.environ.get(DEFAULT_MODEL_ENV_KEYS[arm]) or ""
     try:
         prompt = prompt_file.read_text(encoding="utf-8")
     except OSError as exc:

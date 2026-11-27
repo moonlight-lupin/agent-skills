@@ -63,8 +63,8 @@ BARE_M_RE = re.compile(r"(?i)-m\s+\"?([\w.\-]+)\"?")
 # `git add -A <path>` are NOT blanket)
 GIT_ADD_A_RE = re.compile(
     r"(?:^|[;&|(]\s*|&&\s*)git(?:\s+-C\s+\S+)?\s+add\s+"
-    r"(?:(?:-{1,2}[\w-]+\s+)*?)(-A|--all)(?=\s*(?:$|&&|#|\n))|"
-    r"(?:^|[;&|(]\s*|&&\s*)git(?:\s+-C\s+\S+)?\s+add\s+\.(?=\s*(?:$|&&|#|\n))"
+    r"(?:(?:-{1,2}[\w-]+\s+)*?)(-A|--all)(?=\s*(?:$|&&|;|\||#|\n))|"
+    r"(?:^|[;&|(]\s*|&&\s*)git(?:\s+-C\s+\S+)?\s+add\s+\.(?=\s*(?:$|&&|;|\||#|\n))"
 )
 ANTIPATTERN_ALLOW = re.compile(r"avoid|instead of|rather than|never\s+`?git add", re.I)
 DATED_TABLE_RE = re.compile(
@@ -127,6 +127,10 @@ def test_markdown_and_tools_carry_no_model_pins():
             for m in MODEL_VALUE_RE.finditer(line):
                 if NOT_A_PIN.search(m.group(2)):
                     continue
+                word = m.group(2).strip("\"\"'").lower()
+                if word in {"or", "is", "was", "the", "a", "to", "of", "and", "one",
+                            "value", "id", "flag", "from", "required", "must"}:
+                    continue  # prose about the flag, not a command
                 tail = line[m.end():][:24]
                 if tail.lstrip(" ").startswith(("is ", "was ", "required", "must")):
                     continue  # prose about the flag, not a command

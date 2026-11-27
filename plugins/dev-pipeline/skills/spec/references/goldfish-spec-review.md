@@ -106,6 +106,14 @@ one-shot child with the resolved lane's model and provider:
 hermes chat -Q -m "$GOLDFISH_MODEL" --provider "$GOLDFISH_PROVIDER" --query-file <task-file>
 ```
 
+When the resolved Goldfish lane has no model pin (bundled default: only the
+controller lane resolves), DROP both `-m` and `--provider` — an empty value
+must never be passed:
+
+```
+hermes chat -Q --query-file <task-file>
+```
+
 `$GOLDFISH_MODEL` / `$GOLDFISH_PROVIDER` are the resolved Goldfish lane's
 values (export them from the resolver output before dispatching; do not
 hard-code ids here).
