@@ -5,7 +5,9 @@ sys.path). The plugin package imports the same file as
 ``scripts.bm25_retriever``. Alias those names onto one module object so
 index caches are not split across two identities.
 """
+import sqlite3
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -37,3 +39,24 @@ def _hermetic_disabled_skills(monkeypatch):
     except Exception:
         return  # hermetic env: nothing to neutralize
     monkeypatch.setattr(_su, "get_disabled_skill_names", lambda platform=None: set(), raising=True)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_plugin_storage(tmp_path, monkeypatch):
+    """Stub plugins.plugin_storage for EVERY test (case-table row 15).
+
+    The durable snapshot path resolves the storage factory from
+    sys.modules FIRST and falls back to a real import; without this stub,
+    any test that captures a snapshot without installing its own stub
+    could resolve the host's real plugins.plugin_storage and open the
+    active profile's plugin-data db. A tmp_path-backed sqlite stub keeps
+    the suite hermetic. Tests that install their own stub override this
+    entry (their patch runs later and wins); monkeypatch restores any
+    pre-existing entry after each test.
+    """
+    def factory(name, filename="data.db"):
+        return sqlite3.connect(tmp_path / f"{name}-{filename}")
+
+    stub = types.ModuleType("plugins.plugin_storage")
+    stub.plugin_db = factory
+    monkeypatch.setitem(sys.modules, "plugins.plugin_storage", stub)

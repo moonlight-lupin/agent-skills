@@ -169,6 +169,27 @@ _session_platforms: "OrderedDict[str, str]" = OrderedDict()
 _session_rerank_states: "OrderedDict[str, tuple[frozenset, frozenset]]" = OrderedDict()
 _llm_request_warned = False
 
+# Durable mirror of the snapshot LRU (issue #39): the plugin module is
+# re-instantiated between turns, so module globals cannot carry a snapshot
+# across that boundary. The core-provided plugin_storage db is the recovery
+# source on a memory miss; eviction deletes the mirrored row. Fail-soft:
+# a durable op failure counts toward a consecutive-failure counter (any
+# success resets it); THREE consecutive failures disable the durable path
+# for THIS module instance and behavior falls back to 0.8.0 in-memory only.
+# A failed durable capture parks its evicted sids on the pending list so
+# the next successful capture still deletes those rows (eviction = skip).
+_snapshot_store_ok: bool = True
+_snapshot_store_failures: int = 0
+_snapshot_pending_evictions: "list[str]" = []
+_SNAPSHOT_STORE_NAME = "skill-retrieval"
+_SNAPSHOT_TABLE_DDL = (
+    "CREATE TABLE IF NOT EXISTS capability_snapshots ("
+    "sid TEXT PRIMARY KEY, "
+    "captured_at REAL NOT NULL, "
+    "names TEXT NOT NULL, "
+    "platform TEXT)"
+)
+
 
 def _resolve_session_id(session_id) -> str:
     """Normalize a session id; empty falls back to the task-local Hermes identity."""
@@ -241,6 +262,191 @@ def _clear_session_rerank_cache() -> None:
     _session_rerank_states.clear()
 
 
+def _resolve_plugin_db():
+    """Lazily resolve the plugin_storage factory: ``plugin_db(name) -> conn``.
+
+    ``sys.modules`` is checked FIRST so a test stub (or an already-imported
+    core module) wins; only then is a real import attempted. Resolution is
+    per operation — never at import time — so re-instantiated plugin
+    modules re-resolve cleanly. None means storage is unavailable and the
+    durable path stays off (0.8.0 behavior).
+    """
+    try:
+        module = sys.modules.get("plugins.plugin_storage")
+        if module is None:
+            module = importlib.import_module("plugins.plugin_storage")
+        plugin_db = getattr(module, "plugin_db", None)
+        return plugin_db if callable(plugin_db) else None
+    except Exception:
+        return None
+
+
+def _note_snapshot_store_failure(reason: str) -> None:
+    """Count one durable-store failure; three in a row disable the path.
+
+    Fail-soft: never raises into the request path. A transient failure
+    leaves the durable path live (any success resets the count); three
+    consecutive failures turn it off for THIS module instance.
+    """
+    global _snapshot_store_failures, _snapshot_store_ok
+    _snapshot_store_failures += 1
+    logger.debug(reason, exc_info=True)
+    if _snapshot_store_failures >= 3:
+        _snapshot_store_ok = False
+
+
+def _note_snapshot_store_success() -> None:
+    """Any successful durable operation resets the failure count."""
+    global _snapshot_store_failures
+    _snapshot_store_failures = 0
+
+
+def _open_snapshot_store():
+    """Open the durable snapshot store, or None when it is unavailable/off."""
+    if not _snapshot_store_ok:
+        return None
+    plugin_db = _resolve_plugin_db()
+    if plugin_db is None:
+        return None
+    try:
+        conn = plugin_db(_SNAPSHOT_STORE_NAME)
+        conn.execute(_SNAPSHOT_TABLE_DDL)
+        return conn
+    except Exception:
+        _note_snapshot_store_failure("capability snapshot store unavailable")
+        return None
+
+
+def _encode_snapshot_names(names: frozenset) -> str:
+    """Serialize visible skill names for the durable row (no new imports).
+
+    Skill names are extracted from single rendered prompt lines, so they
+    never contain newlines; a sorted newline join round-trips exactly. Any
+    name that does contain a newline is dropped (R1-11) so it cannot
+    corrupt the join.
+    """
+    return "\n".join(sorted(name for name in names if "\n" not in name))
+
+
+def _decode_snapshot_names(raw: str) -> frozenset:
+    """Inverse of _encode_snapshot_names; empty parts (empty set) drop out."""
+    return frozenset(part for part in raw.split("\n") if part)
+
+
+def _remember_snapshot_durable(
+    sid: str,
+    captured_at: float,
+    names: frozenset,
+    platform: str | None,
+    evicted: "list[str]",
+) -> None:
+    """Mirror one capture into the durable store; evictions delete rows.
+
+    Fail-soft: never raises into the request path. Order per the brief:
+    first flush pending evictions parked by earlier failed captures, then
+    upsert the row (a platform-less recapture keeps the stored platform,
+    R1-3), delete rows for sids the memory LRU evicted this call, then
+    prune the store to _MAX_SNAPSHOT_SESSIONS rows. The prune orders by
+    use time — captured_at DESC with a rowid DESC tie-break (R1-1/R1-9).
+    When the durable write cannot happen, the evicted sids wait on the
+    pending list so the next successful capture still deletes their rows
+    (eviction means skip, R1-2).
+    """
+    conn = _open_snapshot_store()
+    if conn is None:
+        _snapshot_pending_evictions.extend(evicted)
+        return
+    try:
+        with conn:
+            for pending_sid in _snapshot_pending_evictions:
+                conn.execute(
+                    "DELETE FROM capability_snapshots WHERE sid = ?",
+                    (pending_sid,),
+                )
+            conn.execute(
+                "INSERT INTO capability_snapshots"
+                " (sid, captured_at, names, platform)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(sid) DO UPDATE SET"
+                " captured_at = excluded.captured_at,"
+                " names = excluded.names,"
+                " platform = COALESCE(excluded.platform, platform)",
+                (sid, captured_at, _encode_snapshot_names(names), platform or None),
+            )
+            for evicted_sid in evicted:
+                conn.execute(
+                    "DELETE FROM capability_snapshots WHERE sid = ?",
+                    (evicted_sid,),
+                )
+            conn.execute(
+                "DELETE FROM capability_snapshots WHERE sid NOT IN"
+                " (SELECT sid FROM capability_snapshots"
+                "  ORDER BY captured_at DESC, rowid DESC LIMIT ?)",
+                (_MAX_SNAPSHOT_SESSIONS,),
+            )
+        _snapshot_pending_evictions.clear()
+        _note_snapshot_store_success()
+    except Exception:
+        _snapshot_pending_evictions.extend(evicted)
+        _note_snapshot_store_failure("durable capture failed")
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _recall_snapshot_durable(sid: str) -> "tuple[float, frozenset, str | None] | None":
+    """Recover (captured_at, names, platform) from the durable store.
+
+    Returns None when the row is missing or the store is unavailable. For
+    the anonymous sid "" only, a row older than _SNAPSHOT_MAX_AGE_S is
+    deleted and treated as missing — named sessions never expire. A
+    successful named recall touches the row's captured_at (use time,
+    R1-1) so actively-read sessions survive the prune, and the touched
+    timestamp is what repopulates the memory LRU; the anonymous row is
+    never touched, keeping its capture-anchored staleness window.
+    """
+    conn = _open_snapshot_store()
+    if conn is None:
+        return None
+    try:
+        row = conn.execute(
+            "SELECT captured_at, names, platform FROM capability_snapshots"
+            " WHERE sid = ?",
+            (sid,),
+        ).fetchone()
+        result = None
+        if row is not None:
+            captured_at, raw_names, platform = row
+            if not sid and time.time() - captured_at > _SNAPSHOT_MAX_AGE_S:
+                # Stale anonymous snapshot — belongs to another turn. Fail open.
+                with conn:
+                    conn.execute(
+                        "DELETE FROM capability_snapshots WHERE sid = ?", (sid,)
+                    )
+            else:
+                if sid:
+                    captured_at = time.time()
+                    with conn:
+                        conn.execute(
+                            "UPDATE capability_snapshots SET captured_at = ?"
+                            " WHERE sid = ?",
+                            (captured_at, sid),
+                        )
+                result = (captured_at, _decode_snapshot_names(raw_names), platform)
+    except Exception:
+        _note_snapshot_store_failure("capability snapshot store unavailable")
+        return None
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    _note_snapshot_store_success()
+    return result
+
+
 def _remember_capability_snapshot(
     session_id: str | None = None,
     visible_names: frozenset | None = None,
@@ -249,26 +455,35 @@ def _remember_capability_snapshot(
 ) -> None:
     """Store visible skill names from an llm_request rewrite.
 
-    Fail-soft: must never break Hermes' request path.
+    Fail-soft: must never break Hermes' request path. The snapshot is kept
+    in the in-memory LRU (hot path) and mirrored to the durable store so a
+    re-instantiated module can recover it (issue #39). Wall clock
+    (time.time()) is used everywhere snapshots are timestamped so the
+    anonymous staleness window works across module instances.
     """
+    evicted: list[str] = []
     try:
         if visible_names is None:
             return
         names = visible_names if isinstance(visible_names, frozenset) else frozenset(visible_names)
         sid = _resolve_session_id(session_id)
-        _session_capability_snaps[sid] = (time.monotonic(), names)
+        captured_at = time.time()
+        _session_capability_snaps[sid] = (captured_at, names)
         _session_capability_snaps.move_to_end(sid)
         if platform:
             _session_platforms[sid] = str(platform)
             _session_platforms.move_to_end(sid)
         while len(_session_capability_snaps) > _MAX_SNAPSHOT_SESSIONS:
-            evicted, _ = _session_capability_snaps.popitem(last=False)
-            _session_platforms.pop(evicted, None)
-            _session_rerank_states.pop(evicted, None)
+            evicted_sid, _ = _session_capability_snaps.popitem(last=False)
+            _session_platforms.pop(evicted_sid, None)
+            _session_rerank_states.pop(evicted_sid, None)
+            evicted.append(evicted_sid)
         while len(_session_platforms) > _MAX_SNAPSHOT_SESSIONS:
             _session_platforms.popitem(last=False)
     except Exception:
         logger.debug("capability snapshot capture failed", exc_info=True)
+        return
+    _remember_snapshot_durable(sid, captured_at, names, platform, evicted)
 
 
 def _capability_kwargs_for_session(session_id: str | None) -> dict | None:
@@ -276,14 +491,25 @@ def _capability_kwargs_for_session(session_id: str | None) -> dict | None:
     sid = session_id or ""
     snap = _session_capability_snaps.get(sid)
     if snap is None:
-        return None
-    captured_at, names = snap
-    if not sid and time.monotonic() - captured_at > _SNAPSHOT_MAX_AGE_S:
-        # Stale anonymous snapshot — belongs to another turn. Fail open.
-        _session_capability_snaps.pop(sid, None)
-        _session_platforms.pop(sid, None)
-        return None
-    _session_capability_snaps.move_to_end(sid)
+        recovered = _recall_snapshot_durable(sid)
+        if recovered is None:
+            return None
+        captured_at, names, platform = recovered
+        # Read-through: repopulate the memory LRU so this module instance
+        # behaves like the one that captured the snapshot (issue #39).
+        _session_capability_snaps[sid] = (captured_at, names)
+        _session_capability_snaps.move_to_end(sid)
+        if platform:
+            _session_platforms[sid] = str(platform)
+            _session_platforms.move_to_end(sid)
+    else:
+        captured_at, names = snap
+        if not sid and time.time() - captured_at > _SNAPSHOT_MAX_AGE_S:
+            # Stale anonymous snapshot — belongs to another turn. Fail open.
+            _session_capability_snaps.pop(sid, None)
+            _session_platforms.pop(sid, None)
+            return None
+        _session_capability_snaps.move_to_end(sid)
     kwargs: dict = {
         "visible_names": set(names) if names is not None else None,
     }
