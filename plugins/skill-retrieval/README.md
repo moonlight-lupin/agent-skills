@@ -87,6 +87,12 @@ skill installation, removal, or other skill-catalog mutations. On a cache hit,
 the current BM25 order is injected, so enable this only when avoiding repeated
 network reranks is worth that semantic tradeoff.
 
+### Session capability snapshots
+
+The per-session capability snapshots taken by the `llm_request` middleware are mirrored to `<hermes home>/plugin-data/skill-retrieval/data.db` via the core `plugins.plugin_storage` helper, so they survive plugin-manager rebuilds that re-instantiate the plugin module between turns. On a memory miss the retrieval hook reads the snapshot back from that store; the 256-session LRU bound and the anonymous 30-second staleness window apply there too, and an evicted session's row is deleted. The durable path survives a transient store failure (a pending-eviction list is replayed on the next successful write); after THREE consecutive store failures it falls back to in-memory-only behavior until the module is re-instantiated.
+
+Two caveats inherited from the mirror design: two simultaneously-live plugin module instances in one process can observe stale mirror state, but production runs one live instance at a time; and snapshot names are single-line — a name containing a newline is dropped from the durable mirror. A capture with `session_id=""` resolves the task-local Hermes identity, while a raw `""`-keyed lookup stays anonymous-keyed — an inherited 0.8.0 asymmetry, tracked upstream.
+
 ## Read-only core references
 
 The plugin imports ten Hermes core helpers **read-only** (never assigned, never wrapped). From `agent.prompt_builder`:
