@@ -29,6 +29,10 @@ case comes up, never at stage start.
 3. **User overrides** — "review loop 3 times", "all three reviewers" — set the
    budget or reviewer set for this task.
 
+## Engineering evidence
+
+Follow `../orchestrator/references/engineering-evidence.md` for deterministic checks. Discover capabilities with `dev_pipeline_discover` and diagnose with `dev_pipeline_doctor`. Use the existing lane resolver; install only approved capabilities via `dev_pipeline_setup`. Execute selected checks with `dev_pipeline_engineering_run`, retain evidence, and run `dev_pipeline_gate` on the final clean commit before push/tag/deploy. NOT_SHIP blocks this workflow. Missing tools are not passes. Existing risk-tier gates and acceptance tests still apply.
+
 ## The review sequence
 
 A runs once; B loops within budget; C is the gate at the end.

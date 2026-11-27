@@ -1,8 +1,39 @@
 name: dev-pipeline
-version: 0.3.2
-description: "Development pipeline: six stage skills (orchestrator, grill, spec, test-evals, build, review-commit) planned by S0-S3 complexity and reviewed by R0-R3 risk (T0-T3 compatibility), a briefs skill (stamped briefs, case tables), a review-lessons library, and a pre_tool_call create-gate hook that blocks new software-development skills unless a single-use allow flag is consumed. See CHANGELOG.md."
+version: 0.4.0
+description: "Development pipeline: six stage skills (orchestrator, grill, spec, test-evals, build, review-commit) planned by S0-S3 complexity and reviewed by R0-R3 risk (T0-T3 compatibility), a briefs skill (stamped briefs, case tables), a review-lessons library, and a pre_tool_call create-gate hook that blocks new software-development skills unless a single-use allow flag is consumed. Includes terminal-backed engineering capability discovery, setup, evidence and gates. See CHANGELOG.md."
 author: moonlight-lupin
 license: MIT
 tags: [dev-pipeline, skills, guardrail, policy-hook]
 provides_hooks:
   - pre_tool_call
+
+provides_tools:
+  - dev_pipeline_engineering_plan
+  - dev_pipeline_discover
+  - dev_pipeline_doctor
+  - dev_pipeline_setup
+  - dev_pipeline_lsp
+  - dev_pipeline_engineering_run
+  - dev_pipeline_gate
+  - dev_pipeline_ast_search
+config_schema:
+  install_allowlist:
+    type: list
+    default: []
+    description: Operator-approved capability IDs permitted to install using fixed recipes.
+  allow_project_checks:
+    type: bool
+    default: false
+    description: Allow fixed checks that can execute repository code in the configured terminal.
+  allow_network_checks:
+    type: bool
+    default: false
+    description: Allow scanner requests that can contact external registries or services.
+  allow_auth_probes:
+    type: bool
+    default: false
+    description: Allow CLI authentication status probes.
+  required_checks:
+    type: list
+    default: []
+    description: Additional mandatory engineering check IDs; diff hygiene is always required.

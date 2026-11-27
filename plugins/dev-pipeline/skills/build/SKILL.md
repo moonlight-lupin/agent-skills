@@ -50,6 +50,10 @@ Use this stage when:
 
 Before starting on any ticket, fetch the ticket reference (the `.hermes/tickets/<feature-slug>/` file or plan task it points to), **restate the ticket title**, and ask now if it is ambiguous — never mid-build; ambiguity found at dispatch time is a `clarify` question, not a builder guess.
 
+## Engineering evidence
+
+Follow `../orchestrator/references/engineering-evidence.md` for deterministic checks. Discover capabilities with `dev_pipeline_discover` and diagnose with `dev_pipeline_doctor`. Use the existing lane resolver; install only approved capabilities via `dev_pipeline_setup`. Execute selected checks with `dev_pipeline_engineering_run`, retain evidence, and run `dev_pipeline_gate` on the final clean commit before push/tag/deploy. NOT_SHIP blocks this workflow. Missing tools are not passes. Existing risk-tier gates and acceptance tests still apply.
+
 ## The Process
 
 ### 1. Read and Parse Plan

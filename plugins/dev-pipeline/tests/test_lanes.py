@@ -422,3 +422,11 @@ def test_example_config_matches_the_design_doc(env):
                     cfg=cfg, extra_env=KEYS)
     assert "CLAUDE_CONFIG_DIR" not in out["env"] and "ANTHROPIC_BASE_URL" not in out["env"]
     assert out["argv"][out["argv"].index("--model") + 1] == "opus"
+
+
+def test_lane_detect_does_not_claim_authentication(env):
+    code, out, _ = run(env, "detect", cfg=NONE_INSTALLED + fake_claude_cfg(env))
+    assert code == 0
+    claude = next(row for row in out["lanes"] if row["lane"] == "claude")
+    assert claude["available"] and claude["readiness"] == "prerequisites_present"
+    assert claude["authentication"] == "not_verified"

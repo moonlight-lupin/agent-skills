@@ -62,6 +62,10 @@ Any live deploy requires the three-reviewer gate. Never silently downgrade
 risk, including for small changes. Every fix must be followed by the complete
 acceptance suite; exhausted rounds with open blockers are NOT SHIP.
 
+## Engineering evidence
+
+Follow `references/engineering-evidence.md` for deterministic checks. Discover capabilities with `dev_pipeline_discover` and diagnose with `dev_pipeline_doctor`. Use the existing lane resolver; install only approved capabilities via `dev_pipeline_setup`. Execute selected checks with `dev_pipeline_engineering_run`, retain evidence, and run `dev_pipeline_gate` on the final clean commit before push/tag/deploy. NOT_SHIP blocks this workflow. Missing tools are not passes. Existing risk-tier gates and acceptance tests still apply.
+
 ## The stages
 
 | Stage | Produces | Load when |

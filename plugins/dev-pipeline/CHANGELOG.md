@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 — engineering capability management (draft)
+
+- Native capability inventory across coding CLIs, language toolchains, LSP, scanners and isolation. Explicit allowlist for fixed install recipes, version and auth status probes, read-only AST search, bounded terminal-backed checks, profile-scoped commit-specific evidence and engineering gate. Existing lane resolver remains authoritative. Operator controls network, project execution and required checks.
+- Integrate evidence collection with orchestration, build and review; preserve existing reviewer gates. Doctor invokes the existing lane resolver in the active backend. Detect and install official Bubblewrap and Advanced Delegation plugins when allowlisted. No unapproved installs or host-side execution.
+
 ## 0.3.2
 
 Reconcile the two dev-pipeline lines: land the briefs/lanes/review-budget
