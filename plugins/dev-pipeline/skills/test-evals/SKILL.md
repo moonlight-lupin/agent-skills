@@ -59,13 +59,7 @@ Full TDD methodology (RED-GREEN-REFACTOR, Iron Law, rejected rationalizations, s
 
 ## Red Flags — top structural
 
-Governing list (single home): `references/test-doctrine.md` § Red Flags — the lines below are a compressed summary, not the authority. Top: implement on RED failure (or skip the failing test); fake GREEN (stub the test to pass); write tests against the implementation instead of the seam; mock the seam under test itself; unexplained assertions (assert without a seam note); skip the named-test-first contract; let a batched loop hide convergence failures.
-
-## Verification
-
-After completing any development workflow task, confirm:
-
-- [ ] Tests written before production code (TDD) — or explicit justification for skipping
+Governing list (single home): `references/test-doctrine.md` § Red Flags — the lines below are a compressed summary picked FROM that list, not the authority. Top from the governing list: writing production code without a failing test first; a refactor that relocates complexity instead of making branches disappear; a bulk "bump dependencies" PR with no changelog review; spiking without a verdict (spike code left behind); trusting the builder's self-report without independent verification; hand-coding fixes while the review loop is active.production code (TDD) — or explicit justification for skipping
 - [ ] Every test attaches at a named seam (the highest that reaches the behavior) and cites its seam note
 - [ ] Independent review completed (not self-verified) — another agent or model
 - [ ] Findings labeled with severity (Critical / Required / Optional / Nit / FYI)

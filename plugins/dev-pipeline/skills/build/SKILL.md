@@ -27,7 +27,7 @@ Execute implementation plans by dispatching a fresh implementer subagent per tas
 
 **Tests:** the plan's tests are already RED (written by `test-evals`). The implementer makes them GREEN, does not rewrite them (attested), and adds a test only for behavior the plan missed, under TDD. Full fix-loop/RED-contract wording: `references/build-doctrine.md`.
 
-**Continuous execution:** run between tasks without pausing (wording: `references/build-doctrine.md`; fork-stop home: `orchestrator/references/unattended.md`). Stop only for unresolvable `BLOCKED`, an important fork, genuine ambiguity, a plan contradiction, or completion.
+**Continuous execution:** run between tasks without pausing (`references/build-doctrine.md`; fork-stop home: `orchestrator/references/unattended.md`). Stop only for unresolvable `BLOCKED`, a new important fork, genuine ambiguity, or completion.
 
 ## When to Use
 
@@ -61,7 +61,7 @@ Before Task 1, scan the plan once for contradictions and review traps; clean →
 When the chain runs under a session goal, the ledger and the goal contract share the
 same acceptance command (goal binding: `../orchestrator/references/goal-binding.md`).
 
-Ledger rules and curation caps are in `references/build-doctrine.md` § ledger (curate-don't-append, ~200-line cap, no-progress guard) and `references/ledger-orchestration-adaptation.md`. Path: `.hermes/sdd/progress.md`; resume at the first task not marked complete; after compaction trust the ledger and `git log` over memory.
+Ledger rules (curate-don't-append, ~200-line cap, no-progress guard, usage rules) live in `references/ledger-orchestration-adaptation.md`; implementation doctrine in `references/build-doctrine.md`. Path: `.hermes/sdd/progress.md`; resume at the first task not marked complete; after compaction trust the ledger and `git log` over memory.
 
 ### 4. File handoffs
 

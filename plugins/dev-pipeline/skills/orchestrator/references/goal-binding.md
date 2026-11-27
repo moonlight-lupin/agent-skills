@@ -30,10 +30,12 @@ Bug-route variant (S0/S1 no-plan — same fields, no plan path):
 
 ```
 /goal <fix objective> — route via skill dev-pipeline:debug; no plan (bug-shaped)
-  outcome: bug reproduced; failing test at the highest public seam; minimal fix;
-  named test + full suite green; review-commit entered at the R-tier the bug's
-  blast radius sets; CI on the pushed head watched to completion (failures fixed
-  in the loop or named per ci-loop-and-pr-hygiene.md)
+  outcome: bug reproduced; failing test at the highest public seam (or the named
+  no-test reason + replacement verification, debug/SKILL.md step 2); minimal fix;
+  named test + full suite green (or the replaced verification executed); review-
+  commit entered and SHIPped at the R-tier the bug's blast radius sets; branch
+  pushed with a draft PR; CI on the pushed head watched to completion (failures
+  fixed in the loop or named per ci-loop-and-pr-hygiene.md)
   verify: cd <repo> && <named test command> && <full-suite command>
   constraints: no test edited into passing; nothing outside the defect changed
   boundaries: <the defect's file set / repo path>
@@ -78,14 +80,14 @@ N ≈ base(S) + Σ per task (dispatch + review + one fix round) + loops
 State the computed number in the plan turn and in the goal's `constraints:` line
 ("budget N turns").
 
-**Budget-exhaust semantics — two budgets, never confused.** The goal turn budget is a
+## Budget-exhaust semantics — two budgets, never confused The goal turn budget is a
 MECHANICAL bound on the session (config-tied `goals.max_turns`); the confirm budget is a
 REVIEW budget (tier-scaled, `review-commit/references/confirm-round-protocol.md`).
 Exhausting the mechanical bound with clean progress and zero open BLOCKING/MAJOR
 findings is a raise, not a stop: clear and re-set the SAME contract, remaining work as
 the outcome, recomputed budget — no user question, the same move as resuming after
-compaction. Exhaustion WITH an open BLOCKING/MAJOR finding, an unverified claim, or a
-`BLOCKED` verdict is the important-fork stop — `orchestrator/references/unattended.md`
+compaction. Exhaustion WITH an open BLOCKING/MAJOR finding, an unverified claim, a
+`BLOCKED` verdict, or a plan contradiction is the important-fork stop — `orchestrator/references/unattended.md`
 § "A new important fork mid-pipeline": budget exhaustion "stops the same way" as a fork
 there. The rules compose: the mechanical bound never overrides a review-gate stop; the
 review-gate stop never requires burning the mechanical bound.

@@ -23,7 +23,7 @@ Do the job the user invoked — specifying only, or planning only. The `grill` s
 
 **By complexity** (`orchestrator/references/risk-routing.md`): S0 skips this stage. S1 skips the spec turn — the plan header carries an assumptions line and 3-6 acceptance criteria written as `step → verify: check` (format in `orchestrator/references/coding-principles.md` § Plan format for S0/S1), and the plan is one task. S2/S3 run all turns. Review depth (the risk-derived T-tier) does not select spec turns: an S3/R1 change still gets the full spec with T1 review.
 
-**Case tables for rules with state:** any rule depending on history (retries, idempotence, windows, caches, lifecycles, permissions, time boundaries) gets a case table in the plan turn — one row per case, expected result at the public seam. S2/S3 always; S1 when such a rule is in scope. Rules: `references/spec-doctrine.md` § Case tables.
+**Case tables for rules with state:** any rule depending on history (retries, idempotence, windows, caches, lifecycles, permissions, time boundaries) gets a case table in the plan turn — one row per case, expected result at the public seam. S2/S3 always; S1 when such a rule is in scope. Rules: `references/spec-doctrine.md` § Case tables (rules with state).
 
 **Test cases, not test code.** Each task names its test cases: behavior, seam + seam note, inputs, expected value and its source. `test-evals` writes the code RED; `build` makes it GREEN.
 
@@ -70,7 +70,7 @@ Task decomposition doctrine (tracer-bullet tasks, blocking edges + frontier sche
 
 ## `[NEEDS CLARIFICATION]` markers — first-class ambiguity
 
-**Never guess.** Mark unspecified things explicitly: `[NEEDS CLARIFICATION: <open question>]`. The plan forbids TBD in implementation; the spec **surfaces** ambiguity so it resolves before planning, never buried in a guess. Examples: `references/spec-doctrine.md` § markers.
+**Never guess.** Mark unspecified things explicitly: `[NEEDS CLARIFICATION: <open question>]`. The plan forbids TBD in implementation; the spec **surfaces** ambiguity so it resolves before planning, never buried in a guess. Examples: `references/spec-doctrine.md` § `[NEEDS CLARIFICATION]` markers.
 
 ## Review gates
 

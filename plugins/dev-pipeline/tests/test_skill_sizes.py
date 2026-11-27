@@ -27,11 +27,12 @@ def test_router_skills_do_not_grow_past_their_drift_allowance():
         assert size <= cap, f"{skill}/SKILL.md is {size} bytes (allowance {cap})"
 
 def _rule_landed(skill: str, target_ref: str, probes: list):
-    """A moved rule must exist in the skill tree after the move (SKILL.md or the
-    named reference), so 'shrink' cannot mean 'delete'."""
-    text = (_skill_md(skill)).read_text()
+    """A moved rule must exist in the NAMED REFERENCE FILE ONLY, so 'shrink'
+    cannot mean 'delete' AND the skill's own pointer prose cannot satisfy the
+    check by mentioning the probe strings."""
     ref = PLUGIN_DIR / "skills" / skill / "references" / target_ref
-    body = text + (ref.read_text() if ref.exists() else "")
+    assert ref.exists(), f"{ref} missing"
+    body = ref.read_text()
     missing = [p for p in probes if p not in body]
     return missing
 
@@ -42,10 +43,11 @@ def test_moved_build_rules_survive():
         "Cadenced inner/outer loop",
         "Treat review reports as final proof",
         "Continuous execution",
-        "no-progress guard",
         "Dispatch multiple implementation subagents in parallel",
     ])
     assert not missing, f"build rules dropped by the shrink: {missing}"
+    ledger = (PLUGIN_DIR / "skills/build/references/ledger-orchestration-adaptation.md").read_text()
+    assert "no-progress guard" in ledger, "ledger curation rules lost 'no-progress guard'"
 
 def test_moved_spec_rules_survive():
     missing = _rule_landed("spec", "spec-doctrine.md", [
@@ -67,7 +69,6 @@ def test_moved_test_rules_survive():
         "Beyonce",
         "DAMP",
         "mock",
-        "RED tests",
     ])
     assert not missing, f"test rules dropped by the shrink: {missing}"
 

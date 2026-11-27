@@ -86,6 +86,13 @@ Unattended (`orchestrator/references/unattended.md`): after saving the spec, **s
 
 Path A for multi-task per-task review gates; Path B for greenfield builds on a strong single-agent CLI where the orchestrate-and-review loop is the quality gate.
 
+## Case tables (rules with state)
+
+**Case tables for rules with state.** Any rule whose result depends on
+history — corrections, retries, idempotence, rolling windows, caches, sync,
+draft/post lifecycles, permission matrices, time boundaries — gets a case table
+
+
 ### Execution Handoff
 
 After saving the plan, state the plan path and continue without asking: **"Plan complete and saved at `<path>`. Continuing: `test-evals` writes the plan's test cases and runs them RED, then `build` dispatches a fresh subagent per task with T_ review."** Execution is the `build` stage: fresh `delegate_task` per task; per-task review per tier (T2: one combined reviewer; T3: spec compliance, then code quality); proceed only when the verdicts approve. For S1 plans, execute **inline** with checkpoints, without asking.
@@ -98,6 +105,15 @@ the expected result at the public seam. Prose is not enough: each case it
 leaves out becomes a review round later. S2/S3 always; S1 when such a rule is
 in scope. The table is reviewed once, before the build.
 
+## `[NEEDS CLARIFICATION]` markers — first-class ambiguity
+
+**Never guess.** If the user's description does not specify something, mark it explicitly rather than filling in a plausible assumption.
+
+- `[NEEDS CLARIFICATION: auth method not specified — email/password, SSO, OAuth?]`
+- `[NEEDS CLARIFICATION: should albums be nestable? description says "never in other albums" but photo-of-photo case unclear]`
+- `[NEEDS CLARIFICATION: offline-first or online-only?]`
+
+This complements the plan's "No Placeholders" rule. The plan forbids TBD in the implementation plan; the spec **surfaces** ambiguity so it can be resolved before planning, not buried in a guess.
 ## Clarify phase (before planning)
 
 Before handing off to the plan, attempt to resolve open questions:
