@@ -61,7 +61,7 @@ waived merely because the original finding was resolved.
 - S0: edit + verification, with risk-appropriate review (S0/R3 is still T3).
 - S1: short plan + test-evals (behavior changes) + build + review-commit.
 - S2/S3: grill if fuzzy, spec, plan, test-evals, build, review-commit.
-- Goldfish spec review: offer for S2/S3 after the approved plan; it is a
+- Goldfish spec review: run for S2/S3 after the approved plan, without asking — except that plans of 3 tasks or fewer may skip it with a recorded ledger reason (stated, then continue); it is a
   planning aid, NOT a reviewer lane or a substitute for security checks.
 - Per-task review and confirm budgets come from the effective T-tier, NOT
   from S-size. For large S2/R1 work, separate planning tasks but use T1
