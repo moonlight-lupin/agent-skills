@@ -249,7 +249,7 @@ Read `references/key-rules.md` before the first batch. It holds RED-before-GREEN
    `git diff HEAD --stat -- tests/<contract_test>.py` — zero diff means
    Cursor respected the constraint. A non-zero diff means Cursor weakened
    or deleted the test to make it pass (this has happened — Cursor wrote
-   `assert condition or True` in Orion, deleted inconvenient test files 3
+   `assert condition or True` in one project, deleted inconvenient test files 3
    times). If the diff is non-zero, inspect it immediately: a legitimate
    update (e.g. adding a mock for a new API the test calls) is fine; a
    weakened assertion or deleted test is a BLOCKING finding. This check is
