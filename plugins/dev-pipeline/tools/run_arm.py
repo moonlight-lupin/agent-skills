@@ -385,7 +385,7 @@ def build_codex_args(model, prompt, in_git_repo, extra_args):
     args = ["exec"]
     if not in_git_repo:
         args.append("--skip-git-repo-check")
-    args += ["-m", model, "-c", "model_reasoning_effort=high", prompt]
+    args += (["-m", model] if model else []) + ["-c", "model_reasoning_effort=high", prompt]
     return args + list(extra_args)
 
 
@@ -394,8 +394,7 @@ def build_muse_args(model, prompt, extra_args):
     args = [
         "exec",
         "--trust-workspace",
-        "--model",
-        model,
+        *(["--model", model] if model else []),
         "--reasoning-effort",
         "high",
         prompt,

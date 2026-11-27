@@ -58,8 +58,13 @@ BARE_M_RE = re.compile(r"(?i)-m\s+\"?([\w.\-]+)\"?")
 
 # blanket staging inside fenced command blocks; 'git add' is matched only at
 # command position (start or after &&, ;, |, ( ) so warnings in prose pass
+# a blanket stage: `git add -A` / `--all` with NO trailing pathspec, or
+# `git add .` with only whitespace before it (interactive -p, scoped
+# `git add -A <path>` are NOT blanket)
 GIT_ADD_A_RE = re.compile(
-    r"(?:^|[;&|(]\s*|&&\s*)git(?:\s+-C\s+\S+)?\s+add\s+(?:-{1,2}[\w-]+\s+)*(-A|--all|\.(?:\s|$))"
+    r"(?:^|[;&|(]\s*|&&\s*)git(?:\s+-C\s+\S+)?\s+add\s+"
+    r"(?:(?:-{1,2}[\w-]+\s+)*?)(-A|--all)(?=\s*(?:$|&&|#|\n))|"
+    r"(?:^|[;&|(]\s*|&&\s*)git(?:\s+-C\s+\S+)?\s+add\s+\.(?=\s*(?:$|&&|#|\n))"
 )
 ANTIPATTERN_ALLOW = re.compile(r"avoid|instead of|rather than|never\s+`?git add", re.I)
 DATED_TABLE_RE = re.compile(
@@ -156,6 +161,6 @@ def test_no_blanket_staging_in_command_blocks():
             if not in_fence:
                 continue
             m = GIT_ADD_A_RE.search(line)
-            if m and not ANTIPATTERN_ALLOW.search(line):
+            if m and not ANTIPATTERN_ALLOW.search(line[:m.start()]):
                 offenders.append(f"{f.relative_to(BASE)}:{ln}: {line.strip()[:100]}")
     assert not offenders, "Blanket staging inside command blocks:\n" + "\n".join(offenders)

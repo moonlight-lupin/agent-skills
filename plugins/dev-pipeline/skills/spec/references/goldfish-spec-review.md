@@ -96,7 +96,9 @@ lane in your machine override TOML (model + provider + family) and list it in
 provider; the bundled default only sets `roles.goldfish = ["controller"]`,
 which has NO model of its own — with only the controller lane resolving, the
 children inherit the dispatching session's model. Override the lane when you
-want children pinned independently. Mechanism: `delegate_task` children cannot pin a per-child
+want children pinned independently. When the resolved lane HAS no model pin,
+the dispatch command DROPS `-m` and `--provider` entirely (CLI defaults /
+inherited session model) — do not pass empty values. Mechanism: `delegate_task` children cannot pin a per-child
 model (they inherit the parent's model), so dispatch each persona as a
 one-shot child with the resolved lane's model and provider:
 
