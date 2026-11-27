@@ -80,7 +80,9 @@ N ≈ base(S) + Σ per task (dispatch + review + one fix round) + loops
 State the computed number in the plan turn and in the goal's `constraints:` line
 ("budget N turns").
 
-## Budget-exhaust semantics — two budgets, never confused The goal turn budget is a
+## Budget-exhaust semantics — two budgets, never confused
+
+The goal turn budget is a
 MECHANICAL bound on the session (config-tied `goals.max_turns`); the confirm budget is a
 REVIEW budget (tier-scaled, `review-commit/references/confirm-round-protocol.md`).
 Exhausting the mechanical bound with clean progress and zero open BLOCKING/MAJOR

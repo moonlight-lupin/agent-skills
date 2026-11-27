@@ -91,7 +91,10 @@ Path A for multi-task per-task review gates; Path B for greenfield builds on a s
 **Case tables for rules with state.** Any rule whose result depends on
 history — corrections, retries, idempotence, rolling windows, caches, sync,
 draft/post lifecycles, permission matrices, time boundaries — gets a case table
-
+in the plan turn (`briefs/references/case-tables.md`): one row per case, with
+the expected result at the public seam. Prose is not enough: each case it
+leaves out becomes a review round later. S2/S3 always; S1 when such a rule is
+in scope. The table is reviewed once, before the build.
 
 ### Execution Handoff
 
