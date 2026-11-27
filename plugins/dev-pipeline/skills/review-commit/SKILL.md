@@ -29,6 +29,10 @@ case comes up, never at stage start.
 3. **User overrides** — "review loop 3 times", "all three reviewers" — set the
    budget or reviewer set for this task.
 
+## Engineering evidence
+
+Follow `../orchestrator/references/engineering-evidence.md` for deterministic checks. Use `dev_pipeline_engineering_plan` when available; run checks in the existing terminal environment, not the plugin host. Record actual results; missing tools are not passes. Existing risk-tier gates and acceptance tests still apply.
+
 ## The review sequence
 
 A runs once; B loops within budget; C is the gate at the end.

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — engineering evidence
+
+- Add a native engineering-check planner for Python, JavaScript, Go, Rust and generic projects. Fixed command suggestions only; execution stays in Hermes terminal. Dependency audit suggestions are opt-in.
+- Integrate evidence collection with orchestration, build and review; preserve existing reviewer gates. No automatic installs or host-side execution.
+
 ## 0.3.2
 
 Reconcile the two dev-pipeline lines: land the briefs/lanes/review-budget

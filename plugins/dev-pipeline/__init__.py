@@ -894,4 +894,8 @@ def register(ctx):
         except Exception as exc:
             logger.warning("dev-pipeline: register_skill(%s) failed: %s", skill_name, exc)
     ctx.register_hook("pre_tool_call", _on_pre_tool_call)
+    # Keep legacy skill-only contexts usable; modern Hermes exposes register_tool.
+    if callable(getattr(ctx, "register_tool", None)):
+        from .engineering import register_engineering
+        register_engineering(ctx)
     logger.info("dev-pipeline plugin registered (pre_tool_call skill-create gate, %d bundled skills)", len(_BUNDLED_SKILLS))

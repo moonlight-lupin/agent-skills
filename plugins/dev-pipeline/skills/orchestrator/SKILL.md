@@ -62,6 +62,10 @@ Any live deploy requires the three-reviewer gate. Never silently downgrade
 risk, including for small changes. Every fix must be followed by the complete
 acceptance suite; exhausted rounds with open blockers are NOT SHIP.
 
+## Engineering evidence
+
+Follow `references/engineering-evidence.md` for deterministic checks. Use `dev_pipeline_engineering_plan` when available; run checks in the existing terminal environment, not the plugin host. Record actual results; missing tools are not passes. Existing risk-tier gates and acceptance tests still apply.
+
 ## The stages
 
 | Stage | Produces | Load when |

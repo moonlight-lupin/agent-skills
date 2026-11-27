@@ -50,6 +50,10 @@ Use this stage when:
 
 Before starting on any ticket, fetch the ticket reference (the `.hermes/tickets/<feature-slug>/` file or plan task it points to), **restate the ticket title**, and ask now if it is ambiguous — never mid-build; ambiguity found at dispatch time is a `clarify` question, not a builder guess.
 
+## Engineering evidence
+
+Follow `../orchestrator/references/engineering-evidence.md` for deterministic checks. Use `dev_pipeline_engineering_plan` when available; run checks in the existing terminal environment, not the plugin host. Record actual results; missing tools are not passes. Existing risk-tier gates and acceptance tests still apply.
+
 ## The Process
 
 ### 1. Read and Parse Plan
