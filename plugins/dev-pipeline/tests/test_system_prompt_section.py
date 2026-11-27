@@ -42,9 +42,12 @@ def _plugin():
     global _PLUGIN
     if _PLUGIN is None:
         spec = importlib.util.spec_from_file_location(
-            "dev_pipeline_prompt_under_test", PLUGIN_DIR / "__init__.py")
+            "dev_pipeline_prompt_under_test", PLUGIN_DIR / "__init__.py",
+            submodule_search_locations=[str(PLUGIN_DIR)])
         assert spec is not None and spec.loader is not None
         mod = importlib.util.module_from_spec(spec)
+        import sys
+        sys.modules[spec.name] = mod  # the relative `.engineering` import needs its parent package registered
         spec.loader.exec_module(mod)
         _PLUGIN = mod
     return _PLUGIN
@@ -53,13 +56,19 @@ def _plugin():
 class _FakeCtx:
     """Host ctx: records register_skill / register_hook / the prompt section."""
 
-    def __init__(self, prompt_api=True, prompt_error=None):
+    def __init__(self, prompt_api=True, prompt_error=None, tools=True):
         self.skills = []
         self.hooks = []
         self.sections = []
+        self.tools = []
         self._prompt_error = prompt_error
         if prompt_api:
             self.register_system_prompt_section = self._register_section
+        if tools:
+            self.register_tool = self._register_tool
+
+    def _register_tool(self, **kwargs):
+        self.tools.append(kwargs)
 
     def _register_section(self, section_id, content, **kwargs):
         if self._prompt_error is not None:
@@ -97,11 +106,25 @@ def test_register_succeeds_when_api_missing():
     assert ctx.sections == []
 
 
-def test_registration_error_does_not_break_load():
+def test_registration_error_does_not_break_load(caplog):
+    import logging
     ctx = _FakeCtx(prompt_error=ValueError("id already registered"))
-    _plugin().register(ctx)  # must not raise
+    with caplog.at_level(logging.WARNING):
+        _plugin().register(ctx)  # must not raise
     assert len(ctx.skills) == 8 and len(ctx.hooks) == 1
     assert ctx.sections == []
+    warnings = [r for r in caplog.records
+                if "register_system_prompt_section" in r.getMessage()]
+    assert warnings, "an unregistered section must warn, not vanish silently"
+
+
+def test_modern_host_registers_tools_and_section():
+    """Modern host: register_tool exists alongside the section API."""
+    ctx = _FakeCtx(prompt_api=True, tools=True)
+    _plugin().register(ctx)
+    assert len(ctx.skills) == 8 and len(ctx.hooks) == 1
+    assert len(ctx.tools) == 8, f"expected the 8 engineering tools, got {len(ctx.tools)}"
+    assert len(ctx.sections) == 1
 
 
 def test_hint_carries_no_pins_or_pipeline_detail():

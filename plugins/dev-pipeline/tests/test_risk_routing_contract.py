@@ -45,3 +45,33 @@ def test_manifest_version_and_review_budget_unchanged():
     tiers = (REF / "size-tiers.md").read_text(encoding="utf-8")
     for expected in ("| T1 ", "| T2 ", "| T3 ", "three-reviewer gate"):
         assert expected in tiers
+
+
+def test_manifest_declares_hooks_tools_and_config_schema():
+    """The plugin manifest must keep its release declarations: the version bump
+    alone must never drop provides_hooks / provides_tools / config_schema."""
+    import tomllib
+    manifest = tomllib.loads((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text())
+    # plugin.yaml is YAML-shaped but has flat TOML-compatible top-level tables
+    import yaml
+
+
+def test_manifest_declares_hooks_tools_and_config_schema():
+    """Manifest integrity: the 0.5.0 bump must not drop release declarations."""
+    try:
+        import yaml
+        manifest = yaml.safe_load((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text())
+    except ImportError:
+        manifest = None
+    if manifest is None:
+        from textwrap import dedent  # pragma: no cover
+        import tomllib
+        manifest = tomllib.loads((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text())
+    assert manifest.get("provides_hooks"), "manifest lost provides_hooks"
+    tools = manifest.get("provides_tools")
+    assert tools, "manifest lost provides_tools"
+    assert len(tools) >= 8, f"manifest lost engineering tool entries: {tools}"
+    schema = manifest.get("config_schema")
+    assert schema, "manifest lost config_schema"
+    for key in ("allow_project_checks", "required_checks", "install_allowlist"):
+        assert key in str(schema), f"manifest lost config_schema key {key}"

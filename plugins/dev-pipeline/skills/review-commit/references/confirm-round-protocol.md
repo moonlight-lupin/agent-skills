@@ -148,7 +148,7 @@ Do not dispatch another round. Give the user the open set and a choice:
 A user's "review loop N times" means N reviews in total — R1 plus up to N−1
 confirm rounds — for that task, whatever the tier. "Review
 loop until clean" means: until no open BLOCKING/MAJOR, within the tier's
-budget — then ask.
+budget — then continue to Step C unattended; if the budget is spent with open BLOCKING/MAJOR findings, stop as an important fork (see `orchestrator/references/unattended.md`, clause 4).
 
 ## Stop conditions — check after every round, in this order
 

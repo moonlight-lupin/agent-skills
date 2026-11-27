@@ -10,7 +10,7 @@ or tighter definition.
 
 A decision is an **important fork** when it:
 
-1. Changes user-visible behavior or a public contract (API, CLI flag,
+1. Changes a public contract (API, CLI flag,
    on-disk format, stored schema, or published event).
 2. Touches a trust, auth, money, privacy, or irreversible-data boundary
    (anything that would raise or confirm risk R2 or R3 —
@@ -47,7 +47,7 @@ Record the assumption in the ledger or report and continue:
 decision tree and settles every one **before the spec is written** — on S2/S3
 when the plan is fuzzy, and on any S1 ask that is ambiguous. The session does
 not proceed to spec while known important forks are open; later stages treat
-one grill and the spec already settled as settled.
+forks that grill or the spec already settled as settled.
 
 ## A new important fork mid-pipeline
 

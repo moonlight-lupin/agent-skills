@@ -8,8 +8,9 @@ Apache-2.0, created at Google); personas vendored at pinned commit
 ## When to run
 
 Complexity gate comes from `orchestrator/references/risk-routing.md`
-(single home): the gate **runs at S2 and S3**, right after the plan turn
-is saved and approved, BEFORE `test-evals` runs. S0 and S1 are
+(single home): the gate **runs at S2 and S3**, right after the plan turn is saved
+(and its own verify checklist passed — approval here means the spec's
+self-check, not a user prompt; the run is unattended), BEFORE `test-evals` runs. S0 and S1 are
 exempt. So is research. Unattended semantics
 (`orchestrator/references/unattended.md`): the stage runs the swarm (the 4
 dispatches, ~2–4 min each) without an offer or a prompt — an optional extra

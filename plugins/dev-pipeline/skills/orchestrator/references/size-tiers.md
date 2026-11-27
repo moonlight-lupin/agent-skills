@@ -21,7 +21,7 @@ This file retains the review-loop budget contract for existing consumers.
 - Any live deployment gets the three-reviewer gate regardless of other
   classifications or instructions.
 - R1 with S2/S3 still needs a detailed *plan*, despite getting T1 review.
-- Goldfish spec review is offered for **S2/S3**, not inferred from T-tier.
+- Goldfish spec review is run (unattended, no prompt) for **S2/S3**, not inferred from T-tier.
 - The user may request extra reviewer rounds; no automatic downgrade of
   discovered risk is allowed.
 - T0 no-behavior changes may commit with basic verification; all other
