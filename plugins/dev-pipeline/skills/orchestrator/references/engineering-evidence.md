@@ -39,7 +39,11 @@ to local execution. Git worktrees are not security sandboxes.
    availability, or compatibility. Doctor supports auth probes for Claude,
    Codex and gh only; other vendors remain unknown until a real dispatch.
 2. Run existing lanes.py detect/doctor/resolve in the actual coding environment.
-   Lane detect now labels prerequisite readiness separately from authentication.
+   Doctor invokes bundled lanes.py detect in the active backend when permitted;
+if the script is hidden, run the existing resolver in the coding environment.
+Lane detect now labels prerequisite readiness separately from authentication.
+Advanced Delegation plugin presence/installation is managed as a capability;
+it does not silently select specialist profiles or replace lane policy.
 Discovery supplies candidate CLIs but does not select lanes, infer model
    families or modify routing config. Add new CLI lanes only with verified
    invocation and independent family identity. Native controller remains

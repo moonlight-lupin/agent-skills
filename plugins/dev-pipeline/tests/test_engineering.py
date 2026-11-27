@@ -189,3 +189,22 @@ def test_real_git_round_trip(tmp_path):
     assert tool.gate({"root": root})["verdict"] == "NOT_SHIP"
     assert tool.run({"root": root, "check": "diff"})["status"] == "PASS"
     assert tool.gate({"root": root})["verdict"] == "ENGINEERING_PASS"
+
+
+def test_doctor_calls_existing_resolver_only_when_allowed():
+    import shlex
+    ctx = Context()
+    tool = engineering.Engineering(ctx)
+    assert tool.configured_lanes(ROOT, {})["status"] == "not_probed"
+    assert not ctx.calls
+    ctx.config["allow_project_checks"] = True
+    script = Path(engineering.__file__).resolve().parent / "skills/orchestrator/scripts/lanes.py"
+    command = "python3 " + shlex.quote(str(script)) + " --repo " + shlex.quote(ROOT) + " detect"
+    ctx.responses[command] = {"exit_code": 0, "output": json.dumps({"lanes": [{"lane": "controller"}]})}
+    assert tool.configured_lanes(ROOT, {})["lanes"] == [{"lane": "controller"}]
+
+def test_delegation_plugin_install_default_deny():
+    ctx = Context()
+    ctx.responses["hermes plugins list --json"] = {"exit_code": 0, "output": "[]"}
+    tool = engineering.Engineering(ctx)
+    assert tool.setup({"root": ROOT, "id": "advanced_delegation"})["status"] == "approval_required"

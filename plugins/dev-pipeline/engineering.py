@@ -5,6 +5,7 @@ import posixpath
 import re
 import shlex
 from datetime import datetime, timezone
+from pathlib import Path
 
 # id: (category, binary aliases, version arguments, approved installation recipe)
 # Project-local dependencies and vendor-specific installers are intentionally
@@ -51,6 +52,7 @@ CATALOG = {
     "snyk": ("security", ("snyk",), "--version", "npm install -g snyk"),
     "bubblewrap": ("isolation", ("bwrap",), "--version", None),
     "bubblewrap_plugin": ("isolation", (), "", "hermes plugins install bubblewrap --enable"),
+    "advanced_delegation": ("agent", (), "", "hermes plugins install advanced-delegation --enable"),
     "prlimit": ("isolation", ("prlimit",), "--version", None),
     "docker": ("isolation", ("docker",), "--version", None),
     "uv": ("package", ("uv",), "--version", None),
@@ -200,9 +202,10 @@ class Engineering:
 
     def probe(self, cid, root, kw, version=False):
         category, aliases, flag, recipe = CATALOG[cid]
-        if cid == "bubblewrap_plugin":
+        if cid in ("bubblewrap_plugin", "advanced_delegation"):
+            plugin = {"bubblewrap_plugin": "bubblewrap", "advanced_delegation": "advanced-delegation"}[cid]
             return {"id": cid, "category": category, "installable": True,
-                    **self.plugin_status("bubblewrap", root, kw)}
+                    **self.plugin_status(plugin, root, kw)}
         if cid in LSP_IDS:
             # Hermes-managed servers may live outside PATH. Prefer its own
             # registry over a shell lookup, but do not equate this to gateway readiness.
@@ -292,7 +295,7 @@ class Engineering:
             rows = [{"id": cid, "category": data[0], "installed": "present" if cid in present else "missing",
                      "path": present.get(cid), "installable": bool(data[3]),
                      "operational": "not_probed", "authentication": "unknown"} for cid, data in CATALOG.items() if data[1]]
-            rows.append(self.probe("bubblewrap_plugin", root, kw))
+            rows.extend(self.probe(cid, root, kw) for cid in ("bubblewrap_plugin", "advanced_delegation"))
             lsp = self.lsp({"root": root}, **kw)
             installed_servers = {r["id"] for r in lsp.get("servers", []) if r.get("binary_status") == "installed"}
             for row in rows:
@@ -301,7 +304,7 @@ class Engineering:
         else:
             rows = [self.probe(cid, root, kw, version) for cid in dict.fromkeys(ids)]
         return {"languages": langs, "capabilities": rows,
-                "lane_candidates": [r["id"] for r in rows if r["category"] == "agent" and r["installed"] == "present"],
+                "lane_candidates": [r["id"] for r in rows if r["category"] == "agent" and CATALOG[r["id"]][1] and r["installed"] == "present"],
                 "routing": "Use existing lanes.py detect/doctor/resolve; binary presence is not a lane approval or verified model family."}
 
     def doctor(self, args, **kw):
@@ -328,7 +331,25 @@ class Engineering:
         inv["required_checks"] = required
         inv["missing_requirements"] = sorted({CHECKS[k][1] for k in required if by[CHECKS[k][1]]["installed"] != "present"})
         inv["sandbox"] = self.sandbox(root, kw)
+        inv["configured_lanes"] = self.configured_lanes(root, kw)
         return inv
+
+    def configured_lanes(self, root, kw):
+        if self.config("allow_project_checks", False) is not True:
+            return {"status": "not_probed", "note": "Enable allow_project_checks to inspect project lane configuration"}
+        script = Path(__file__).resolve().parent / "skills/orchestrator/scripts/lanes.py"
+        # Execute the existing resolver in the same environment as checks.
+        # It may be intentionally hidden by remote/sandbox backends. Never
+        # compensate by running it on the plugin host.
+        raw = self.dispatch("python3 " + shlex.quote(str(script)) + " --repo " + shlex.quote(root) + " detect", root, kw, 30)
+        try:
+            result = json.loads(raw.get("output", "")) if classify(raw) == "PASS" else None
+        except (ValueError, TypeError):
+            result = None
+        if not isinstance(result, dict) or not isinstance(result.get("lanes"), list):
+            return {"status": "unavailable", "note": "Run bundled lanes.py detect in the coding environment"}
+        return {"status": "observed", "lanes": result["lanes"],
+                "note": "Existing lane resolver is authoritative; presence is not login, quota or model entitlement."}
 
     def sandbox(self, root, kw):
         # A config read is advisory, not an attestation of actual containment.
@@ -361,7 +382,7 @@ class Engineering:
         raw = self.dispatch(recipe, root, kw, 180)
         after = self.probe(cid, root, kw, version=True) if classify(raw) == "PASS" else None
         verified = after and (after.get("operational") in ("version_ok", "hermes_registry_installed")
-                              or cid == "bubblewrap_plugin" and after.get("configured") == "enabled")
+                              or cid in ("bubblewrap_plugin", "advanced_delegation") and after.get("configured") == "enabled")
         return {"status": "installed" if verified else "not_verified",
                 "id": cid, "command": recipe, "exit_code": raw.get("exit_code"), "capability": after,
                 "note": "Installation does not authenticate coding agents or select their model."}
