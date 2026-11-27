@@ -122,17 +122,30 @@ def test_lanes_md_has_no_dated_pin_table():
 
 def test_markdown_and_tools_carry_no_model_pins():
     offenders = []
+    # command context vs prose context: inside a Markdown fence a literal
+    # --model value is ALWAYS a pin; outside a fence (and in Python comment
+    # lines) the flag may be mentioned in prose — those get a small English-
+    # word exemption. Commands are never exempted.
+    PROSE_WORDS = {"or", "is", "was", "the", "a", "to", "of", "and", "one",
+                   "value", "id", "flag", "from", "required", "must"}
     for f in _scan_targets():
+        in_fence = False
         for i, line in enumerate(f.read_text(errors="replace").splitlines(), 1):
+            if f.suffix == ".md" and line.lstrip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            is_commandish = len(re.findall(r"--[a-zA-Z][\w-]*", line)) >= 2 or \
+                bool(re.search(r"[;&|]\s*\S", line))
+            is_prose = ((f.suffix == ".md" and not in_fence) or
+                (f.suffix == ".py" and line.lstrip().startswith("#"))) and not is_commandish
             for m in MODEL_VALUE_RE.finditer(line):
                 if NOT_A_PIN.search(m.group(2)):
                     continue
                 word = m.group(2).strip("\"\"'").lower()
-                if word in {"or", "is", "was", "the", "a", "to", "of", "and", "one",
-                            "value", "id", "flag", "from", "required", "must"}:
+                if is_prose and word in PROSE_WORDS:
                     continue  # prose about the flag, not a command
-                tail = line[m.end():][:24]
-                if tail.lstrip(" ").startswith(("is ", "was ", "required", "must")):
+                if is_prose and line.lower().count("--model") == 1 and \
+                        any(w in line.lower() for w in (" is ", " was ", "required", "must")):
                     continue  # prose about the flag, not a command
                 offenders.append(f"{f.relative_to(BASE)}:{i}: literal model value {m.group(2)!r}")
             for m in BARE_M_RE.finditer(line):
