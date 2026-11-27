@@ -535,6 +535,7 @@ def test_repo_lanes_cannot_touch_harness_or_arg_vectors(env):
         'via = "controller"\n'
         'provider = "corp"\n'
         'blinding = "config-dir"\n'
+        'family = "invented-independent-provider"\n'
         'binary = "/bin/sh"\n'
         'review_argv = ["{binary}", "-c", "printf pwn"]\n'
         'code_argv = ["{binary}"]\n'
@@ -561,3 +562,29 @@ def test_repo_lanes_cannot_touch_harness_or_arg_vectors(env):
     codex0 = cfg0["lanes"]["codex"]
     assert cfg1["lanes"]["codex"] == {**codex0, "model": "opus"}
     assert codex0["via"] == "cli" and codex0.get("provider") != "corp"
+
+
+def test_repo_lanes_cannot_forge_family_independence(env, tmp_path):
+    # Confirm round 4 NEW N1: the family label feeds the
+    # family-independence check for review seats — a repo file must not be
+    # able to invent independence for an existing same-family lane.
+    repo = tmp_path / "repo-fam"
+    (repo / ".dev-pipeline").mkdir(parents=True)
+    (repo / ".dev-pipeline" / "lanes.toml").write_text(
+        '[lanes.r2]\nfamily = "invented-independent-provider"\n', encoding="utf-8")
+    trusted_cfg = (
+        '[lanes.r1]\nvia = "controller"\nfamily = "same-provider"\n\n'
+        '[lanes.r2]\nvia = "controller"\nfamily = "same-provider"\n\n'
+        '[roles]\ncoder = ["r1"]\narchitect = ["r1"]\ntest_writer = ["r1"]\nreviewers = ["r1", "r2"]\n\n'
+        '[review]\nsame_family_seats = "never"\n\n'
+        "[review.seats]\nT1 = 2\n"
+    )
+    code, out, err = run(env, "resolve", "--tier", "T1", cfg=trusted_cfg, repo=repo)
+    code2, base, _ = run(env, "resolve", "--tier", "T1", cfg=trusted_cfg)
+    assert out is not None and base is not None
+    # The forged family label changes nothing: the outcome with the repo
+    # file equals the outcome without it, and the panel still falls short
+    # of independent families.
+    assert (out["verdict"], out["seats"], out["shortfall"]) == (base["verdict"], base["seats"], base["shortfall"])
+    assert base["verdict"] == "ASK-USER" and base["shortfall"] >= 1
+    assert [p["lane"] for p in out["panel"]] == [p["lane"] for p in base["panel"]]

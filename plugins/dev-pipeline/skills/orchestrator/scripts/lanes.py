@@ -96,15 +96,16 @@ def config_sources(explicit: list[str] | None, repo: str | None) -> list[tuple[P
 
 # A repository-provided .dev-pipeline/lanes.toml is UNTRUSTED input: any repo
 # the pipeline runs in could otherwise steer reviewer dispatch. Confirm rounds
-# 2-3 walked the whole trust boundary: an untrusted source must not define
+# 2-4 walked the whole trust boundary: an untrusted source must not define
 # lanes, providers, or the claude_code harness table, must not change a
-# trusted lane's via/provider/blinding or any argv template, and must not
-# weaken approval policy (roles, ladder, review seats/dispatch). The only
-# untrusted surface is per-lane advisory labels (model, family, effort) on
-# lanes already defined by trusted sources. model/effort values reach argv as
-# single list elements (no shell splitting), so they cannot smuggle flags.
+# trusted lane's via/provider/blinding/family (family feeds the
+# family-independence check for review seats — confirm round 4 NEW N1) or any
+# argv template, and must not weaken approval policy (roles, ladder, review
+# seats/dispatch). The only untrusted surface is per-lane model/effort labels
+# on lanes already defined by trusted sources. model/effort values reach argv
+# as single list elements (no shell splitting), so they cannot smuggle flags.
 UNTRUSTED_TOP_KEYS = {"lanes"}
-UNTRUSTED_LANE_KEYS = {"model", "family", "effort"}
+UNTRUSTED_LANE_KEYS = {"model", "effort"}
 
 
 def strip_untrusted(data: dict, base_cfg: dict) -> dict:

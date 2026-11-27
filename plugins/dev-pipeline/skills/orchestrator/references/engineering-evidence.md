@@ -46,9 +46,9 @@ to local execution. Git worktrees are not security sandboxes.
    A repository-provided .dev-pipeline/lanes.toml is untrusted: it cannot
    define lanes or providers, change lane routing (via, provider, blinding)
    or executable commands, or alter review/approval policy; its only surface
-   is per-lane model, family and effort labels on lanes already defined by
-   trusted sources. Trust roles/approval to bundled, machine or explicitly
-   named config only.
+   is per-lane model and effort labels on lanes already defined by
+   trusted sources; family is trusted-only because it feeds the
+   family-independence check for review seats.
    Advanced Delegation plugin presence/installation is managed as a capability;
    it does not silently select specialist profiles or replace lane policy.
    Discovery supplies candidate CLIs but does not select lanes, infer model
