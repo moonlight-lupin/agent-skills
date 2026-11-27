@@ -88,3 +88,9 @@ Reviewers document findings; the orchestrator verifies outcomes. Final acceptanc
 Fix loops inside a task follow `review-commit/references/confirm-round-protocol.md`: only BLOCKING/MAJOR (Critical/Important) findings send the task back; Minor ones go to the ledger's deferred list.
 
 **Tests:** `test-evals` has already written the plan's tests and run them RED. The implementer makes them GREEN and does not rewrite them (they are attested — `review-commit/scripts/attest_file.py`). It adds a test only for behavior the plan missed, under TDD, and lists it in its report.
+
+## Narration discipline + fresh-subagent rationale (from SKILL.md Overview)
+
+- **Narration:** Between tool calls, narrate at most one short line. The todo list, progress ledger, report files, and tool results carry the durable record.
+- **Why subagents:** You delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you keep them focused and preserve your own context for coordination work. They should not inherit your session history; you construct exactly what they need.
+- **Core principle:** Fresh subagent per task + review sized to the risk + orchestrator-run verification = high quality without paying T3 review cost on T2 work.

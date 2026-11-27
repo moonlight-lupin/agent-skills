@@ -109,36 +109,22 @@ Before handing off to the plan, attempt to resolve open questions:
 
 **Do not plan on top of ambiguity you can resolve.** A spec with unresolved markers produces a plan with guessed requirements, which produces code doing the wrong thing confidently.
 
-## Consume the spec first (plan turn)
-
-Before understanding requirements from scratch, check for a spec artifact under `.hermes/specs/` (Step 0 of the writing process in `references/plan-template.md`). If one exists, read it and treat it as the **source of truth for WHAT and WHY**: every story covered and every acceptance criterion mapped to a task's verification step, NFRs and constraints copied into Global Constraints *verbatim*, tasks for every edge case, and surviving `[NEEDS CLARIFICATION]` markers resolved with the user or carried in as flagged assumptions — never silently resolved.
-
-The spec tells you **what** to build. Your plan decides **how**.
-
-## Cross-Artifact Consistency (analyze)
-
-If a spec artifact exists, check the plan against the spec, not just the plan against itself — the `analyze` phase from spec-kit, full checklists at Step 7 of `references/plan-template.md`. Three checks: **Coverage** (every user story, acceptance criterion, non-functional requirement, edge case, and verbatim constraint maps to a task or is explicitly deferred with a note), **Drift** (no scope creep, no contradiction, no silently resolved `[NEEDS CLARIFICATION]` marker), **Gates** (every constitution gate passes or carries a Complexity Tracking justification). Coverage gaps → add the task; drift → fix the plan. This catches the most common planning failure: an internally consistent plan that has drifted from its intent.
-
-## Self-review checklist
-
-Run this on the completed spec — "unit tests for the spec":
-
-- [ ] Every user story has testable acceptance criteria ("returns 200 with JSON body containing field X", not "works correctly")
-- [ ] No tech stack, library names, file paths, or architecture choices leaked in
-- [ ] Every `[NEEDS CLARIFICATION]` marker is resolved or genuinely unresolvable until the user returns
-- [ ] Non-functional requirements are measurable (target numbers, not "fast" / "secure")
-- [ ] Edge cases cover: empty state, max/over-limit, invalid input, concurrency (if relevant), failure modes
-- [ ] No speculative or "might need" features; every item traces to a user story or stated constraint
-- [ ] Constraints copied verbatim from the user's words, not paraphrased into ambiguity
-
-If any check fails, fix the spec before saving.
-
 ---
 
-## Plan self-review checklist (from SKILL.md)
-## Self-review checklist
+## Clarify phase (before planning)
 
-Run this on the completed spec — "unit tests for the spec":
+Before handing off to the plan, attempt to resolve open questions:
+
+1. List all `[NEEDS CLARIFICATION]` markers.
+2. Ask the user targeted questions, batching related ones — don't ping-pong one at a time.
+3. Fold answers back into the spec — marker becomes a resolved requirement or an explicit constraint.
+4. If the user is unavailable, keep the markers; the plan will see them. Never silently resolve them.
+
+**Do not plan on top of ambiguity you can resolve.** A spec with unresolved markers produces a plan with guessed requirements, which produces code doing the wrong thing confidently.
+
+## Self-review checklist (the spec's unit tests)
+
+Run this on the completed spec:
 
 - [ ] Every user story has testable acceptance criteria ("returns 200 with JSON body containing field X", not "works correctly")
 - [ ] No tech stack, library names, file paths, or architecture choices leaked in

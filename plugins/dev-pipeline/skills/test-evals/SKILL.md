@@ -59,7 +59,7 @@ Full TDD methodology (RED-GREEN-REFACTOR, Iron Law, rejected rationalizations, s
 
 ## Red Flags — top structural
 
-Full list in `references/test-doctrine.md` § Red Flags. Top: implement on RED failure (or skip the failing test); fake GREEN (stub the test to pass); write tests against the implementation instead of the seam; mock the seam under test itself; unexplained assertions (assert without a seam note); skip the named-test-first contract; let a batched loop hide convergence failures.
+Governing list (single home): `references/test-evals/references/test-doctrine.md` § Red Flags — the lines below are a compressed summary, not the authority. Top: implement on RED failure (or skip the failing test); fake GREEN (stub the test to pass); write tests against the implementation instead of the seam; mock the seam under test itself; unexplained assertions (assert without a seam note); skip the named-test-first contract; let a batched loop hide convergence failures.
 
 ## Verification
 

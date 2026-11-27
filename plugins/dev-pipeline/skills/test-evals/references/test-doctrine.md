@@ -16,7 +16,7 @@ Moved verbatim from SKILL.md in v0.6.0 (always-loaded text shrink). SKILL.md poi
 
 ## 1. Test-Driven Development (TDD)
 
-**Core principle:** the Overview's — the one stated there is the rule this cycle enforces (see Overview; restated once, applied everywhere in this stage).
+**Core principle:** the one stated in the SKILL's intro (`../SKILL.md`: "If you didn't watch the test fail, you don't know if it tests the right thing.") is the rule this cycle enforces — restated once here, applied everywhere in this stage.
 
 ### RED-GREEN-REFACTOR Cycle
 1. **RED** — Write one minimal failing test. Run it. Watch it fail for the right reason (feature missing, not typo).
