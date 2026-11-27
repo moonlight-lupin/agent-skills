@@ -100,14 +100,6 @@ in scope. The table is reviewed once, before the build.
 
 After saving the plan, state the plan path and continue without asking: **"Plan complete and saved at `<path>`. Continuing: `test-evals` writes the plan's test cases and runs them RED, then `build` dispatches a fresh subagent per task with T_ review."** Execution is the `build` stage: fresh `delegate_task` per task; per-task review per tier (T2: one combined reviewer; T3: spec compliance, then code quality); proceed only when the verdicts approve. For S1 plans, execute **inline** with checkpoints, without asking.
 
-**Case tables for rules with state.** Any rule whose result depends on
-history — corrections, retries, idempotence, rolling windows, caches, sync,
-draft/post lifecycles, permission matrices, time boundaries — gets a case table
-in the plan turn (`briefs/references/case-tables.md`): one row per case, with
-the expected result at the public seam. Prose is not enough: each case it
-leaves out becomes a review round later. S2/S3 always; S1 when such a rule is
-in scope. The table is reviewed once, before the build.
-
 ## `[NEEDS CLARIFICATION]` markers — first-class ambiguity
 
 **Never guess.** If the user's description does not specify something, mark it explicitly rather than filling in a plausible assumption.

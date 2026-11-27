@@ -65,7 +65,7 @@ Governing list (single home): `references/test-doctrine.md` § Red Flags — the
 
 After completing any development workflow task, confirm:
 
-- [ ] Tests written before production code (TDD) — or explicit justification for skipping (TDD) — or explicit justification for skipping
+- [ ] Tests written before production code (TDD) — or explicit justification for skipping
 - [ ] Every test attaches at a named seam (the highest that reaches the behavior) and cites its seam note
 - [ ] Independent review completed (not self-verified) — another agent or model
 - [ ] Findings labeled with severity (Critical / Required / Optional / Nit / FYI)
