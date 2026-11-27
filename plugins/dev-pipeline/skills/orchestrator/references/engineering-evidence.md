@@ -1,38 +1,70 @@
-# Engineering evidence (optional tooling layer)
+# Engineering capability management
 
-The native `dev_pipeline_engineering_plan` tool provides fixed, language-specific
-check suggestions. It does not execute commands, read repositories, install
-packages or bypass the terminal backend. Use it after identifying the project
-language; for mixed repositories request each relevant language.
+Native plugin tools are available in supported Hermes runtimes. All command
+execution uses the existing terminal dispatch API; the plugin never runs host
+subprocesses, overrides terminal or changes backend policy.
+
+## Operator setup (outside the agent)
+
+Configure settings under plugins.entries.dev-pipeline.settings:
+
+- install_allowlist: approved IDs from discovery, default [].
+- allow_project_checks: true only in trusted/approved isolated environments.
+- allow_network_checks: true only if dependency metadata may be transmitted.
+- allow_auth_probes: true for vendor status probes.
+- required_checks: project-appropriate IDs from the engineering planner/catalog;
+  diff is always required. Set before work begins; do not relax to pass a gate.
+
+Global npm and uv installs run only with the operator allowlist; OS packages,
+vendor shell installers, project dependencies and account logins stay manual.
+Prefer pinned versions and project lockfiles in production. Installation is
+verified by a subsequent version probe; no automatic credential setup.
+
+Bubblewrap on Linux: operator installs bwrap and prlimit, runs
+hermes plugins install bubblewrap, enables the plugin, sets terminal.backend
+to bubblewrap, terminal.degraded_mode to fail and selects an appropriate
+workspace/network profile. Run hermes doctor on the host. A config read or
+binary discovery does not attest actual isolation. Do not run untrusted
+projects if the isolation has not been established. Never silently fall back
+to local execution. Git worktrees are not security sandboxes.
 
 ## Workflow
 
-1. Inspect project CI and documented commands. Prefer those over generic defaults.
-2. Use the planner to identify gaps: diff hygiene, lint, type checking, static
-   security analysis and optional dependency audits. Run relevant checks through
-   the existing terminal backend from the approved repository root.
-3. For navigation use installed ast-grep with a targeted pattern and language;
-   use native Hermes LSP diagnostics where configured. Neither replaces tests.
-4. Capture command, working directory, exit code, relevant output and commit
-   SHA (and note dirty/untracked state) in the existing progress ledger or
-   review report. Mark each check PASS, FINDINGS, ERROR, UNAVAILABLE or NOT RUN.
-   Do not present planner output as executed evidence.
-5. Run required acceptance tests and rerun affected checks after fixes.
-   A required project check that fails or cannot run is not a pass; report
-   the blocker under the existing review policy. Do not silently waive it.
-6. Dependency audits are opt-in because they can contact external registries.
-   Go/Rust tools may also fetch dependencies; use the terminal's network
-   controls for offline work. Never auto-install packages or run untrusted
-   repository configurations outside approved isolation.
+1. Use canonical absolute Git root in the active POSIX terminal backend.
+   Discover project root markers and installed binaries. Explicitly probe
+   versions of up to three tools at a time; use doctor auth only if permitted.
+   Presence and version response do not prove authentication, quota, model
+   availability, or compatibility. Doctor supports auth probes for Claude,
+   Codex and gh only; other vendors remain unknown until a real dispatch.
+2. Run existing lanes.py detect/doctor/resolve in the actual coding environment.
+   Discovery supplies candidate CLIs but does not select lanes, infer model
+   families or modify routing config. Add new CLI lanes only with verified
+   invocation and independent family identity. Native controller remains
+   the existing fallback; do not count it as an independent model family.
+3. Inspect repository CI and plan checks; prefer configured CI/lockfiles.
+   Use native LSP status/install and write_file/patch diagnostics. CLI status
+   may describe a different process from the active gateway; no diagnostics
+   does not mean no errors. Use ast search for targeted structural navigation.
+4. Run one check at a time through engineering_run. Record PASS, FINDINGS,
+   ERROR or UNAVAILABLE, not a model's claim. Dirty-tree runs are useful during
+   build but cannot satisfy final gates. Rerun on final clean commit.
+5. Before push, tag, release or live deploy, require ENGINEERING_PASS from
+   dev_pipeline_gate on that exact clean commit. Missing, failed or stale
+   mandatory records are NOT_SHIP. Then apply all existing acceptance, review,
+   deployment and CI gates. This is a workflow gate, not an interception of
+   arbitrary terminal commands or a tamper-proof security boundary.
+6. Full acceptance suite remains required even when not represented by a
+   built-in check. Coverage and mutation thresholds belong to the repository.
+   Nonstandard projects/monorepos require manual profile selection and CI
+   verification; root marker detection is advisory.
 
-## Prerequisites
+## Evidence limitations
 
-Install only the tools relevant to a project, under operator control:
-ruff, mypy, bandit, pip-audit, project-local ESLint/TypeScript,
-Go, Cargo/Clippy, and ast-grep. The plugin does not bundle their binaries
-or configure LSP servers or Bubblewrap. Use Hermes' configured terminal
-isolation; Git worktrees alone are not sandboxes.
-
-Coverage and mutation testing are project-specific: use existing CI commands
-and thresholds, not invented generic thresholds. Keep risk routing, review
-budgets and independent reviewer gates unchanged.
+State lives in the active Hermes profile; one latest record per root/check.
+Evidence binds the canonical root, HEAD and clean tracked/untracked status
+before/after, command and exit code. Ignored files, external dependencies,
+concurrent edits reverted during execution and backend changes are not
+cryptographically attested. Re-run after any dependency or environment
+change. The gate does not authorize release by itself. Avoid concurrent
+mutations while checking. The plugin does not enforce organization-wide
+deployment policy; enforce that in protected CI/branch rules.

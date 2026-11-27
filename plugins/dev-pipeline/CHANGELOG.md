@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased — engineering evidence
+## 0.4.0 — engineering capability management (draft)
 
-- Add a native engineering-check planner for Python, JavaScript, Go, Rust and generic projects. Fixed command suggestions only; execution stays in Hermes terminal. Dependency audit suggestions are opt-in.
+- Native capability inventory across coding CLIs, language toolchains, LSP, scanners and isolation. Explicit allowlist for fixed install recipes, version and auth status probes, read-only AST search, bounded terminal-backed checks, profile-scoped commit-specific evidence and engineering gate. Existing lane resolver remains authoritative. Operator controls network, project execution and required checks.
 - Integrate evidence collection with orchestration, build and review; preserve existing reviewer gates. No automatic installs or host-side execution.
 
 ## 0.3.2

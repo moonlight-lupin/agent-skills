@@ -41,7 +41,7 @@ def test_authoritative_stage_router_links_risk_reference():
 
 def test_manifest_version_and_review_budget_unchanged():
     manifest = (BASE / "plugin.yaml").read_text(encoding="utf-8")
-    assert re.search(r"(?m)^version: 0\.3\.2$", manifest)
+    assert re.search(r"(?m)^version: 0\.4\.0$", manifest)
     tiers = (REF / "size-tiers.md").read_text(encoding="utf-8")
     for expected in ("| T1 ", "| T2 ", "| T3 ", "three-reviewer gate"):
         assert expected in tiers
