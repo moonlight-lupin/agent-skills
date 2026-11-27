@@ -1,8 +1,8 @@
 ---
 name: review-commit
-description: "Use when the user says 'review loop N times', 'build then review', 'fix and re-review', 'review loop until clean', 'have cursor build, codex review', or wants the dev-pipeline review stage: a two-axis single pass (Standards + Spec, parallel, never merged) FIRST, then a budgeted confirm-round loop on the fix diffs until no BLOCKING/MAJOR is open, then the commit/deploy gate — three-reviewer gate before live deploy, release hygiene before tagging. Also triggers: 'two-axis review', 'confirm rounds', 'review diff until SHIP', 'N confirm rounds', ship gate."
+description: "Use when the user says 'review loop N times', 'build then review', 'fix and re-review', 'review loop until clean', 'have cursor build, codex review', or wants the dev-pipeline review stage: a two-axis single pass (Standards + Spec, parallel, never merged) FIRST, then a budgeted confirm-round loop on the fix diffs until no BLOCKING/MAJOR is open, then the commit/deploy gate — three-reviewer gate before live deploy, release hygiene before tagging. Also triggers: 'two-axis review', 'confirm rounds', 'review diff until SHIP', 'N confirm rounds', ship gate. Unattended: after SHIP, commit, push the feature branch and open the draft PR without asking; merge, tag and live deploy are important forks."
 metadata:
-  version: 2.2.0
+  version: 2.3.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -93,6 +93,8 @@ Mechanics:
 ### Step C — Commit/deploy gate
 
 - **Never push without a review pass** (R1 at least, no open BLOCKING/MAJOR). T0 changes with no behavior change may push directly at the user's instruction.
+- **Unattended ship default** (`orchestrator/references/unattended.md`): once the loop converges with the budget intact, make the commit, push the feature branch, and open a **draft** PR without asking — that is not an important fork. State what was done and continue.
+- **Merging to the default branch, tagging a release, and deploying live are important forks**: stop, put the decision to the user as one numbered question with a recommended answer, and wait.
 - **Never deploy live without the three-reviewer gate** — all three reviewer
   lanes SHIP on the net diff, run once after the loop converges
   (`confirm-round-protocol.md` § Three-reviewer deployment gate). This is the
@@ -116,7 +118,7 @@ Mechanics:
 | "review loop N times" | R1 + up to N−1 confirm rounds (N reviews total); stop early on SHIP |
 | "build then review with codex" / "have cursor build, codex review" | build (builder lane) → R1 (reviewer A) → fix → one confirm round if anything BLOCKING/MAJOR |
 | "fix and re-review" | fix round → confirm round on the fix diff |
-| "review loop until clean" | until no open BLOCKING/MAJOR, within the tier budget — then ask |
+| "review loop until clean" | until no open BLOCKING/MAJOR, within the tier budget — then continue to Step C unattended (commit, push, draft PR; merge/tag/deploy are important forks, `orchestrator/references/unattended.md`) |
 | "ship it" / "deploy" | Step C; live deploy needs the three-reviewer gate |
 
 ## Convergence check

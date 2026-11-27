@@ -1,8 +1,8 @@
 ---
 name: spec
-description: "Use when pinning intent before code — capture a spec (user stories, acceptance criteria, [NEEDS CLARIFICATION] markers), then plan the HOW (bite-sized tasks, blocking edges, gates) or slice tracer-bullet tickets. Triggers: 'write a spec', 'plan this', 'break this into tickets', 'slice this up', 'create tickets', 'what are the work units'."
+description: "Use when pinning intent before code — capture a spec (user stories, acceptance criteria, [NEEDS CLARIFICATION] markers), then plan the HOW (bite-sized tasks, blocking edges, gates) or slice tracer-bullet tickets. Triggers: 'write a spec', 'plan this', 'break this into tickets', 'slice this up', 'create tickets', 'what are the work units'. Unattended: after saving a spec or plan, state the path and continue — stops only at important forks."
 metadata:
-  version: 2.1.0
+  version: 2.2.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -19,7 +19,7 @@ Three jobs, one stage, in order of invocation:
 2. **Plan** — write an actionable implementation plan consuming the spec: bite-sized tasks, exact paths, interfaces, the test cases each task must pass, complete production code where the HOW isn't obvious, no placeholders.
 3. **Tickets** — slice a settled spec or plan into tracer-bullet tickets with blocking edges (see `references/ticket-slicing.md`).
 
-Do the job the user invoked — specifying only, or planning only. The `grill` stage hardens the plan first if decisions are unresolved.
+Do the job the user invoked — specifying only, or planning only. The `grill` stage hardens the plan first if important forks are unresolved (definition: `orchestrator/references/unattended.md`); the session does not proceed to a spec while known important forks are open.
 
 **By complexity** (`orchestrator/references/risk-routing.md`): S0 skips this stage. S1 skips the spec turn — the plan header carries an assumptions line and 3-6 acceptance criteria written as `step → verify: check` (format in `orchestrator/references/coding-principles.md` § Plan format for S0/S1), and the plan is one task. S2/S3 run all turns. Review depth (the risk-derived T-tier) does not select spec turns: an S3/R1 change still gets the full spec with T1 review.
 
@@ -97,7 +97,7 @@ Before writing the spec, sketch the **seams** at which the feature will be teste
 
 - A **seam** is the stable interface a feature is tested at — where tests cross from outside to inside.
 - **Prefer existing seams**; use the **highest seam possible** (public API, not internal helpers). The fewer seams, the better — the **ideal number is one**. New seams should sit as high as possible.
-- Check with the user that these seams match their expectations before proceeding.
+- Check with the user that these seams match their expectations **only when a seam choice is an important fork** (a public-contract change or an expensive-to-reverse shape — `orchestrator/references/unattended.md`); otherwise record the assumption in the spec and continue.
 - **Record a one-line seam note next to each behavior** the seam pins: what a test at this seam catches and what it misses (e.g. "the create-order API test catches payload-shape regressions, misses queue-timeout behavior"). The `test-evals` stage consumes these notes — every RED test there must cite the seam note it pins.
 - **Include the seam list (with its notes) in the handoff**: the notes travel with the spec artifact into the plan turn and the handoff to `test-evals` — a seam without its note is not recorded.
 
@@ -140,7 +140,7 @@ Before handing off to the plan, attempt to resolve open questions:
 
 ## Goldfish spec review (pre-implementation gate)
 
-After the plan turn is saved and approved, and BEFORE the `test-evals` stage, offer the Goldfish spec review — a zero-context subagent swarm (Zoom Out, Comprehension, Design Critic, Implementation Readiness personas) that stress-tests the plan. Offered at S2 and S3 (`orchestrator/references/risk-routing.md`); S0, S1, and research are exempt. Optional spec-range pass after the spec turn when intent risk is high. Persona files, dispatch contract, and convergence rules: `references/goldfish-spec-review.md` (single home — dispatch from there).
+After the plan turn is saved and approved, and BEFORE the `test-evals` stage, **run** the Goldfish spec review — a zero-context subagent swarm (Zoom Out, Comprehension, Design Critic, Implementation Readiness personas) that stress-tests the plan. It runs at S2 and S3 without prompting — the unattended default (`orchestrator/references/unattended.md`); S0, S1, and research are exempt. Optional spec-range pass after the spec turn when intent risk is high. Persona files, dispatch contract, and convergence rules: `references/goldfish-spec-review.md` (single home — dispatch from there).
 
 ## Consume the spec first (plan turn)
 
@@ -197,23 +197,25 @@ Save with `write_file`, relative to the active working directory:
 
 ## Ticket slicing
 
-When the plan is settled and you want parallelizable work units, slice it into tracer-bullet tickets with blocking edges ("break this into tickets", "slice this up", "create tickets"). The process, ticket file format and template, granularity quiz, frontier scheduling, and the integrate-and-verify option live in `references/ticket-slicing.md`.
+Opt-in only: slice the plan into tracer-bullet tickets **when the user already asked for tickets** ("break this into tickets", "slice this up", "create tickets") — never offer it unprompted (the unattended default, `orchestrator/references/unattended.md`). The process, ticket file format and template, granularity quiz, frontier scheduling, and the integrate-and-verify option live in `references/ticket-slicing.md`.
 
 ## Handoff to plan
 
-After saving the spec, reply with the spec path and offer the execution path ("Path A — subagent-driven (default)"): **"Spec saved. Ready for the plan turn — it consumes this spec and produces a task breakdown with test cases; then `test-evals` writes those tests RED and `build` executes the tasks with per-task review at this work's tier (T_). Shall I proceed?"**
+Unattended (`orchestrator/references/unattended.md`): after saving the spec, **state the spec path and continue** — no "shall I proceed?" question. Say what runs next and keep going.
 
-**Path B — single CLI agent orchestrate-and-review:** for builds dispatched to a single external coding CLI (Cursor, Codex, Claude Code), the spec feeds a self-contained implementation brief the CLI reads end-to-end — the brief draws WHAT/WHY and constraints from the spec, but holds the task breakdown itself. **"Spec saved. Ready to write a self-contained implementation brief for [Cursor/Codex/Claude Code] — the brief consumes this spec as the WHAT/WHY source. Shall I proceed?"**
+**Path A — subagent-driven (default):** "Spec saved at `<path>`. Continuing to the plan turn — it consumes this spec and produces a task breakdown with test cases; then `test-evals` writes those tests RED and `build` executes the tasks with per-task review at this work's tier (T_)."
+
+**Path B — single CLI agent orchestrate-and-review:** for builds dispatched to a single external coding CLI (Cursor, Codex, Claude Code), the spec feeds a self-contained implementation brief the CLI reads end-to-end — the brief draws WHAT/WHY and constraints from the spec, but holds the task breakdown itself. "Spec saved at `<path>`. Continuing to write a self-contained implementation brief — the brief consumes this spec as the WHAT/WHY source."
 
 Path A for multi-task per-task review gates; Path B for greenfield builds on a strong single-agent CLI where the orchestrate-and-review loop is the quality gate.
 
 ### Execution Handoff
 
-After saving the plan, offer the next step: **"Plan complete and saved. Next: `test-evals` writes the plan's test cases and runs them RED, then `build` dispatches a fresh subagent per task with T_ review. Shall I proceed?"** Execution is the `build` stage: fresh `delegate_task` per task; per-task review per tier (T2: one combined reviewer; T3: spec compliance, then code quality); proceed only when the verdicts approve. For S1 plans, offer **inline execution** with checkpoints.
+After saving the plan, state the plan path and continue without asking: **"Plan complete and saved at `<path>`. Continuing: `test-evals` writes the plan's test cases and runs them RED, then `build` dispatches a fresh subagent per task with T_ review."** Execution is the `build` stage: fresh `delegate_task` per task; per-task review per tier (T2: one combined reviewer; T3: spec compliance, then code quality); proceed only when the verdicts approve. For S1 plans, execute **inline** with checkpoints, without asking.
 
 ## Verification
 
-Before proceeding to implementation, confirm: the Self-review checklist above passes; the spec is saved under `.hermes/specs/`; the human has reviewed and approved it.
+Before proceeding to implementation, confirm: the Self-review checklist above passes; the spec is saved under `.hermes/specs/` and its path stated (then continue — no approval question; `orchestrator/references/unattended.md`); surviving `[NEEDS CLARIFICATION]` markers are resolved or carried as flagged assumptions.
 
 For the plan: tasks sequential, sized per `references/task-doctrine.md`, exact paths, interfaces, named test cases with expected values and their source, copy-pasteable production code where the HOW isn't obvious, exact commands with expected output, gates checked or justified.
 
