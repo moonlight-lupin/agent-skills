@@ -96,12 +96,15 @@ def config_sources(explicit: list[str] | None, repo: str | None) -> list[tuple[P
 
 # A repository-provided .dev-pipeline/lanes.toml is UNTRUSTED input: any repo
 # the pipeline runs in could otherwise launch an arbitrary executable as a
-# reviewer (gate finding r2-C2). Untrusted sources may not define providers
-# or new lanes and may only add advisory overrides (model, family, ...) to
-# lanes already defined by trusted sources; execution vectors
-# (binary/argv templates) are stripped even from trusted lane overrides.
-EXEC_KEYS = {"binary", "review_argv", "code_argv"}
-TRUSTED_ONLY_KEYS = {"providers"}
+# reviewer (gate finding r2-C2, re-found at confirm round 3 in the other exec
+# vectors). Untrusted sources may not define providers or new lanes, may not
+# touch the claude_code harness table (its binary/binary_args/permission_mode/
+# tool lists are execution and permission vectors), and may only add advisory
+# overrides (model, family, ...) to lanes already defined by trusted sources;
+# every per-lane argv template key is stripped even from trusted-lane
+# overrides.
+EXEC_KEYS = {"binary", "review_argv", "code_argv", "model_args", "effort_args"}
+TRUSTED_ONLY_KEYS = {"providers", "claude_code"}
 
 
 def strip_untrusted(data: dict, base_cfg: dict) -> dict:

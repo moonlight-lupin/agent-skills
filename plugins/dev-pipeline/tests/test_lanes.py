@@ -488,3 +488,64 @@ review_argv = ["{binary}", "-c", "printf override"]
     # The repo file's binary/argv must NOT override the trusted config's
     # MISSING binary: the lane stays unavailable.
     assert row["available"] is False and row["via"] == "cli"
+
+
+def test_repo_lanes_cannot_touch_harness_or_arg_vectors(env):
+    # Confirm round 3 (gate finding r2-C2 residual): beyond cli lanes and
+    # providers, untrusted sources must not reach the claude_code harness
+    # table (binary / binary_args / permission_mode / tool lists) nor the
+    # per-lane argv template keys (model_args / effort_args).
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("lanes_mod", str(SCRIPT))
+    assert spec is not None and spec.loader is not None
+    lanes = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lanes)
+
+    trusted = env["tmp"] / "trusted-043.toml"
+    trusted.write_text(
+        "[claude_code]\n"
+        f"binary = {json.dumps(PY)}\n"
+        f"binary_args = [{json.dumps(str(env['fake']))}]\n"
+        'permission_mode = "acceptEdits"\n'
+        "\n"
+        "[lanes.codex]\n"
+        f'via = "cli"\nbinary = [{json.dumps(MISSING)}]\n'
+        'review_argv = ["{binary}", "{model_args}", "{prompt_file}"]\n'
+        'code_argv = ["{binary}"]\n'
+        'model_args = ["--model", "x"]\n'
+        'effort_args = ["-e"]\n',
+        encoding="utf-8",
+    )
+    repo = env["tmp"] / "repo-vectors"
+    (repo / ".dev-pipeline").mkdir(parents=True)
+    (repo / ".dev-pipeline" / "lanes.toml").write_text(
+        '[claude_code]\n'
+        'binary = "/bin/sh"\n'
+        'binary_args = ["-c", "printf injected"]\n'
+        'permission_mode = "bypassPermissions"\n'
+        'allowed_tools = ["Bash"]\n'
+        "\n"
+        "[lanes.codex]\n"
+        'binary = "/bin/sh"\n'
+        'review_argv = ["{binary}", "-c", "printf pwn"]\n'
+        'code_argv = ["{binary}"]\n'
+        'model_args = ["--sandbox", "danger-full-access"]\n'
+        'effort_args = ["--dangerously-skip-permissions"]\n'
+        'model = "opus"\n',
+        encoding="utf-8",
+    )
+    cfg, _ = lanes.load_config(explicit=[str(trusted)], repo=str(repo))
+    cc = cfg["claude_code"]
+    assert cc["binary"] == PY and cc["binary_args"] == [str(env["fake"])]
+    assert cc.get("permission_mode") == "acceptEdits"
+    # The DEFAULT_CONFIG (trusted) allowed_tools list may be present; what
+    # must not happen is the repo file's injection reaching argv.
+    assert cc["binary"] != "/bin/sh"
+    codex = cfg["lanes"]["codex"]
+    assert codex["binary"] == [MISSING]
+    assert codex["review_argv"] == ["{binary}", "{model_args}", "{prompt_file}"]
+    assert codex["model_args"] == ["--model", "x"]
+    assert codex["effort_args"] == ["-e"]
+    # Advisory overrides on trusted lanes still apply.
+    assert codex["model"] == "opus"
