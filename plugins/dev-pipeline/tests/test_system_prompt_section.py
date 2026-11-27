@@ -127,6 +127,14 @@ def test_modern_host_registers_tools_and_section():
     assert len(ctx.sections) == 1
 
 
+def test_tools_present_but_section_api_absent():
+    """Fourth combo: modern tools wired, legacy prompt API — zero sections, load succeeds."""
+    ctx = _FakeCtx(prompt_api=False, tools=True)
+    _plugin().register(ctx)
+    assert len(ctx.tools) == 8
+    assert ctx.sections == []
+
+
 def test_hint_carries_no_pins_or_pipeline_detail():
     content = _plugin()._SYSTEM_PROMPT_SECTION_TEXT
     low = content.lower()
