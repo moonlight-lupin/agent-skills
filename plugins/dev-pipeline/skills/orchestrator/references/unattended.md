@@ -55,10 +55,12 @@ If a **new** important fork appears in a later stage — one that `grill` and
 the spec did not settle — stop, write it down as a **single numbered question
 with a recommended answer**, wait for the user's answer, fold it in, then
 continue unattended. Do not silently resolve it, and do not ask anything more
-than that one question. Budget exhaustion, a BLOCKED verdict, and a plan
+than that one question. Review (confirm) budget exhaustion, a `BLOCKED` verdict, and a plan
 contradiction stop the same way (they are already the review-commit gate's
 stop conditions —
-`review-commit/references/confirm-round-protocol.md`).
+`review-commit/references/confirm-round-protocol.md`). The session goal's TURN
+budget is a separate mechanical bound: running it out with clean progress is a
+raise, not a stop — `goal-binding.md` § Budget-exhaust semantics.
 
 Merging to the default branch, tagging a release, and deploying live are
 **always** important forks, at every tier: stop and put the decision to the

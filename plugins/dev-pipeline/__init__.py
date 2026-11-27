@@ -93,6 +93,7 @@ _BUNDLED_SKILLS = (
     "orchestrator",
     "review-lessons",   # v0.2: lessons library split out of review-commit
     "briefs",           # v0.3.1: brief templates, case tables, stamp script
+    "debug",            # v0.6.0: bug-shaped work — reproduce, failing test, minimal fix, tiered review
 )
 
 _PLUGIN_SKILL_NAMESPACE = "dev-pipeline"

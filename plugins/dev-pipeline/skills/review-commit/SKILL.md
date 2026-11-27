@@ -2,7 +2,7 @@
 name: review-commit
 description: "Use when the user says 'review loop N times', 'build then review', 'fix and re-review', 'review loop until clean', 'have cursor build, codex review', or wants the dev-pipeline review stage: a two-axis single pass (Standards + Spec, parallel, never merged) FIRST, then a budgeted confirm-round loop on the fix diffs until no BLOCKING/MAJOR is open, then the commit/deploy gate — three-reviewer gate before live deploy, release hygiene before tagging. Also triggers: 'two-axis review', 'confirm rounds', 'review diff until SHIP', 'N confirm rounds', ship gate. Unattended: after SHIP, commit, push the feature branch and open the draft PR without asking; merge, tag and live deploy are important forks."
 metadata:
-  version: 2.3.0
+  version: 2.4.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -100,6 +100,8 @@ Mechanics:
   (`confirm-round-protocol.md` § Three-reviewer deployment gate). This is the
   user's standing instruction and applies at every tier.
 - **Before tagging or releasing:** `references/release-hygiene.md`.
+- **Under a session goal:** the goal is not done while a gate fails or open BLOCKING/MAJOR findings exist; the CI/PR rules apply the same (`../orchestrator/references/goal-binding.md`).
+- **After push:** the CI watch-and-fix loop + PR hygiene rules (draft PR, split early, body = intent/test-evidence/risk tier, no force-push to shared branches, pre-existing failures stay named): `references/ci-loop-and-pr-hygiene.md`.
 
 ## Who writes the code during the loop
 
