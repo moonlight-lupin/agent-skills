@@ -7,9 +7,10 @@
 > the source archive at
 > `~/.hermes/skills/.curator_backups/dev-pipeline-consolidation-2026-10-19/software-development/batched-tdd-opus-review/references/`;
 > paths written as `references/<file>.md` resolve inside the test-evals skill.
-> Model pins live ONLY in `orchestrator/references/lanes.md` — the
-> former "User says / Model / Dispatch method" pin table below now points
-> there; only the dispatch methods it carried (workflow, not pins) remain.
+> Model pins live ONLY in the lanes config (`orchestrator/config/lanes.default.toml`,
+> plus a machine override) — role and rule text in `orchestrator/references/lanes.md`.
+> The former "User says / Model / Dispatch method" pin table below carried only
+> dispatch methods (workflow, not pins) and is long gone.
 
 ## Contents
 
@@ -44,24 +45,24 @@ the purpose and breaks trust.
 
 If the user says "Grok review" or "Codex review," use that model.
 
-**Opus dispatch priority (user preference, 2026-08-10; model updated 2026-09-23):**
-1. **Claude Code first** (`claude --model opus -p "..."`) — the
+**Batch reviewer dispatch priority:**
+1. **Claude Code first** (`claude --model "$BATCH_REVIEW_MODEL" -p "..."`) — the
    user's preferred method when available. Check `claude auth status` first
-   (works as root via OAuth). **CRITICAL pitfall**: Opus 5 in print mode
+   (works as root via OAuth). **CRITICAL pitfall**: the batch reviewer in print mode
    always tries to use tools (Read/Bash) on turn 1, even when content is
    piped via stdin and `--allowedTools ""` is set. This exhausts
    `--max-turns` without producing output. The working invocation:
    ```bash
    cat /tmp/review-prompt.txt /tmp/diff.txt | claude -p \
-     --model opus --effort medium --max-turns 1 \
+     --model "$BATCH_REVIEW_MODEL" --effort medium --max-turns 1 \
      --allowedTools "" --output-format json > /tmp/review.json
    ```
    The prompt MUST say "Do NOT use any tools. The entire diff is provided
    below. Just read it and write your review directly as text output."
    `--effort medium` is sufficient (high makes it worse). `--bare` mode
    breaks OAuth ("Not logged in") — do NOT use it. Parse `result` from
-   JSON output. Cost: ~$0.63 for a 1671-line / 5-commit diff.
-2. **Cursor CLI fallback** (`agent -p --force --model "$OPUS_REVIEW_MODEL" --sandbox disabled`, model from `lanes.md`)
+   JSON output.
+2. **Cursor CLI fallback** (`agent -p --force --model "$OPUS_REVIEW_MODEL" --sandbox disabled`, model from the lanes config — the single pin source)
    — when Claude Code is not installed or the turn-exhaustion can't be
    worked around. Takes 5–8 minutes — use `notify_on_complete=true`.
 3. **`delegate_task` subagent** — when both CLIs are unavailable or the diff
@@ -74,7 +75,7 @@ Which model each review phrase resolves to — "Opus review" / "Grok review" /
 in `orchestrator/references/lanes.md`; this file does not restate pins.
 What remains here is the dispatch method per review kind (workflow, not pins):
 
-- **Opus review** — Claude Code print mode first (`claude --model opus -p`,
+- **Batch review** — Claude Code print mode first (`claude --model "$BATCH_REVIEW_MODEL" -p`,
   stdin-piped prompt per the dispatch priority above), Cursor CLI fallback,
   `delegate_task` subagent last resort.
 - **Grok review** — Cursor CLI (`agent -p --force`, exact pin in
@@ -112,17 +113,17 @@ Include:
 
 ### 3. Per batch: TDD Loop 1 — Build (Cursor or Hermes)
 
-**Delegating the RED tests themselves to a cheap external model** (when the user names a model for test authoring, e.g. "use glm-5.3 to build the red tests"): write a brief file (target test count, per-criterion coverage list, exact import-target module + helper pattern, hard rules: test file only / no skips / run both the targeted file and the full suite), then call the model's API directly:
+**Delegating the RED tests themselves to a cheap external model** (when the user names a model for test authoring, e.g. "use <model X> to build the red tests"): write a brief file (target test count, per-criterion coverage list, exact import-target module + helper pattern, hard rules: test file only / no skips / run both the targeted file and the full suite), then call the model's API directly:
 
 ```python
 # Ollama Cloud, OpenAI-compatible; key in ~/.hermes/.env as OLLAMA_API_KEY
-# POST https://ollama.com/v1/chat/completions, model "glm-5.3"
+# POST https://ollama.com/v1/chat/completions, model "<the named model>"
 ```
 
 - **Set max_tokens ≥20000, not 8000.** Reasoning models on Ollama Cloud can burn the ENTIRE max_tokens budget on the `reasoning` field and return empty `content` — an 8K-token attempt produced 34K reasoning chars and zero output; with 20K the same prompt returned the full file on one call.
 - Strip markdown fences from the reply before writing; write to /tmp first, read it fully, then place it in the repo.
 - Verify the model's output yourself — RED state (every test fails naming the missing module), full suite shows only the new failures, ruff clean — before committing RED and dispatching the GREEN builder.
-- **Check the dispatch target hosts the named model BEFORE dispatching.** Run `agent --list-models` first when routing through Cursor CLI; GLM is not Cursor-hosted, so `--model "glm-5.3"` is rejected at dispatch and the nearest-name fallback (`glm-5.2-max`) is a substitution the user must be told about — flag it in the batch report, never present it as equivalence. Route GLM through its native API (the Ollama Cloud path above) and keep Cursor CLI for Cursor-hosted models only.
+- **Check the dispatch target hosts the named model BEFORE dispatching.** Run `agent --list-models` first when routing through Cursor CLI; an Ollama-Cloud-hosted id is not Cursor-hosted, so Cursor rejects the dispatch at dispatch and the nearest-name fallback (a look-alike tier id) is a substitution the user never asked for; surface iter must be told about — flag it in the batch report, never present it as equivalence. Route GLM through its native API (the Ollama Cloud path above) and keep Cursor CLI for Cursor-hosted models only.
 
 **If using Cursor** (user's preferred for multi-file builds):
 ```bash

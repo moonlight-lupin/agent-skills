@@ -119,9 +119,10 @@ Load one stage skill at a time — each is separate for context economy.
 
 - **Kanban orchestration** — `kanban-orchestrator` (devops) owns spreading
   tickets across worker lanes.
-- **Model pins** — `references/lanes.md` here. The outside `model-routing`
-  skill covers provider and budget choices; it was older than `lanes.md` at
-  v0.2 and should be reconciled with it.
+- **Model pins** — `config/lanes.default.toml` is the single source
+  (machine overrides merge on top); `references/lanes.md` carries lane roles
+  and rules only. The outside `model-routing` skill covers provider and
+  budget choices; reconcile it with the config before relying on its pins.
 - **Architecture health** — `improve-codebase-architecture` (outside skill).
 - **Mid-build doubt** — `doubt-driven-development` (outside skill).
 - **Briefs and case tables** — `briefs` (this plugin): every brief another

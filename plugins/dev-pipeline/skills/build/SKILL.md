@@ -127,7 +127,7 @@ consumes; the full-suite run and final commit happen there.
 
 ## Model pins and benchmarks
 
-Model pins live only in `orchestrator/references/lanes.md`; the benchmark table's single home is `model-routing/references/subagent-model-benchmarks.md` (this skill's `references/model-benchmarks.md` is a pointer).
+Model pins live only in the lanes config (`orchestrator/config/lanes.default.toml`, machine overrides merge on top); the benchmark table's single home is `model-routing/references/subagent-model-benchmarks.md` (this skill's `references/model-benchmarks.md` is a pointer). Role/rule text for lanes: `orchestrator/references/lanes.md`.
 
 ## Red Flags — Never Do These
 

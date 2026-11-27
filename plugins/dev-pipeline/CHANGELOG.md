@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.3 — lane source of truth and safe git
+
+- The lanes TOML is the single source for model names, CLI binaries, and invocation flags. `references/lanes.md` now carries lane roles, rules, and the degrade policy only — the dated model-pin table is gone (it had drifted from the shipped default).
+- New `tests/test_lane_pins.py`: the default config must declare all four CLI families (Claude Code, Cursor, Codex, Muse); lane Markdown must be free of dated pin tables, literal `--model <id>` commands, and versioned pin ids; no command block under the plugin may run `git add -A` (stage explicit paths; `git status --short` and a secrets scan before every commit — the antipattern warnings stay, the instructional blocks are gone).
+- Lesson dispatch examples now use env vars for model ids; pin-drift lessons point at the config instead of remembered tier labels.
+- Version-pointer prose updated wherever it claimed `lanes.md` held the pins.
+
 ## 0.4.2 — public hygiene, link integrity, create-gate doc trim
 
 - Scrubbed private project identities and operator initials from all prose: case-study citations genericised or dropped; those sessions are described without project names (the identity term list is a local denylist outside the public tree; the test skips identity screening where the denylist is absent).

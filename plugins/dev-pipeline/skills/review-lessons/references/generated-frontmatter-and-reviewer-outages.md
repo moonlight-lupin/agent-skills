@@ -11,7 +11,7 @@ re-auth; recovery needs a foreground `claude login` — unavailable mid-run.
 Working substitute: Cursor lane for review:
 
 ```bash
-agent -p --trust --model "cursor-grok-4.6-medium" \
+agent -p --trust --model "$REVIEW_MODEL" \
   "Review the diff at /tmp/<x>.diff. Also read <untracked files> directly \
 from the repo (untracked files are NOT in a git diff). Print findings with \
 severity BLOCKING/MAJOR/MINOR/NIT as your final message. Read-only." \

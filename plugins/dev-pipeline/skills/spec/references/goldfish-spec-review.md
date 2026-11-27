@@ -89,10 +89,10 @@ from an allowed file they did not read.
 6. Proceed to `test-evals` with all remaining Nits attached to the plan
    as open review findings, if the user accepted them.
 
-Model selection for the Goldfish children: the **Goldfish children** row in
-`orchestrator/references/lanes.md` § Delegate pins (model, provider, and the
-exact command). Every child runs on that pin, whatever model the dispatching
-session runs. Mechanism: `delegate_task` children cannot pin a per-child
+Model selection for the Goldfish children: the delegate pin in the lanes
+config (`orchestrator/config/lanes.default.toml`, machine override on top;
+roles in `orchestrator/references/lanes.md`). Every child runs on that pin,
+whatever model the dispatching session runs. Mechanism: `delegate_task` children cannot pin a per-child
 model (they inherit the parent's model), so dispatch each persona as a
 one-shot child with the command from that row:
 

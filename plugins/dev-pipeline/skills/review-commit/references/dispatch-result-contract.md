@@ -71,7 +71,7 @@ Attest (`scripts/attest_file.py attest`) every file the builder is
 forbidden to modify — the contract-test file, fixture files it must not
 generate differently, and BRIEF.md itself — BEFORE dispatching, and add
 `*.attest` to `.gitignore` first so the opaque hash sidecars never ride a
-`git add -A` into a commit. After the build exits, re-run the attestation
+blanket stage into a commit. After the build exits, re-run the attestation
 check; a TAMPERED contract file is a BLOCKING finding. Also verify the
 red baseline before dispatch: run the orchestrator-authored contract suite
 once, confirm every failure is a module-not-found naming the thing the

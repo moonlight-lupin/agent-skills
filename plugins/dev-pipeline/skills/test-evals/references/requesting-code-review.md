@@ -166,7 +166,7 @@ Return ONLY this JSON:
   \"logic_errors\": [],
   \"suggestions\": [],
   \"summary\": \"one sentence verdict\"
-}" --output-format json --allowedTools "Read,Bash(git *)" --max-turns 5 --model sonnet
+}" --output-format json --allowedTools "Read,Bash(git *)" --max-turns 5 --model "$REVIEW_MODEL"
 ```
 
 **Fallback:** If Claude Code is unavailable (auth expired, rate limited), fall back
@@ -241,7 +241,7 @@ After the fix agent completes, re-run Steps 1-6 (full verification cycle).
 If verification passed:
 
 ```bash
-git add -A && git commit -m "[verified] <description>"
+git add <explicit changed paths> && git commit -m "[verified] <description>"
 ```
 
 The `[verified]` prefix indicates an independent reviewer approved this change.

@@ -35,11 +35,14 @@ See `design-specs` skill for spec format. The brief is the spec's implementation
 ```bash
 cd <project-dir>
 git init
-git add -A
+git add <explicit scaffold paths>
+git status --short   # nothing in the stage you did not name
 git commit -m "initial: pre-build scaffold"
 ```
 
-Codex requires a git repo. Always init before dispatching the review.
+Codex requires a git repo. Always init before dispatching the review. Stage
+explicit paths: a blanket stage sweeps workflow scratch (review diffs, FIXES
+ledgers, attest sidecars) into the tree reviewers then read as your work.
 
 ### Step 2b — Identify integration boundaries (Hermes, before build)
 
@@ -173,7 +176,8 @@ The pattern: Hermes verifies *does it run + do tests pass + does it match the sp
 
 ```bash
 cd <project-dir>
-git add -A
+git add <the touchedFiles paths>
+git status --short   # nothing in the stage you did not name
 git commit -m "build: initial implementation (builder lane)"
 ```
 
