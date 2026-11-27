@@ -44,9 +44,10 @@ Batches are gated STRICTER than the runtime
     Accepting ``already exists`` rollbacks for those is the documented
     over-gating. A single-entry batch keeps full runtime-parity existence
     checking ONLY when it has a single create, no mutating operation, and no
-    other create of any category. Creates whose names are outside the
-    well-formed set are rejected regardless of the flag, and the flag is
-    left in place.
+    other create of any category. A MALFORMED GATED target (name outside the
+    well-formed set or an unsafe path) is blocked with or without the flag,
+    and the flag is left in place; a malformed UNGATED name passes with no
+    gate decision (the runtime's own validation rejects such names).
 
 Fail-closed contract
     A ``pre_tool_call`` callback that raises or times out blocks the tool

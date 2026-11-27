@@ -91,7 +91,7 @@ def _resolves(token: str, citing: Path) -> bool:
     m_skill = re.match(r"^(\w[\w-]*)/(references|scripts|config)/", token)
     if m_skill:
         # <skill>/references/x.md names the skill explicitly
-        cands.append(BASE / "skills" / m_skill.group(1) / token)
+        cands.append(BASE / "skills" / token)
     if token.startswith("goldfish/") or token.startswith("references/goldfish/"):
         cands.append(citing.parent / "references" / token)
     cands.extend(d / token for d in _skill_lookup_dirs())
@@ -162,6 +162,10 @@ def test_every_plugin_context_citation_resolves():
                 skip = True
             if not PLUGIN_CONTEXT_RE.search(tok_clean):
                 skip = True
+            if skip and re.fullmatch(r"tests/test_\w+\.py", tok_clean) and (BASE / tok_clean).is_file():
+                # a cited name that matches a BUNDLED plugin test must resolve;
+                # the placeholder exemption only covers target-project artifacts
+                skip = False
             if skip:
                 continue
             if not _resolves(tok_clean, f):
