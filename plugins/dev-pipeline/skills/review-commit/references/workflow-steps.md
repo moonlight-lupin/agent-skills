@@ -342,3 +342,7 @@ gh run list --limit 1 --json status,conclusion
 ```
 
 Wait for `conclusion: "success"` before telling the user the work is shipped. If CI fails, investigate before reporting success.
+
+## After push: CI loop and PR hygiene
+
+The CI watch-and-fix loop (watch, classify, reproduce locally, fix within the confirm budget, cap CI fix rounds at the tier budget; pre-existing failures stay named, never ignored) and the PR hygiene rules (draft PR, ~3,000-line split guide, body = intent/test evidence/risk tier, no force-push to shared or default branches): `ci-loop-and-pr-hygiene.md` — the single home, linked from the stage SKILL.

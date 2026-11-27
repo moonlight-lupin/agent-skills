@@ -2,7 +2,7 @@
 name: orchestrator
 description: "Use when the user asks how to approach building a feature or says 'build X', 'implement X', 'add feature X' without naming a phase ('SDD it', 'spec-driven development', 'run the dev pipeline', 'what phase comes next') — the dev-pipeline stage router: complexity S0-S3 and risk R0-R3 first, then grill → spec (+clarify, plan, tickets) → test-evals → build → review-commit (two-axis pass, budgeted confirm rounds, commit/deploy gate). Owns risk-based review routing, complexity-aware planning, the model lanes, and the unattended execution / important-fork rule."
 metadata:
-  version: 2.2.0
+  version: 2.3.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -78,7 +78,10 @@ Follow `references/engineering-evidence.md` for deterministic checks. Discover c
 | `spec` — tickets turn (optional) | tickets with blocking edges → `.hermes/tickets/` | want parallel work units |
 | **`test-evals`** | the RED tests for the plan's test cases, each citing its seam note, run to failure | after the plan, before `build` |
 | **`build`** | working code; per-task review per tier; final integration review; converge loop | plan (or tickets) ready and tests RED |
-| **`review-commit`** | two-axis pass → R1 → budgeted confirm rounds → commit/deploy gate | after the build, through commit and deploy |
+| **`debug`** | reproduced bug → failing test at the highest public seam → minimal fix → suite green → review-commit at tier | bug-shaped work: "fix this", "this is broken", failing test/stack trace, no feature ask |
+| **`review-commit`** | two-axis pass → R1 → budgeted confirm rounds → commit/deploy gate (+ the CI watch-and-fix loop and PR rules) | after the build or the fix, through commit and deploy |
+
+**Bug-shaped asks** route to `debug` (reproduce → failing test → minimal fix → suite → review-commit), bypassing grill/spec/test-evals/build; a feature ask inside a bug report is a fork — route the feature part back to the orchestrator.
 
 **Test ownership:** the plan names each test case (behavior, seam, expected
 value and its source); `test-evals` writes those tests and runs them RED;
@@ -88,13 +91,8 @@ TDD, and listed in its report.
 
 ## Two execution paths
 
-**Path A — decomposed (S2/S3 default):** grill when fuzzy → spec → plan →
-test-evals → build → review-commit. Use independent review at the risk-derived
-T-tier; R1 does not become T3 just because the project is large.
-
-**Path B — single CLI agent (S1 default, S2 greenfield when appropriate):**
-short plan or spec → tests → builder lane CLI → review-commit. R2/R3 still
-receive full respective review depth even in Path B.
+**Path A — decomposed (S2/S3 default):** grill when fuzzy → spec → plan → test-evals → build → review-commit; independent review at the risk-derived T-tier; R1 does not become T3 because the project is large.
+**Path B — single CLI agent (S1 default; S2 greenfield when appropriate):** short plan/spec → tests → builder-lane CLI → review-commit; R2/R3 keep full review depth in Path B.
 
 ## Unattended execution
 
@@ -111,16 +109,10 @@ answer, then continues.
 
 ## Routing rules
 
-1. Classify **both** complexity S and risk R using `risk-routing.md`.
-2. Plan and split work by S; stage selection does not determine reviewer count.
-3. Select reviewer lanes and confirm budget by R-derived T-tier.
-4. Run the Goldfish spec review for S2/S3 after the approved plan — without
-   prompting (the unattended default, `references/unattended.md`).
-5. Start tests RED where behavior changes; verify GREEN and full acceptance
-   after fixes. Never let an exhausted budget conceal failing tests.
-6. Escalate risk immediately upon discovering a new trust boundary.
-7. User-specified reviewers and budgets may add scrutiny; live deploy always
-   retains the three-reviewer gate.
+1. Classify **both** S and R via `risk-routing.md`; plan and split by S; lanes and confirm budget by the R-derived T-tier; stage selection does not determine reviewer count.
+2. Goldfish spec review runs for S2/S3 after the approved plan — without prompting (`references/unattended.md`).
+3. Tests start RED where behavior changes; verify GREEN plus full acceptance after fixes; never let an exhausted budget conceal failing tests.
+4. Escalate risk on any new trust boundary; user-specified reviewers may add scrutiny; live deploy always retains the three-reviewer gate.
 
 ## Quick start
 
@@ -132,15 +124,7 @@ Load one stage skill at a time — each is separate for context economy.
 
 ## Outside-skill pointers
 
-- **Kanban orchestration** — `kanban-orchestrator` (devops) owns spreading
-  tickets across worker lanes.
-- **Model pins** — `config/lanes.default.toml` is the single source
-  (machine overrides merge on top); `references/lanes.md` carries lane roles
-  and rules only. The outside `model-routing` skill covers provider and
-  budget choices; reconcile it with the config before relying on its pins.
-- **Architecture health** — `improve-codebase-architecture` (outside skill).
-- **Mid-build doubt** — `doubt-driven-development` (outside skill).
-- **Briefs and case tables** — `briefs` (this plugin): every brief another
-  agent acts on, stamped from commands; case tables for rules with state.
-- **Lessons from past loops** — `review-lessons` (this plugin; load one file
-  by case, on demand).
+- **Kanban orchestration** — `kanban-orchestrator` (devops).
+- **Model pins** — `config/lanes.default.toml` is the single source (machine overrides merge on top); `references/lanes.md` has lane roles only; outside `model-routing` covers provider/budget choices — reconcile before relying on its pins.
+- **Architecture health** — `improve-codebase-architecture`; **mid-build doubt** — `doubt-driven-development` (both outside skills).
+- **Briefs and case tables** — `briefs` (this plugin); **lessons** — `review-lessons` (this plugin; by case, on demand).

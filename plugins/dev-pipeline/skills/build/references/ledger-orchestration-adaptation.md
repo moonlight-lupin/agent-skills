@@ -52,3 +52,24 @@ behavioral regression.
 - ICLR 2027 reviews land (~Nov–Dec 2026): check acceptance and reviewer-identified flaws.
 - Independent replication of the Qwen3.8-27B 69.2→92.4 result.
 - A maintained standalone extraction of the orchestrator loop (would change Watch → Adopt).
+
+## Ledger curation rules (in-content rules verbatim from SKILL.md, v0.6.0)
+
+
+The ledger and shared report files coordinate work; they are not logs.
+
+- **Curate, do not append.** When updating the ledger or a report after a fix round, rewrite the affected section to state the current truth (e.g. replace an issue line with its resolution) instead of stacking a new line under the old one. A stale "issue open" line next to a "fixed" line makes the next reviewer re-litigate settled findings.
+- **Hard caps.** Keep `progress.md` under ~200 lines and each report file under ~8,000 characters. Near the cap, consolidate: collapse resolved findings into one summary line, drop superseded notes. Long files degrade the fresh-context readers (reviewers, converge) they exist for.
+- **No-progress guard.** If two consecutive fix/review rounds on the same task produce the same finding or the same BLOCKED reason, stop the loop and escalate to the human (or split the task) instead of dispatching a third identical round. This mirrors the upstream ledger-orchestration guard that stops the manager re-issuing the task it just handed out.
+
+## Durable ledger usage rules (verbatim from SKILL.md, v0.6.0)
+
+Conversation memory may not survive compaction. Track progress in a ledger file, not only in todos.
+
+- Ledger path: `.hermes/sdd/progress.md` at the repository root.
+- At skill start/resume, check whether the ledger exists. Tasks listed there as complete are DONE — do not re-dispatch them. Resume at the first task not marked complete.
+- When a task's reviews come back clean and your independent verification passes, append one line to the ledger in the same bookkeeping step:
+  `Task N: complete (commits <base7>..<head7>, spec PASS, quality APPROVED, verification <command/result>)`.
+- Record minor deferred review findings in the ledger so the final integration reviewer can triage them.
+- After compaction, trust the ledger and `git log` over memory.
+- `git clean -fdx` can destroy this git-ignored scratch ledger; if that happens, recover from `git log`, review report files, and test output.

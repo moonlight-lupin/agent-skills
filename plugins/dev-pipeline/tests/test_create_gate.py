@@ -515,21 +515,21 @@ def test_operations_empty_falls_back_to_flat_fields():
 # --- 4. Bundled stage names (R2 / round-3 fix #3) --------------------------------------
 
 
-def test_all_eight_bare_skill_names_are_gated():
+def test_all_nine_bare_skill_names_are_gated():
     """Bare stage names are NOT registered skill names — the loader registers the
     QUALIFIED names 'dev-pipeline:<stage>' (hermes_cli/plugins_content.py
     register_skill) — so every bare stage name is a genuinely new skill: gated.
-    Pinned to the EIGHT expected names (six stages + the v0.2 review-lessons + the v0.3.1 briefs
-    library): the test must fail if the bundled set grows or shrinks, not
+    Pinned to the NINE expected names (six stages + review-lessons + briefs + the v0.6.0 debug
+    route): the test must fail if the bundled set grows or shrinks, not
     silently follow it.
     """
     mod = _plugin()
     assert mod._BUNDLED_SKILLS == (
         "spec", "build", "review-commit", "test-evals", "grill", "orchestrator",
-        "review-lessons", "briefs")
+        "review-lessons", "briefs", "debug")
     with fixture_home() as (home, _skills):
         for stage in ("spec", "build", "review-commit", "test-evals", "grill", "orchestrator",
-                      "review-lessons", "briefs"):
+                      "review-lessons", "briefs", "debug"):
             r = _call({"action": "create", "name": stage,
                        "category": "software-development"})
             assert _is_block(r), (stage, r)
@@ -1202,11 +1202,11 @@ class _FakeCtx:
         self.hooks.append((event, cb))
 
 
-def test_register_wires_eight_skills_and_hook():
+def test_register_wires_nine_skills_and_hook():
     mod = _plugin()
     ctx = _FakeCtx()
     mod.register(ctx)
-    assert len(ctx.skills) == 8, ctx.skills
+    assert len(ctx.skills) == 9, ctx.skills
     assert ctx.skills == sorted(ctx.skills, key=lambda t: mod._BUNDLED_SKILLS.index(t[0]))
     assert len(ctx.hooks) == 1 and ctx.hooks[0][0] == "pre_tool_call"
 
@@ -1231,7 +1231,7 @@ def test_gateway_loader_package_fidelity():
         assert mod.__package__ == name, "relative-import chain must resolve in the loader context"
         ctx = _FakeCtx()
         mod.register(ctx)
-        assert len(ctx.skills) == 8 and len(ctx.hooks) == 1
+        assert len(ctx.skills) == 9 and len(ctx.hooks) == 1
     finally:
         sys.modules.pop(name, None)
         sys.modules.pop("hermes_plugins", None)
