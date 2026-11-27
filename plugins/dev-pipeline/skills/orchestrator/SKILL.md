@@ -1,8 +1,8 @@
 ---
 name: orchestrator
-description: "Use when the user asks how to approach building a feature or says 'build X', 'implement X', 'add feature X' without naming a phase ('SDD it', 'spec-driven development', 'run the dev pipeline', 'what phase comes next') — the dev-pipeline stage router: complexity S0-S3 and risk R0-R3 first, then grill → spec (+clarify, plan, tickets) → test-evals → build → review-commit (two-axis pass, budgeted confirm rounds, commit/deploy gate). Owns risk-based review routing, complexity-aware planning and the model lanes."
+description: "Use when the user asks how to approach building a feature or says 'build X', 'implement X', 'add feature X' without naming a phase ('SDD it', 'spec-driven development', 'run the dev pipeline', 'what phase comes next') — the dev-pipeline stage router: complexity S0-S3 and risk R0-R3 first, then grill → spec (+clarify, plan, tickets) → test-evals → build → review-commit (two-axis pass, budgeted confirm rounds, commit/deploy gate). Owns risk-based review routing, complexity-aware planning, the model lanes, and the unattended execution / important-fork rule."
 metadata:
-  version: 2.1.0
+  version: 2.2.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -14,10 +14,11 @@ metadata:
 # Orchestrator — Spec-Driven Development (SDD) Router
 
 A **router**: it independently classifies complexity and risk, then picks the stage, then you load that stage
-skill. It holds no stage content itself. It owns three single-home files every
+skill. It holds no stage content itself. It owns four single-home files every
 stage points to:
 
 - `references/risk-routing.md` — authoritative S0-S3 complexity and R0-R3 risk classification
+- `references/unattended.md` — the important-fork definition: the pipeline runs unattended and stops only at important forks
 - `references/size-tiers.md` — compatibility T0-T3 reviewer depths and budgets
 - `references/lanes.md` — lane roles and rules, which model builds and
   which review; model pins live in the lanes config
@@ -95,12 +96,26 @@ T-tier; R1 does not become T3 just because the project is large.
 short plan or spec → tests → builder lane CLI → review-commit. R2/R3 still
 receive full respective review depth even in Path B.
 
+## Unattended execution
+
+The pipeline runs **unattended**: stages do not pause at handoffs to ask
+"shall I proceed?". Stops happen only at *important forks* — public-contract
+changes, trust/auth/money/privacy/irreversible-data boundaries,
+expensive-to-reverse architecture, a relaxed constraint, or a ship-gate
+choice with residual risk. The full definition (and what is explicitly *not*
+a fork: stage handoffs, optional extras, push + draft PR after SHIP) lives
+in `references/unattended.md` — the single home every stage points to.
+`grill` settles every foreseeable fork before the spec; a *new* fork
+mid-pipeline stops the session with one numbered question and a recommended
+answer, then continues.
+
 ## Routing rules
 
 1. Classify **both** complexity S and risk R using `risk-routing.md`.
 2. Plan and split work by S; stage selection does not determine reviewer count.
 3. Select reviewer lanes and confirm budget by R-derived T-tier.
-4. Offer Goldfish spec review for S2/S3 after the approved plan.
+4. Run the Goldfish spec review for S2/S3 after the approved plan — without
+   prompting (the unattended default, `references/unattended.md`).
 5. Start tests RED where behavior changes; verify GREEN and full acceptance
    after fixes. Never let an exhausted budget conceal failing tests.
 6. Escalate risk immediately upon discovering a new trust boundary.

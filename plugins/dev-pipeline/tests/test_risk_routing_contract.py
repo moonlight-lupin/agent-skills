@@ -5,6 +5,7 @@ automatic runtime router. The orchestrator is a skill-driven policy.
 """
 from pathlib import Path
 import re
+import pytest
 
 BASE = Path(__file__).resolve().parents[1]
 REF = BASE / "skills/orchestrator/references"
@@ -41,7 +42,21 @@ def test_authoritative_stage_router_links_risk_reference():
 
 def test_manifest_version_and_review_budget_unchanged():
     manifest = (BASE / "plugin.yaml").read_text(encoding="utf-8")
-    assert re.search(r"(?m)^version: 0\.4\.3$", manifest)
+    assert re.search(r"(?m)^version: 0\.5\.0$", manifest)
     tiers = (REF / "size-tiers.md").read_text(encoding="utf-8")
     for expected in ("| T1 ", "| T2 ", "| T3 ", "three-reviewer gate"):
         assert expected in tiers
+
+
+def test_manifest_declares_hooks_tools_and_config_schema():
+    """Manifest integrity: the 0.5.0 bump must not drop release declarations."""
+    yaml = pytest.importorskip("yaml")  # plugin.yaml is YAML, not TOML
+    manifest = yaml.safe_load((Path(__file__).resolve().parents[1] / "plugin.yaml").read_text())
+    assert manifest.get("provides_hooks"), "manifest lost provides_hooks"
+    tools = manifest.get("provides_tools")
+    assert tools, "manifest lost provides_tools"
+    assert len(tools) >= 8, f"manifest lost engineering tool entries: {tools}"
+    schema = manifest.get("config_schema")
+    assert schema, "manifest lost config_schema"
+    for key in ("allow_project_checks", "required_checks", "install_allowlist"):
+        assert key in str(schema), f"manifest lost config_schema key {key}"

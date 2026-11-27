@@ -1,8 +1,8 @@
 ---
 name: test-evals
-description: "Use when writing tests or verifying behavior before code lands — the stage that writes the plan's tests and runs them RED before build; TDD red-green-refactor, the iron law (no production code without a failing test first), seam-first public-interface tests, test sizes, mock discipline. Or when the user says \"TDD N loops each batch Opus loop\", \"batch properly, Opus on each batch before commit\", \"implement, use TDD\", or wants multi-feature TDD with per-batch Opus review before commit. Supports both Hermes-builds and Cursor-builds. Covers pre-commit five-axis review, severity labels, and verifying external review findings before fixing."
+description: "Use when writing tests or verifying behavior before code lands — the stage that writes the plan's tests and runs them RED before build; TDD red-green-refactor, the iron law (no production code without a failing test first), seam-first public-interface tests, test sizes, mock discipline. Or when the user says \"TDD N loops each batch Opus loop\", \"batch properly, Opus on each batch before commit\", \"implement, use TDD\", or wants multi-feature TDD with per-batch Opus review before commit. Supports both Hermes-builds and Cursor-builds. Covers pre-commit five-axis review, severity labels, and verifying external review findings before fixing. Unattended: state the RED results and continue — stops only at important forks."
 metadata:
-  version: 2.0.0
+  version: 2.1.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -226,6 +226,10 @@ After completing any development workflow task, confirm:
 ## Stage-exit confirmation
 After this stage, the TDD verification checklist above must pass and
 every rule file listed in References must be reachable from this file.
+The stage runs unattended (`orchestrator/references/unattended.md`):
+after the RED run, state the test paths and results and continue to
+`build` — no stage-handoff question; a stop happens only at an important
+fork (one numbered question with a recommended answer).
 
 ## References
 

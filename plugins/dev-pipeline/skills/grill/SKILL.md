@@ -1,8 +1,8 @@
 ---
 name: grill
-description: "Use when a plan is fuzzy and needs hardening before a spec — decision-tree grilling in frontier rounds, every open decision put as a numbered question with a recommended answer, until shared understanding. Triggers: 'grill me', 'grill this plan', 'stress-test this', 'poke holes in this', 'harden this design', pre-spec hardening, unresolved decisions."
+description: "Use when a plan is fuzzy and needs hardening before a spec — decision-tree grilling in frontier rounds, every open decision put as a numbered question with a recommended answer, until shared understanding. The pipeline's home for collecting foreseeable important forks before the spec. Triggers: 'grill me', 'grill this plan', 'stress-test this', 'poke holes in this', 'harden this design', pre-spec hardening, unresolved decisions."
 metadata:
-  version: 1.1.0
+  version: 1.2.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -27,7 +27,12 @@ Grilling is an interview, not an execution — it produces alignment, not artifa
 - A plan feels roughly right but unresolved decisions are hiding in it
 - Before writing a spec (pre-spec hardening)
 - User wants to find soft spots in a design before committing to code
-- Before any S2/S3 build — and any S1 build whose ask is ambiguous — where the plan is still fuzzy and the domain language isn't settled (routing: `orchestrator/references/risk-routing.md`)
+- Before any S2/S3 build where the plan is still fuzzy, and before any S1
+  build whose ask is ambiguous — grill is where the session's foreseeable
+  **important forks** are collected and settled
+  (`orchestrator/references/unattended.md` is the definition's single home).
+  The session must not proceed to the spec while known important forks are
+  open.
 
 **Don't use for:**
 
@@ -107,7 +112,7 @@ Do not act on the plan until the user confirms you have reached a shared underst
 
 4. **Recompute the frontier.** Fold each answer in: settled decisions unblock their dependents; answers that opened new sub-decisions put them on the next frontier. Ask the next round. Repeat until nothing is left.
 
-5. **Confirm shared understanding.** When all branches are visited, summarize the resolved decisions and ask: "Have we reached a shared understanding? Should I proceed to [spec/plan/implementation]?"
+5. **Confirm shared understanding.** When all branches are visited, summarize the resolved decisions and ask the user to confirm the summary ("anything to adjust?"). Once the user confirms, move on to the next stage without asking permission — a stage handoff is not an important fork (`orchestrator/references/unattended.md`). The interview's questions are the only questions; after it closes, the session continues unattended.
 
 ## What makes a good grilling question
 
@@ -145,6 +150,8 @@ Grill is the **pre-spec hardening step** of the dev-pipeline pipeline. It comes 
 - Plan fuzzy → grill here first.
 - Plan already clear → skip straight to the `spec` stage — `spec` synthesizes what's already known, it doesn't interview.
 - Residual ambiguity after the spec is saved is resolved by the spec stage's inline **clarify** phase (`[NEEDS CLARIFICATION]` markers resolved with the user, answers folded back into the spec) — run after spec, before planning.
+
+The pipeline runs unattended around this interview (`orchestrator/references/unattended.md`): grill is the one stage that asks questions by design, and it exists so every later stage can run without pausing — foreseeable important forks are settled here, and the session does not proceed to spec while known ones are open.
 
 The canonical chain diagram and the whole-pipeline flow map live in the pipeline's orchestrator stage; this stage is the front door for building anything non-trivial.
 

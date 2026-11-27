@@ -1,8 +1,8 @@
 ---
 name: build
-description: "Use when executing an implementation plan with subagents — delegate_task a fresh implementer per task that makes the plan's RED tests pass, per-task review sized by risk-derived tier (one combined reviewer at T2, spec-compliance then code-quality at T3), durable progress ledger, converge loop, per-task independent verification. Or whenever dispatching an implementer on a ticket: state the ticket title before starting, dependency injection for mockability, SDK-style interfaces, cadenced inner/outer test loop. The build stage of the dev-pipeline."
+description: "Use when executing an implementation plan with subagents — delegate_task a fresh implementer per task that makes the plan's RED tests pass, per-task review sized by risk-derived tier (one combined reviewer at T2, spec-compliance then code-quality at T3), durable progress ledger, converge loop, per-task independent verification. Or whenever dispatching an implementer on a ticket: state the ticket title before starting, dependency injection for mockability, SDK-style interfaces, cadenced inner/outer test loop. The build stage of the dev-pipeline. Unattended: continuous execution between tasks, stops only at important forks."
 metadata:
-  version: 2.1.0
+  version: 2.2.0
   author: moonlight-lupin
   license: MIT
   platforms: [linux, macos, windows]
@@ -35,7 +35,7 @@ Fix loops inside a task follow `review-commit/references/confirm-round-protocol.
 
 **Narration:** Between tool calls, narrate at most one short line. The todo list, progress ledger, report files, and tool results carry the durable record.
 
-**Continuous execution:** Do not pause to check in with the human between tasks. Execute all tasks from the plan without stopping. The only reasons to stop are: `BLOCKED` status you cannot resolve, ambiguity that genuinely prevents progress, a plan contradiction requiring a `clarify` question, or all tasks complete. Do not ask "should I continue?" after each task.
+**Continuous execution:** Do not pause to check in with the human between tasks. Execute all tasks from the plan without stopping. The only reasons to stop are: `BLOCKED` status you cannot resolve, a **new important fork** that grill and the spec did not settle (`orchestrator/references/unattended.md` — stop with one numbered question and a recommended answer, then continue), ambiguity that genuinely prevents progress, a plan contradiction requiring a `clarify` question, or all tasks complete. Do not ask "should I continue?" after each task — a stage or task handoff is not an important fork.
 
 ## When to Use
 

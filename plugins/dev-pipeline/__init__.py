@@ -99,6 +99,22 @@ _PLUGIN_SKILL_NAMESPACE = "dev-pipeline"
 
 _FLAG_BASENAME = ".allow-create"
 
+# v0.5.0 discoverability: registered plugin skills are NOT listed in Hermes'
+# <available_skills> index — they load only via skill_view("dev-pipeline:<name>"),
+# so a plain "build X" would never reach the orchestrator. When the host
+# exposes register_system_prompt_section, register() adds ONE short router hint
+# to the system prompt. The hint carries NO pipeline detail, risk table, or
+# model names: everything heavy lives in the skill that skill_view loads on
+# demand. Keep it well under the host's max_chars (aim <= 800 characters).
+_SYSTEM_PROMPT_SECTION_ID = "dev-pipeline-orchestrator-hint"
+_SYSTEM_PROMPT_SECTION_TEXT = (
+    "dev-pipeline coding router: when the user asks to build, implement, add, "
+    "fix, debug, or review code and has not named a phase, load "
+    'skill_view("dev-pipeline:orchestrator") and follow it instead of '
+    "starting a free-form build. It classifies the ask and routes to the "
+    "right bundled stage skill."
+)
+
 # Mirror of the runtime name rule (tools/skill_manager_tool.py L112):
 # ``VALID_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9._-]*$')`` with
 # ``MAX_NAME_LENGTH = 64``. Dots allowed; uppercase and homoglyphs rejected.
@@ -811,7 +827,14 @@ def _on_pre_tool_call(tool_name: str = "", args=None, **kwargs):
 
 
 def register(ctx):
-    """Wire the bundled stage skills and the pre_tool_call create-gate hook."""
+    """Wire the bundled stage skills, the create-gate hook and the router hint.
+
+    The system-prompt hint (the only thing making the orchestrator reachable
+    from a session that never lists plugin skills) is guarded on
+    ``callable(ctx.register_system_prompt_section)`` — exactly like the
+    ``register_tool`` guard — so older Hermes that lacks the API still loads
+    the plugin, and a registration error logs a warning without failing load.
+    """
     # register_skill() resolves the path against the PROCESS CWD, not the plugin
     # dir (hermes_cli/plugins_content.py) — build absolute paths from __file__ so
     # registration works from any cwd, including the gateway. The loader
@@ -828,4 +851,14 @@ def register(ctx):
     if callable(getattr(ctx, "register_tool", None)):
         from .engineering import register_engineering
         register_engineering(ctx)
+    # Reachable router (v0.5.0): same callable() guard as register_tool, so a
+    # host without the API (older Hermes) still loads the plugin above.
+    if callable(getattr(ctx, "register_system_prompt_section", None)):
+        try:
+            ctx.register_system_prompt_section(
+                _SYSTEM_PROMPT_SECTION_ID, _SYSTEM_PROMPT_SECTION_TEXT)
+        except Exception as exc:
+            logger.warning(
+                "dev-pipeline: register_system_prompt_section(%s) failed: %s",
+                _SYSTEM_PROMPT_SECTION_ID, exc)
     logger.info("dev-pipeline plugin registered (pre_tool_call skill-create gate, %d bundled skills)", len(_BUNDLED_SKILLS))
