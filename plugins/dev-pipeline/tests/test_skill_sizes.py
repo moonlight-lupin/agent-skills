@@ -93,3 +93,18 @@ def test_review_commit_has_the_ci_loop_home():
     assert "ci-loop-and-pr-hygiene.md" in ws
     sk = (_skill_md("review-commit")).read_text()
     assert "ci-loop-and-pr-hygiene.md" in sk
+
+
+def test_goal_binding_reference_is_wired():
+    """The /goal integration: single-home reference with contract template, a
+    hard-gate rule, and a DERIVED (not fixed) turn budget."""
+    ref = PLUGIN_DIR / "skills" / "orchestrator" / "references" / "goal-binding.md"
+    text = ref.read_text()
+    for probe in ("outcome:", "verify:", "/goal gate add", "goals.max_turns",
+                  "never the target", "stop_when:", "fallback"):
+        assert probe in text, f"goal-binding.md lost: {probe}"
+    assert "N ≈" in text or "N =" in text or "base(" in text, "no budget formula"
+    orch = (_skill_md("orchestrator")).read_text()
+    assert "goal-binding.md" in orch, "orchestrator SKILL lost the goal-binding pointer"
+    for s in ("build", "review-commit"):
+        assert f"goal-binding.md" in (_skill_md(s)).read_text(), f"{s} lost the goal-binding pointer"

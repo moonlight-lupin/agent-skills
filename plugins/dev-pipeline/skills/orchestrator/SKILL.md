@@ -114,6 +114,15 @@ answer, then continues.
 3. Tests start RED where behavior changes; verify GREEN plus full acceptance after fixes; never let an exhausted budget conceal failing tests.
 4. Escalate risk on any new trust boundary; user-specified reviewers may add scrutiny; live deploy always retains the three-reviewer gate.
 
+## Goal binding
+
+Bind the pipeline to a session goal (`/goal`) with the plan's acceptance command as a
+hard gate and a turn budget computed from the plan (never the shipped 20-turn
+fallback): `references/goal-binding.md` — the single home for the contract template,
+the gate rule, and the budget formula. Set the goal at pipeline start; the chain
+consumes it (build: ledger shares the gate command; review-commit: done requires the
+gate green).
+
 ## Quick start
 
 Classify S and R → state derived T review tier → make the S-sized plan →

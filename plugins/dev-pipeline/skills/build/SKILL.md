@@ -58,6 +58,9 @@ Before Task 1, scan the plan once for contradictions and review traps; clean →
 
 ### 3. Durable Progress Ledger
 
+When the chain runs under a session goal, the ledger and the goal contract share the
+same acceptance command (goal binding: `../orchestrator/references/goal-binding.md`).
+
 Ledger rules and curation caps are in `references/build-doctrine.md` § ledger (curate-don't-append, ~200-line cap, no-progress guard) and `references/ledger-orchestration-adaptation.md`. Path: `.hermes/sdd/progress.md`; resume at the first task not marked complete; after compaction trust the ledger and `git log` over memory.
 
 ### 4. File handoffs

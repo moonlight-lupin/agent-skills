@@ -100,6 +100,7 @@ Mechanics:
   (`confirm-round-protocol.md` § Three-reviewer deployment gate). This is the
   user's standing instruction and applies at every tier.
 - **Before tagging or releasing:** `references/release-hygiene.md`.
+- **Under a session goal:** the goal is not done while a gate fails or open BLOCKING/MAJOR findings exist; the CI/PR rules apply the same (`../orchestrator/references/goal-binding.md`).
 - **After push:** the CI watch-and-fix loop + PR hygiene rules (draft PR, split early, body = intent/test-evidence/risk tier, no force-push to shared branches, pre-existing failures stay named): `references/ci-loop-and-pr-hygiene.md`.
 
 ## Who writes the code during the loop

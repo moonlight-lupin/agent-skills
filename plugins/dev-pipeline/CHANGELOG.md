@@ -13,6 +13,8 @@ New `debug` skill (ninth bundled skill):
 review-commit: CI watch-and-fix loop + PR hygiene:
 - New single home `ci-loop-and-pr-hygiene.md` (linked from the stage SKILL and `workflow-steps.md`): watch CI to completion, classify failures, reproduce locally, fix within the tier's confirm budget with capped CI fix rounds; pre-existing failures stay named, never ignored; PR rules: draft PR, ~3,000-line split guide, body = intent/test evidence/risk tier, no force-push to shared branches.
 
+- Goal binding (`orchestrator/references/goal-binding.md`, new single home): run the pipeline under `/goal` with the plan's acceptance command as a deterministic `/goal gate`; contract templates (outcome/verification/constraints/boundaries/stop_when); **turn budget derived from the plan per tier formula** — the shipped 20-turn value is a fallback, never the target; budget-exhaust escalation = raise with the same contract (clean) or the important-fork stop (open blockers).
+
 Verification: `pytest plugins/dev-pipeline/tests/ -q` green; secrets grep clean; forbidden-identity scan clean.
 
 # Changelog
