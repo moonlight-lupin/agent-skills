@@ -498,6 +498,22 @@ def test_extra_arg_dangerously_skip_permissions_any_spelling():
             run_arm.validate_extra_args([arg])
 
 
+def test_extra_arg_bypass_variants_rejected():
+    # The same bypass reaches argv through different flags (gate finding
+    # r2-C3): claude --permission-mode bypassPermissions, codex --sandbox
+    # danger-full-access.
+    for args in (
+        ["--permission-mode", "bypassPermissions"],
+        ["--permission-mode=bypassPermissions"],
+        ["--sandbox", "danger-full-access"],
+        ["--sandbox=danger-full-access"],
+    ):
+        with pytest.raises(run_arm.UsageError):
+            run_arm.validate_extra_args(args)
+    # A non-bypass sandbox mode stays allowed.
+    run_arm.validate_extra_args(["--sandbox=workspace-write"])
+
+
 def test_extra_arg_normal_values_pass():
     run_arm.validate_extra_args(["--verbose", "a plain value"])
     args = run_arm.build_claude_args("glm-5.3", "prompt", "reviewer", ["--verbose"])

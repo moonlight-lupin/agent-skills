@@ -209,7 +209,7 @@ def test_doctor_calls_existing_resolver_only_when_allowed():
     assert tool.configured_lanes(ROOT, {})["status"] == "not_probed"
     assert not ctx.calls
     ctx.config["allow_project_checks"] = True
-    script = Path(engineering.__file__).resolve().parent / "skills/orchestrator/scripts/lanes.py"
+    script = Path(str(engineering.__file__)).resolve().parent / "skills/orchestrator/scripts/lanes.py"
     command = "python3 " + shlex.quote(str(script)) + " --repo " + shlex.quote(ROOT) + " detect"
     ctx.responses[command] = {"exit_code": 0, "output": json.dumps({"lanes": [{"lane": "controller"}]})}
     assert tool.configured_lanes(ROOT, {})["lanes"] == [{"lane": "controller"}]
@@ -219,3 +219,105 @@ def test_delegation_plugin_install_default_deny():
     ctx.responses["hermes plugins list --json"] = {"exit_code": 0, "output": "[]"}
     tool = engineering.Engineering(ctx)
     assert tool.setup({"root": ROOT, "id": "advanced_delegation"})["status"] == "approval_required"
+
+def test_degraded_envelope_is_never_missing():
+    # Gate r2-C1: a degraded terminal envelope must never prove absence —
+    # an approved install would otherwise run inside a degraded backend.
+    ctx = Context()
+    tool = engineering.Engineering(ctx)
+    ctx.responses["command -v ruff"] = {"exit_code": 1, "environment_recreated": True}
+    assert tool.probe("ruff", ROOT, {})["installed"] == "unknown"
+    assert "error" in tool.setup({"root": ROOT, "id": "ruff"})
+
+def test_gate_fail_closed_without_get_config():
+    # Gate r2-O1: with no reachable config getter the operator's
+    # required_checks policy is unknowable — the gate must refuse, not
+    # silently fall back to diff-only.
+    class NoConfigContext:
+        """Minimal ctx with a terminal stub but NO get_config (gate r2-O1)."""
+
+        def __init__(self):
+            self.state = State()
+            self.head = HEAD
+            self.dirty = ""
+            self.responses = {}
+            self.calls = []
+
+        def _as_json(self, raw):
+            return json.dumps(raw, ensure_ascii=False)
+
+        def dispatch_tool(self, name, args, **kwargs):
+            cmd = args["command"]
+            self.calls.append((cmd, kwargs))
+            if cmd in self.responses:
+                return self._as_json(self.responses[cmd])
+            if cmd == "git rev-parse --show-toplevel":
+                return self._as_json({"exit_code": 0, "output": ROOT})
+            if cmd == "git rev-parse HEAD":
+                return self._as_json({"exit_code": 0, "output": self.head})
+            if cmd.startswith("git status"):
+                return self._as_json({"exit_code": 0, "output": self.dirty})
+            return self._as_json({"exit_code": 0, "output": ""})
+
+    tool = engineering.Engineering(NoConfigContext())
+    assert tool.has_config is False
+    assert "error" in tool.required(ROOT, {}, ["python"])
+    assert "error" in tool.gate({"root": ROOT})
+
+def test_non_string_output_fails_closed():
+    ctx = Context()
+    tool = engineering.Engineering(ctx)
+    for bad in (None, 5, {"nested": 1}):
+        ctx.responses["git rev-parse --show-toplevel"] = {"exit_code": 0, "output": bad}
+        assert "error" in tool.snapshot(ROOT, {})
+
+def test_probed_findings_exit_codes():
+    # Gate r2-O5: real findings must be recorded as FINDINGS, not ERROR.
+    assert engineering.classify({"exit_code": 1}, engineering.CHECKS["go_static"][2]) == "FINDINGS"
+    assert engineering.classify({"exit_code": 1}, engineering.CHECKS["go_tests"][2]) == "FINDINGS"
+    assert engineering.classify({"exit_code": 101}, engineering.CHECKS["rust_static"][2]) == "FINDINGS"
+    assert engineering.classify({"exit_code": 101}, engineering.CHECKS["rust_tests"][2]) == "FINDINGS"
+    assert engineering.classify({"exit_code": 1}, engineering.CHECKS["js_dependencies"][2]) == "FINDINGS"
+    # An exit code outside the findings set stays ERROR.
+    assert engineering.classify({"exit_code": 101}, engineering.CHECKS["go_tests"][2]) == "ERROR"
+
+def test_discover_language_detection_failure_contract():
+    import shlex
+    ctx = Context()
+    tool = engineering.Engineering(ctx)
+    cmds = []
+    for lang, ms in engineering.MARKERS.items():
+        cond = " || ".join("test -f " + shlex.quote(p) for p in ms)
+        cmds.append("if " + cond + "; then printf '%s\\n' " + lang + "; fi")
+    ctx.responses["; ".join(cmds)] = {"exit_code": 0, "output": "python\nnotalang"}
+    out = tool.discover({"root": ROOT, "ids": ["git"]})
+    assert out["languages"] is None
+    assert out.get("languages_note") == "Project language detection failed"
+    # The full inventory path requires language detection and fails closed.
+    assert "error" in tool.discover({"root": ROOT})
+
+class InventoryContext(Context):
+    def dispatch_tool(self, name, args, **kwargs):
+        cmd = args["command"]
+        if "__DEV_PIPELINE_INVENTORY_END__" in cmd:
+            rows = "\n".join(cid + "\t/usr/bin/" + cid for cid, data in engineering.CATALOG.items()
+                             if data[1] and cid not in self.missing)
+            return json.dumps({"exit_code": 0, "output": rows + "\n" + "__DEV_PIPELINE_INVENTORY_END__"})
+        return super().dispatch_tool(name, args, **kwargs)
+
+def test_doctor_full_path():
+    # Gate r2-O8: the default doctor path (inventory, required, sandbox,
+    # configured lanes) had no test coverage.
+    import shlex
+    ctx = InventoryContext()
+    ctx.config.update(allow_project_checks=True, required_checks=["python_lint"])
+    ctx.missing.add("ruff")
+    tool = engineering.Engineering(ctx)
+    script = Path(str(engineering.__file__)).resolve().parent / "skills/orchestrator/scripts/lanes.py"
+    command = "python3 " + shlex.quote(str(script)) + " --repo " + shlex.quote(ROOT) + " detect"
+    ctx.responses[command] = {"exit_code": 0, "output": json.dumps({"lanes": [{"lane": "claude"}]})}
+    out = tool.doctor({"root": ROOT})
+    assert out["required_checks"] == ["diff", "python_lint"]
+    assert out["missing_requirements"] == ["ruff"]
+    assert out["configured_lanes"]["status"] == "observed"
+    assert out["sandbox"]["isolation_verified"] is False
