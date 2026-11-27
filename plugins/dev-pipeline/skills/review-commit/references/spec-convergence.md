@@ -4,7 +4,7 @@ Multi-round review of a SPEC (or plan/design doc) until a SHIP verdict, before a
 
 ## Round 1: two diverse reviewers
 
-Dispatch at least two reviewers with different strengths on the SAME axes. Proven pair: reviewer lanes A (Codex) + B (Claude Code Opus) — models in `orchestrator/references/lanes.md`. They catch different classes:
+Dispatch at least two reviewers with different strengths on the SAME axes. Proven pair: reviewer lanes A (Codex) + B (Claude Code Opus) — models from the lanes config (`orchestrator/config/lanes.default.toml` + override). They catch different classes:
 - Codex: completeness, contradictions, scope risk, feasibility against the actual codebase (it cites file:line when given repo access via `codex exec --sandbox read-only -C <repo>`).
 - Claude Code Opus: invariant conflicts, untestable acceptance criteria, and mechanisms the codebase doesn't actually provide. Use `--permission-mode plan`; `--max-turns 25` if it must read files (each Read = 1 turn; name exactly which files).
 - Reviewer lane C (Muse) is a strong third eye — see `muse-review-quirks` for invocation. It excels at re-observation/race gaps and one-shot-event misses others pass over.

@@ -109,7 +109,7 @@ deferred like any other MINOR.
 
 ## Who reviews each confirm round
 
-- R1: every reviewer the tier uses (lanes in `orchestrator/references/lanes.md`).
+- R1: every reviewer the tier uses (roles in `orchestrator/references/lanes.md`; pins in the lanes config).
 - Confirm rounds: a reviewer is re-dispatched only if it still has an open
   BLOCKING/MAJOR finding, or the fix diff touches code its findings were
   about. A reviewer that returned SHIP with nothing open drops out.
@@ -235,7 +235,7 @@ review is going; it is also what the stop conditions read.
 ## Three-reviewer deployment gate
 
 User's standing instruction: before any LIVE deploy, all three reviewer lanes
-(A + B + C in `lanes.md`) must return SHIP.
+(A + B + C per the roles in the lanes config) must return SHIP.
 
 - Run it ONCE, as the gate round, after the loop has converged — not on every
   round (user-confirmed 2026-10-26). It reviews the NET diff (session base → HEAD), dispatched in

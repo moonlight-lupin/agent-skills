@@ -5,8 +5,8 @@ Standing rules for the build→review→fix→live cycle on Hermes plugins. A co
 ## Ship gates (all required, in order)
 
 1. Orchestrator verifies independently: full suite green in a writable environment, contract files byte-unchanged (`git diff` against the baseline commit), `py_compile` + YAML parse sweep, and a hand-run of every reproduced finding.
-2. Reviewer A confirm review (Codex, model and effort flag from `orchestrator/references/lanes.md`, `--sandbox workspace-write`): scoped to the fix diff, every original finding itemized RESOLVED/NOT-RESOLVED with file:line evidence, plus a differential hunt with reviewer-constructed inputs.
-3. Full-plugin gate BEFORE live install: the three-reviewer gate (reviewer lanes A + B + C in `lanes.md`; Muse judges from a pre-generated diff, timeout 1500), run once on the net diff after the fix loop converges (`review-commit/references/confirm-round-protocol.md`). All verdicts required at SHIP before the local install.
+2. Reviewer A confirm review (Codex, model and effort flag from the lanes config (`orchestrator/config/lanes.default.toml` + a machine override), `--sandbox workspace-write`): scoped to the fix diff, every original finding itemized RESOLVED/NOT-RESOLVED with file:line evidence, plus a differential hunt with reviewer-constructed inputs.
+3. Full-plugin gate BEFORE live install: the three-reviewer gate (reviewer lanes A + B + C per the roles in the lanes config; Muse judges from a pre-generated diff, timeout 1500), run once on the net diff after the fix loop converges (`review-commit/references/confirm-round-protocol.md`). All verdicts required at SHIP before the local install.
 4. No catalog submission until a live trial (~1 week, trial period noted in the design spec) passes review. The catalog PR is the LAST step, never the first.
 
 ## Fix-round contracts

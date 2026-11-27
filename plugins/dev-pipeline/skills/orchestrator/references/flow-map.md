@@ -25,4 +25,4 @@ Phase → stage:
 | implement, converge | `build` |
 | code review of a diff, fix loop, commit, deploy | `review-commit` |
 
-Model lanes for build and review: `lanes.md`.
+Model lanes for build and review: roles/rules in `orchestrator/references/lanes.md`; pins in the lanes config (`orchestrator/config/lanes.default.toml` + a machine override).

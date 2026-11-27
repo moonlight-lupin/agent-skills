@@ -1,6 +1,6 @@
 # Reviewer Dispatch — running the builder and reviewer CLIs
 
-How to dispatch the lanes in `orchestrator/references/lanes.md` so a round
+How to dispatch the lanes (roles/rules in `orchestrator/references/lanes.md`; pins in the lanes config) so a round
 produces a verdict instead of an environment error. Model names live in
 the lanes config (`orchestrator/config/lanes.default.toml` + a machine
 override); this file uses `$BUILDER_MODEL`, `$REVIEWER_A_MODEL` etc. for them.

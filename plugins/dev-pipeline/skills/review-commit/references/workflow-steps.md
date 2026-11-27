@@ -37,6 +37,7 @@ cd <project-dir>
 git init
 git add <explicit scaffold paths>
 git status --short   # nothing in the stage you did not name
+git diff --cached | grep -iE 'api[_-]?key|token|secret|password|BEGIN .*PRIVATE KEY' || true   # adjudicate any hit before committing
 git commit -m "initial: pre-build scaffold"
 ```
 
@@ -178,6 +179,7 @@ The pattern: Hermes verifies *does it run + do tests pass + does it match the sp
 cd <project-dir>
 git add <the touchedFiles paths>
 git status --short   # nothing in the stage you did not name
+git diff --cached | grep -iE 'api[_-]?key|token|secret|password|BEGIN .*PRIVATE KEY' || true   # adjudicate any hit before committing
 git commit -m "build: initial implementation (builder lane)"
 ```
 
