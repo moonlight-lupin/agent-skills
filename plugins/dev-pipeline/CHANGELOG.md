@@ -1,6 +1,11 @@
 # Changelog
 
-## 0.4.0 — engineering capability management (draft)
+## 0.4.1 — gate hardening from the full-plugin review (r2)
+
+- Untrusted lane config: a repository-provided `.dev-pipeline/lanes.toml` can no longer define routes, providers or executable commands, nor touch the claude_code harness table (binary, binary_args, permission_mode, tool lists) or per-lane argv template keys (model_args, effort_args); its only surface is per-lane model and effort labels on trusted lanes (family is trusted-only: it feeds the family-independence check for review seats). `validate_extra_args` denies permission/sandbox bypass flag variants (`--permission-mode bypassPermissions`, `--sandbox danger-full-access`).
+- Engineering evidence: degraded terminal envelopes never classify a capability as missing (no installs inside degraded backends); the gate refuses to run when the operator config is unreachable instead of falling back to diff-only; FINDINGS exit codes corrected against probed behavior (go vet/test 1, clippy/cargo-test 101, npm 1); non-string terminal `output` fails closed; JS checks fall back from the project-local binary to PATH; discover reports language-detection failure instead of a silent None; doctor fully covered by tests.
+
+## 0.4.0 — engineering capability management
 
 - Native capability inventory across coding CLIs, language toolchains, LSP, scanners and isolation. Explicit allowlist for fixed install recipes, version and auth status probes, read-only AST search, bounded terminal-backed checks, profile-scoped commit-specific evidence and engineering gate. Existing lane resolver remains authoritative. Operator controls network, project execution and required checks.
 - Integrate evidence collection with orchestration, build and review; preserve existing reviewer gates. Doctor invokes the existing lane resolver in the active backend. Detect and install official Bubblewrap and Advanced Delegation plugins when allowlisted. No unapproved installs or host-side execution.

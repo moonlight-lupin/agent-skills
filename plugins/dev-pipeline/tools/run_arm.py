@@ -339,7 +339,11 @@ def validate_extra_args(extra_args):
       ``--allowedTools``, so a second one would override the role's tool
       whitelist;
     * ``--dangerously-skip-permissions`` in any spelling (case, hyphens,
-      underscores, camelCase) — never passed to a bounded arm run.
+      underscores, camelCase) — never passed to a bounded arm run;
+    * permission/sandbox bypass spellings — ``--permission-mode
+      bypassPermissions`` (claude) and ``--sandbox danger-full-access``
+      (codex) reach the same bypass through different flags (gate finding
+      r2-C3), so deny on the distinguishing fragments instead of exact flags.
     """
     for arg in extra_args:
         if arg == "--allowedTools" or arg.startswith("--allowedTools"):
@@ -352,6 +356,11 @@ def validate_extra_args(extra_args):
             raise UsageError(
                 "refusing dispatch: --dangerously-skip-permissions (or a "
                 "variant spelling) is never passed to a bounded arm run"
+            )
+        if "bypass" in normalized or "dangerfullaccess" in normalized:
+            raise UsageError(
+                "refusing dispatch: permission/sandbox bypass flags are "
+                "never passed to a bounded arm run"
             )
 
 

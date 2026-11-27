@@ -71,36 +71,74 @@ def deep_merge(base: dict, over: dict) -> dict:
     return out
 
 
-def config_sources(explicit: list[str] | None, repo: str | None) -> list[Path]:
-    srcs = [DEFAULT_CONFIG]
+def config_sources(explicit: list[str] | None, repo: str | None) -> list[tuple[Path, bool]]:
+    """Returns (path, trusted) pairs. Only the bundled default, operator env,
+    machine config and explicitly named files are trusted; the repo-local
+    .dev-pipeline/lanes.toml is untrusted (see strip_untrusted)."""
+    srcs: list[tuple[Path, bool]] = [(Path(DEFAULT_CONFIG), True)]
     env = os.environ.get("DEV_PIPELINE_LANES")
     if env:
-        srcs.append(Path(env).expanduser())
+        srcs.append((Path(env).expanduser(), True))
     else:
         for cand in MACHINE_CANDIDATES:
             p = Path(cand).expanduser()
             if p.is_file():
-                srcs.append(p)
+                srcs.append((p, True))
                 break
     if repo:
         p = Path(repo) / ".dev-pipeline" / "lanes.toml"
         if p.is_file():
-            srcs.append(p)
+            srcs.append((p, False))
     for e in explicit or []:
-        srcs.append(Path(e).expanduser())
+        srcs.append((Path(e).expanduser(), True))
     return srcs
+
+
+# A repository-provided .dev-pipeline/lanes.toml is UNTRUSTED input: any repo
+# the pipeline runs in could otherwise steer reviewer dispatch. Confirm rounds
+# 2-4 walked the whole trust boundary: an untrusted source must not define
+# lanes, providers, or the claude_code harness table, must not change a
+# trusted lane's via/provider/blinding/family (family feeds the
+# family-independence check for review seats — confirm round 4 NEW N1) or any
+# argv template, and must not weaken approval policy (roles, ladder, review
+# seats/dispatch). The only untrusted surface is per-lane model/effort labels
+# on lanes already defined by trusted sources. model/effort values reach argv
+# as single list elements (no shell splitting), so they cannot smuggle flags.
+UNTRUSTED_TOP_KEYS = {"lanes"}
+UNTRUSTED_LANE_KEYS = {"model", "effort"}
+
+
+def strip_untrusted(data: dict, base_cfg: dict) -> dict:
+    out = copy.deepcopy(data)
+    for key in [k for k in out if k not in UNTRUSTED_TOP_KEYS]:
+        del out[key]
+    lanes = out.get("lanes") or {}
+    if isinstance(lanes, dict):
+        known = (base_cfg.get("lanes") or {}).keys()
+        for lid in list(lanes):
+            lane = lanes[lid]
+            if not isinstance(lane, dict):
+                del lanes[lid]
+            elif lid not in known:
+                del lanes[lid]  # untrusted sources cannot define new lanes
+            else:
+                for key in [k for k in lane if k not in UNTRUSTED_LANE_KEYS]:
+                    del lane[key]
+    return out
 
 
 def load_config(explicit=None, repo=None) -> tuple[dict, list[str]]:
     cfg: dict = {}
     used = []
-    for src in config_sources(explicit, repo):
+    for src, trusted in config_sources(explicit, repo):
         if not src.is_file():
             raise ConfigError(f"config file not found: {src}")
         try:
             data = tomllib.loads(src.read_text(encoding="utf-8"))
         except tomllib.TOMLDecodeError as e:
             raise ConfigError(f"{src}: {e}") from e
+        if not trusted:
+            data = strip_untrusted(data, cfg)
         cfg = deep_merge(cfg, data)
         used.append(str(src))
     validate(cfg)

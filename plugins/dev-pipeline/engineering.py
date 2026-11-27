@@ -69,16 +69,19 @@ CHECKS = {
     "python_security": ("bandit -r . -x ./.git,./.venv,./venv,./node_modules", "bandit", (1,), False),
     "python_dependencies": ("pip-audit", "pip_audit", (1,), True),
     "python_tests": ("pytest", "pytest", (1,), False),
-    "python_coverage": ("coverage run -m pytest && coverage report", "coverage", (), False),
-    "js_lint": ("./node_modules/.bin/eslint .", "eslint", (1,), False),
-    "js_types": ("./node_modules/.bin/tsc --noEmit", "tsc", (1, 2), False),
-    "js_dependencies": ("npm audit --json", "npm", (), True),
-    "js_tests": ("npm test", "npm", (), False),
-    "go_static": ("GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go vet ./...", "go", (), False),
-    "go_tests": ("GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./...", "go", (), False),
-    "rust_static": ("cargo clippy --offline --locked --all-targets -- -D warnings", "clippy", (), False),
-    "rust_tests": ("cargo test --offline --locked", "cargo", (), False),
-    "rust_dependencies": ("cargo audit", "cargo_audit", (), True),
+    # findings exit codes probed live 2026-11-27: go vet findings -> 1,
+    # go test failures -> 1, clippy -D warnings -> 101, cargo test failures
+    # -> 101; npm audit/npm test and cargo audit report findings exit 1.
+    "python_coverage": ("coverage run -m pytest && coverage report", "coverage", (1,), False),
+    "js_lint": ("if [ -x ./node_modules/.bin/eslint ]; then ./node_modules/.bin/eslint .; else eslint .; fi", "eslint", (1,), False),
+    "js_types": ("if [ -x ./node_modules/.bin/tsc ]; then ./node_modules/.bin/tsc --noEmit; else tsc --noEmit; fi", "tsc", (1, 2), False),
+    "js_dependencies": ("npm audit --json", "npm", (1,), True),
+    "js_tests": ("npm test", "npm", (1,), False),
+    "go_static": ("GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go vet ./...", "go", (1,), False),
+    "go_tests": ("GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test ./...", "go", (1,), False),
+    "rust_static": ("cargo clippy --offline --locked --all-targets -- -D warnings", "clippy", (101,), False),
+    "rust_tests": ("cargo test --offline --locked", "cargo", (101,), False),
+    "rust_dependencies": ("cargo audit", "cargo_audit", (1,), True),
     "secrets": ("gitleaks git --redact --no-banner --log-opts=-1", "gitleaks", (1,), False),
     "semgrep": ("semgrep scan --config auto --error --metrics=off", "semgrep", (1,), True),
     "trivy": ("trivy fs --scanners vuln,misconfig,secret --exit-code 1 .", "trivy", (1,), True),
@@ -128,11 +131,15 @@ def plan(args, **kwargs):
                               "No automatic install or network without operator policy.",
                               "Run acceptance tests and retain independent review."]})
 
-def classify(raw, findings=()):
+def degraded(raw):
+    """True for any terminal envelope that must never yield a determination."""
     if not isinstance(raw, dict):
-        return "ERROR"
-    if (raw.get("error") or raw.get("status") in ("degraded", "blocked", "running", "pending", "timeout")
-            or any(raw.get(k) for k in ("cwd_fallback", "environment_recreated", "promoted_from_foreground", "session_id"))):
+        return True
+    return bool(raw.get("error") or raw.get("status") in ("degraded", "blocked", "running", "pending", "timeout")
+                or any(raw.get(k) for k in ("cwd_fallback", "environment_recreated", "promoted_from_foreground", "session_id")))
+
+def classify(raw, findings=()):
+    if degraded(raw):
         return "ERROR"
     rc = raw.get("exit_code")
     if type(rc) is not int:
@@ -151,6 +158,7 @@ def valid_path(path):
 class Engineering:
     def __init__(self, ctx):
         self.ctx = ctx
+        self.has_config = callable(getattr(ctx, "get_config", None))
 
     def config(self, key, default):
         getter = getattr(self.ctx, "get_config", None)
@@ -166,6 +174,8 @@ class Engineering:
         try:
             raw = dispatcher("terminal", {"command": cmd, "workdir": root, "timeout": timeout}, **context)
             raw = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(raw, dict) and not isinstance(raw.get("output", ""), str):
+                return error("Malformed terminal response: output not a string")
             return raw if isinstance(raw, dict) else error("Malformed terminal response")
         except Exception as exc:
             return error("Terminal dispatch failed: " + type(exc).__name__)
@@ -222,7 +232,10 @@ class Engineering:
         command = " || ".join("command -v " + shlex.quote(a) for a in aliases)
         raw = self.dispatch(command, root, kw)
         if classify(raw) != "PASS":
-            state = "missing" if raw.get("exit_code") == 1 and not raw.get("error") and not raw.get("cwd_fallback") else "unknown"
+            # A degraded envelope is never proof of absence: it must never
+            # become "missing" or an approved install runs in a degraded
+            # terminal (gate finding r2-C1).
+            state = "missing" if raw.get("exit_code") == 1 and not degraded(raw) else "unknown"
             return {"id": cid, "category": category, "installed": state, "installable": bool(recipe)}
         path = raw.get("output", "").strip()
         if not path or "\n" in path or "\r" in path:
@@ -267,6 +280,8 @@ class Engineering:
             return error("Operator must enable allow_project_checks before executing version probes")
         langs = self.languages(root, kw)
         if not ids:
+            if langs is None:
+                return error("Project language detection failed (gate finding r2-M1)")
             # One shell dispatch for the default inventory; version and auth
             # probes are deliberately separate to avoid slow/networking CLIs.
             lines = []
@@ -303,7 +318,9 @@ class Engineering:
                     row.update(installed="present", operational="hermes_registry_installed")
         else:
             rows = [self.probe(cid, root, kw, version) for cid in dict.fromkeys(ids)]
-        return {"languages": langs, "capabilities": rows,
+        return {"languages": langs,
+                **({"languages_note": "Project language detection failed"} if langs is None and ids else {}),
+                "capabilities": rows,
                 "lane_candidates": [r["id"] for r in rows if r["category"] == "agent" and CATALOG[r["id"]][1] and r["installed"] == "present"],
                 "routing": "Use existing lanes.py detect/doctor/resolve; binary presence is not a lane approval or verified model family."}
 
@@ -415,6 +432,8 @@ class Engineering:
 
     def required(self, root, kw, langs=None):
         # Operator controls additional required checks, not model arguments.
+        if not self.has_config:
+            return error("Cannot read operator config (no ctx.get_config); refusing to assume required_checks empty (gate finding r2-O1)")
         if langs is None:
             langs = self.languages(root, kw)
         if langs is None:
@@ -531,6 +550,6 @@ def register_engineering(ctx):
         {"root": root, "check": {"type": "string", "enum": list(CHECKS)}}, ["root", "check"], wrap(service.run))
     reg("dev_pipeline_gate", "Fail closed on missing, failed or stale mandatory engineering evidence",
         {"root": root}, ["root"], wrap(service.gate))
-    reg("dev_pipeline_ast_search", "Read-only ast-grep structural search",
+    reg("dev_pipeline_ast_search", "Read-only ast-grep structural search; ast-grep may load project sgconfig.yml custom parsers",
         {"root": root, "language": {"type": "string", "enum": ["python", "javascript", "typescript", "tsx", "go", "rust"]},
          "pattern": {"type": "string"}}, ["root", "language", "pattern"], wrap(service.ast))

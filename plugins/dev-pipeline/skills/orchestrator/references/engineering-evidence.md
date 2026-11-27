@@ -39,22 +39,33 @@ to local execution. Git worktrees are not security sandboxes.
    availability, or compatibility. Doctor supports auth probes for Claude,
    Codex and gh only; other vendors remain unknown until a real dispatch.
 2. Run existing lanes.py detect/doctor/resolve in the actual coding environment.
-   Doctor invokes bundled lanes.py detect in the active backend when permitted;
-if the script is hidden, run the existing resolver in the coding environment.
-Lane detect now labels prerequisite readiness separately from authentication.
-Advanced Delegation plugin presence/installation is managed as a capability;
-it does not silently select specialist profiles or replace lane policy.
-Discovery supplies candidate CLIs but does not select lanes, infer model
+   Doctor invokes bundled lanes.py detect in the active backend when
+   allow_project_checks is enabled; if the script is hidden, run the existing
+   resolver in the coding environment. Lane detect labels prerequisite
+   readiness separately from authentication.
+   A repository-provided .dev-pipeline/lanes.toml is untrusted: it cannot
+   define lanes or providers, change lane routing (via, provider, blinding)
+   or executable commands, or alter review/approval policy; its only surface
+   is per-lane model and effort labels on lanes already defined by
+   trusted sources; family is trusted-only because it feeds the
+   family-independence check for review seats.
+   Advanced Delegation plugin presence/installation is managed as a capability;
+   it does not silently select specialist profiles or replace lane policy.
+   Discovery supplies candidate CLIs but does not select lanes, infer model
    families or modify routing config. Add new CLI lanes only with verified
    invocation and independent family identity. Native controller remains
    the existing fallback; do not count it as an independent model family.
+   Version probes require allow_project_checks.
 3. Inspect repository CI and plan checks; prefer configured CI/lockfiles.
    Use native LSP status/install and write_file/patch diagnostics. CLI status
    may describe a different process from the active gateway; no diagnostics
-   does not mean no errors. Use ast search for targeted structural navigation.
+   does not mean no errors. Use ast search for targeted structural navigation;
+   ast-grep may load project sgconfig.yml custom parsers.
 4. Run one check at a time through engineering_run. Record PASS, FINDINGS,
    ERROR or UNAVAILABLE, not a model's claim. Dirty-tree runs are useful during
-   build but cannot satisfy final gates. Rerun on final clean commit.
+   build but cannot satisfy final gates. Rerun on final clean commit. The
+   mandatory diff check covers the HEAD commit and uncommitted changes only;
+   multi-commit branches need repository CI or an explicit range check.
 5. Before push, tag, release or live deploy, require ENGINEERING_PASS from
    dev_pipeline_gate on that exact clean commit. Missing, failed or stale
    mandatory records are NOT_SHIP. Then apply all existing acceptance, review,
