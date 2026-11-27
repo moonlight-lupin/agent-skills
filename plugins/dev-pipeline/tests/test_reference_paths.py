@@ -3,19 +3,25 @@
 Two guarantees over ``plugins/dev-pipeline/``:
 
 1. Every file citation that CLAIMS to live in this plugin resolves to a real
-   file on disk. Citations to runtime artifacts, placeholder examples, upstream
-   Hermes sources, and outside skills are explicitly out of scope (see the
-   skip rules below).
-2. No private project identity (Pythia, Tablina, hermes-ERP, Chief of Staff,
-   GVS5H, score-actuals, CoS, operator initials as policy label) appears
-   anywhere in the plugin tree.
+   file on disk. Citations to runtime artifacts, placeholder examples (target-
+   project artifacts like ``src/models/user.py`` and ``tests/test_<name>.py``),
+   upstream Hermes sources, and outside skills are explicitly out of scope
+   (see the skip rules below).
+2. No private project identity appears in the plugin tree. The identity term
+   list is INTENTIONALLY NOT in this public file: the scanner reads one regex
+   per line from a local denylist (default ``~/.hermes/config/private-scrub-
+   denylist.txt``, override with env ``DEV_PIPELINE_DENYLIST``). Without the
+   file the identity test skips — the guard is enforced on machines that keep
+   the denylist, and the public repo never publishes what it screens for.
 """
+
 import re
 from pathlib import Path
+import os
+import pytest
 
 BASE = Path(__file__).resolve().parents[1]  # plugins/dev-pipeline
 CITE_EXT = (".md", ".py", ".toml", ".yaml", ".yml")
-SCAN_SUFFIXES = None  # scan every file; binary content decodes with errors="replace"
 
 CITE_RE = re.compile(r"(?:`([`~\w./-]+\.(?:md|py|toml|yaml|yml))`|\]\(([\w~/.-]+\.(?:md|py|toml|yaml|yml))\))")
 
@@ -52,11 +58,6 @@ PLUGIN_CONTEXT_RE = re.compile(
     r"|^\w[\w-]*/(references|scripts|config)/"
     r"|^goldfish/"
     r"|SKILL\.md$"
-)
-
-PRIVATE_NAMES_RE = re.compile(
-    r"(?i:\bpythia\b|\btablina\b|hermes-?erp|chief[ -]of[ -]staff|\bGVS5H\b|\bscore-actuals\b"
-    r"|\bpersis\b|\bargus\b|\bMH\b)|(?-i:\bCoS\b)"
 )
 
 _SKILL_SUBDIRS = None
@@ -104,15 +105,28 @@ def _citations(text: str):
             yield tok
 
 
+def _load_denylist():
+    """One regex per line; the file lives OUTSIDE the repo on purpose."""
+    path = Path(os.environ.get("DEV_PIPELINE_DENYLIST",
+                               Path.home() / ".hermes/config/private-scrub-denylist.txt"))
+    if not path.is_file():
+        return None
+    terms = [ln.strip() for ln in path.read_text().splitlines()
+             if ln.strip() and not ln.lstrip().startswith("#")]
+    return re.compile("|".join(f"(?:{term})" for term in terms))
+
+
 def test_no_private_project_identities():
+    deny_re = _load_denylist()
+    if deny_re is None:
+        pytest.skip("local denylist absent — the public tree must not publish "
+                    "the identity list it screens for (set DEV_PIPELINE_DENYLIST)")
     offenders = []
     for f in sorted(BASE.rglob("*")):
         if not f.is_file() or "__pycache__" in f.parts or f.suffix in (".pyc", ".pyo"):
             continue
-        if f.name == Path(__file__).name:
-            continue  # the scanner itself names the pattern list
         for i, line in enumerate(f.read_text(errors="replace").splitlines(), 1):
-            if PRIVATE_NAMES_RE.search(line):
+            if deny_re.search(line):
                 offenders.append(f"{f.relative_to(BASE)}:{i}: {line.strip()[:120]}")
     assert not offenders, "Private project identities found:\n" + "\n".join(offenders)
 

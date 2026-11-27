@@ -2,7 +2,7 @@
 
 ## 0.4.2 — public hygiene, link integrity, create-gate doc trim
 
-- Scrubbed private project identities and operator initials from all prose: case-study citations genericised or dropped; those sessions are described without project names (the identity list lives in tests/test_reference_paths.py).
+- Scrubbed private project identities and operator initials from all prose: case-study citations genericised or dropped; those sessions are described without project names (the identity term list is a local denylist outside the public tree; the test skips identity screening where the denylist is absent).
 - Fixed or removed every dangling in-plugin citation; Goldfish persona/standard paths now point at the bundled files (`goldfish/personas/…`, `goldfish/standards/…`).
 - New `tests/test_reference_paths.py`: fails when any plugin-context file citation fails to resolve, and fails when a private project identity is reintroduced.
 - Trimmed the create-gate module docstring (~9.4 KB → ~3.3 KB): gated scope, one-flag-one-create, existence-check contract, batch rules, fail-closed behavior and the two accepted risks remain; walker history already lives in CHANGELOG. Hook logic unchanged.

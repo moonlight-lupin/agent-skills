@@ -13,7 +13,8 @@ What is gated
     already-existing.
 
 One flag, one create
-    A create is allowed only when the single-use allow flag (active home's
+    A GATED create (well-formed new software-development target) is allowed
+    only when the single-use allow flag (active home's
     ``skills/.allow-create``, resolved at decision time) is present, and the
     flag is UNLINKED BEFORE the create passes. One flag authorizes exactly
     one create; an unlink failure blocks with the flag left in place. In a

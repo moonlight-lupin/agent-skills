@@ -135,7 +135,7 @@ Install by copying or symlinking `plugins/lumen/` into `~/.hermes/plugins/` (or 
 
 ### dev-pipeline
 
-A Hermes plugin that guards skill creation and carries the development pipeline as five bundled stage skills (`dev-pipeline:orchestrator` → `dev-pipeline:grill` → `dev-pipeline:spec` → `dev-pipeline:test-evals` → `dev-pipeline:build` → `dev-pipeline:review-commit`), plus a `review-lessons` library split out of the review stage. A `pre_tool_call` gate blocks bare-name creation of new software-development skills unless a single-use `.allow-create` flag is consumed — the loop concepts that used to live in a standalone build-review-loop skill now ship as these bundled skills.
+A Hermes plugin that guards skill creation and carries the development pipeline as six bundled stage skills (`dev-pipeline:orchestrator` → `dev-pipeline:grill` → `dev-pipeline:spec` → `dev-pipeline:test-evals` → `dev-pipeline:build` → `dev-pipeline:review-commit`) plus `briefs` and a `review-lessons` library. A `pre_tool_call` gate blocks bare-name creation of new software-development skills unless a single-use `.allow-create` flag is consumed — the loop concepts that used to live in a standalone build-review-loop skill now ship as these bundled skills.
 
 Install by copying or symlinking `plugins/dev-pipeline/` into `~/.hermes/plugins/` (or your profile's `plugins/`), then restart the gateway. Tests: `python3 -m pytest plugins/dev-pipeline/tests/`.
 

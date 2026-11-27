@@ -23,7 +23,7 @@ Read before every batch and every fix round. These rules gate RED authoring, rev
 
 7. **Opus finds what Grok misses** — in one batched round, the Grok
    4.5 High review of Batch A found 4 MAJOR findings (MASE denominator,
-   score_actuals pinball, seasonal_period wiring, TimesFM determinism).
+   forecast-ops wiring, seasonal_period wiring, TimesFM determinism).
    The subsequent Opus review found 3 additional MAJOR findings the Grok
    review missed: (a) `/v1/anomaly` holdout=0 DoS surface — route never
    passed `max_periods` to core despite supporting it, (b) work-cap
