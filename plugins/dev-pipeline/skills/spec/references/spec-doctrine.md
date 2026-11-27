@@ -111,17 +111,6 @@ Before handing off to the plan, attempt to resolve open questions:
 
 ---
 
-## Clarify phase (before planning)
-
-Before handing off to the plan, attempt to resolve open questions:
-
-1. List all `[NEEDS CLARIFICATION]` markers.
-2. Ask the user targeted questions, batching related ones — don't ping-pong one at a time.
-3. Fold answers back into the spec — marker becomes a resolved requirement or an explicit constraint.
-4. If the user is unavailable, keep the markers; the plan will see them. Never silently resolve them.
-
-**Do not plan on top of ambiguity you can resolve.** A spec with unresolved markers produces a plan with guessed requirements, which produces code doing the wrong thing confidently.
-
 ## Self-review checklist (the spec's unit tests)
 
 Run this on the completed spec:
