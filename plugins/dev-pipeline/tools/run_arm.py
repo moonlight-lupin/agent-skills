@@ -38,10 +38,15 @@ EXIT_QUOTA = 5
 ARMS = ("claude", "codex", "muse")
 ROLES = ("coder", "reviewer")
 
-DEFAULT_MODEL = {
-    "claude": "glm-5.3",
-    "codex": "gpt-6-sol",
-    "muse": "muse-spark-1.3",
+# Model fallback per arm family, from the environment ONLY. The lanes TOML
+# (skills/orchestrator/config/lanes.default.toml, overridden per machine) is
+# the single source for model pins; this harness carries none. Pass --model,
+# or set DEV_PIPELINE_ARM_MODEL_<FAMILY>; without either, dispatch errors
+# instead of guessing a pin.
+DEFAULT_MODEL_ENV_KEYS = {
+    "claude": "DEV_PIPELINE_ARM_MODEL_CLAUDE",
+    "codex": "DEV_PIPELINE_ARM_MODEL_CODEX",
+    "muse": "DEV_PIPELINE_ARM_MODEL_MUSE",
 }
 
 # Provider-routing / model-selection env keys stripped from reviewer (gate)
@@ -530,7 +535,11 @@ def _run(args):
             "concurrent dispatches never share one log"
         )
 
-    model = args.model or DEFAULT_MODEL[arm]
+    model = args.model or os.environ.get(DEFAULT_MODEL_ENV_KEYS[arm])
+    if not model:
+        raise UsageError(
+            f"--model is required for arm '{arm}' (the lanes config owns model "
+            "pins, not this tool; or set " + DEFAULT_MODEL_ENV_KEYS[arm] + ")")
     try:
         prompt = prompt_file.read_text(encoding="utf-8")
     except OSError as exc:

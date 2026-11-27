@@ -92,7 +92,7 @@ Apply when the change touches these areas:
 - [ ] SQLite table-rebuild migrations preserve dependent rows — rename dependent tables aside before DROP+rebuild, never rely on PRAGMA foreign_keys=OFF inside a transaction
 - [ ] Bulk operations are atomic — pre-validate all items, single-transaction insert, no per-item commits
 - [ ] Base-currency exchange rates forced to 1 — reject non-unit rates when transaction_currency == reporting_currency
-- [ ] Opus 529 handled with `--fallback-model sonnet` retry — review completes even when Opus is overloaded
+- [ ] Reviewer 529 handled with the configured `--fallback-model` retry — review completes even when the primary reviewer family is overloaded
 - [ ] Cursor API resource_exhausted handled — either retry later or Hermes builds directly with contract tests
 - [ ] Dual review findings synthesized into cross-model overlap table — both reviewers' findings addressed
 - [ ] Tests validating old mechanisms updated to validate new mechanisms after architecture changes

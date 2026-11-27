@@ -25,7 +25,7 @@ case comes up, never at stage start.
    reviewers run and how many confirm rounds the loop may spend. Say it:
    "T2: two reviewers, R1 + up to 2 confirm rounds."
 2. **Lanes** — which model builds and which review:
-   `orchestrator/references/lanes.md` (the only place model names live).
+   the lanes config (`orchestrator/config/lanes.default.toml` plus a machine override).
 3. **User overrides** — "review loop 3 times", "all three reviewers" — set the
    budget or reviewer set for this task.
 

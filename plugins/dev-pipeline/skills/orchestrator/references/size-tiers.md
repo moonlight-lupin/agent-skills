@@ -38,4 +38,4 @@ budget, redesign, or accept the remaining risk.
 
 See `review-commit/references/confirm-round-protocol.md` for the detailed
 loop and three-reviewer deployment gate. Model pins remain in
-`lanes.md`.
+the lanes config (`orchestrator/config/lanes.default.toml` + override).

@@ -4,7 +4,7 @@ Applies when `harness.coding = "claude-code"` (or `auto` with `claude` on
 PATH). The controller stops writing code, briefs and tests. The architect,
 the test-writer and the coder are blind `claude -p` dispatches. The controller
 keeps dispatch, verification, research and commits. Lanes, providers and
-models come from `lanes.md`. This file gives the rules for using them.
+models come from the lanes config (`orchestrator/config/lanes.default.toml` + a machine override). This file gives the rules for using them.
 
 ## Who does what
 

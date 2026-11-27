@@ -29,7 +29,7 @@ Each confirm-round prompt:
 - A RESOLVED-BUT residual that is BLOCKING/MAJOR is fix-in-this-pass; a MINOR one is recorded as a decision line or deferred — never silently accepted (an unstated one resurfaces next round).
 - Reproduce reviewer claims against the actual spec text before folding them in — a mis-cited line number once pointed at the wrong finding; the claim was real but lived elsewhere. Triage scope yourself rather than accepting findings as written.
 - Findings should narrow each round. If they grow, a fix round is thrashing — stop, re-read the spec yourself, and decide with the user.
-- Convergence across 11 user stories took 4 confirm rounds with ONE reviewer (Muse spark-1.3, effort=high, artifact-by-path prompts, bounded tool calls). Muse confirmed with per-finding RESOLVED/NOT-RESOLVED verdicts + NEW-N hunt each round; the NEW-N hunt caught real fix-induced regressions in every round that introduced them (skip-semantics contradiction, kv-read conflict, dedup-wakeup ambiguity). When a NEW finding is genuinely about the fix's own wording rather than the design, fix in place and re-confirm cheaply.
+- Convergence across 11 user stories took 4 confirm rounds with ONE Muse reviewer (lane-resolved pin, effort=high, artifact-by-path prompts, bounded tool calls). Muse confirmed with per-finding RESOLVED/NOT-RESOLVED verdicts + NEW-N hunt each round; the NEW-N hunt caught real fix-induced regressions in every round that introduced them (skip-semantics contradiction, kv-read conflict, dedup-wakeup ambiguity). When a NEW finding is genuinely about the fix's own wording rather than the design, fix in place and re-confirm cheaply.
 
 ## Ship criteria
 

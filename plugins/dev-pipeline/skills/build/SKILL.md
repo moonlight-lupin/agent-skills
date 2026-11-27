@@ -92,7 +92,7 @@ Everything pasted into a dispatch prompt — and everything a subagent prints ba
 
 ### 5. Model selection (summary)
 
-Use the least powerful model that can reliably handle each role; the full rules (tiering by task shape, turn count beats token price, and the negative result that fresh-subagent orchestration can hurt) are kept verbatim in `references/per-task-workflow.md`. Model pins live only in `orchestrator/references/lanes.md`; benchmarks in `model-routing` (`references/model-benchmarks.md` here is a pointer).
+Use the least powerful model that can reliably handle each role; the full rules (tiering by task shape, turn count beats token price, and the negative result that fresh-subagent orchestration can hurt) are kept verbatim in `references/per-task-workflow.md`. Model pins live only in the lanes config (`orchestrator/config/lanes.default.toml` + a machine override); benchmarks in `model-routing` (`references/model-benchmarks.md` here is a pointer).
 
 ## Per-task workflow (skeleton)
 

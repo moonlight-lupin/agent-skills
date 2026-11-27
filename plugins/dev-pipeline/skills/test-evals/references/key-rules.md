@@ -24,7 +24,7 @@ Read before the first batch of every run. These rules gate RED/GREEN order, the 
   first → run and confirm they fail for the right reason → implement until
   all pass. Not "implement then test."
 - **"Opus" = the current Opus generation** — the batch "Opus" lane in
-  `orchestrator/references/lanes.md` — not an older Opus, not Grok, not Codex.
+  the lanes config (`orchestrator/config/lanes.default.toml` + override) — the generation the reviewer's pin names, not a remembered tier label.
   This is non-negotiable.
 - **Review BEFORE commit, not after** — the review catches issues while you
   can still fix them without a separate fix commit.

@@ -8,10 +8,10 @@ reference with a release-hardening-shaped batch plan.
 
 | Batch | Item | Class | Build model | Test author |
 |---|---|---|---|---|
-| 1 | G2 CSRF protection | security code | grok-4.6-high | Hermes (red contract tests first) |
-| 2 | G1 backup archive format | money-adjacent code | grok-4.6-high (parallel) | Hermes (red contract tests first) |
-| 2 | G3+G4 docs + runbook | docs-only | composer-2.5 (parallel) | N/A |
-| 2 | G5 constraints file | release engineering | composer-2.5 (parallel) | builder (guard test) |
+| 1 | G2 CSRF protection | security code | the high-effort builder pin (lane-resolved) | Hermes (red contract tests first) |
+| 2 | G1 backup archive format | money-adjacent code | high-effort builder pin, parallel | Hermes (red contract tests first) |
+| 2 | G3+G4 docs + runbook | docs-only | lightest internal model, parallel | N/A |
+| 2 | G5 constraints file | release engineering | lightest internal model, parallel | builder (guard test) |
 | 3 | Codex+Opus dual review | review | — | — |
 
 Highest-risk/highest-leverage first: CSRF is the smallest security gap and

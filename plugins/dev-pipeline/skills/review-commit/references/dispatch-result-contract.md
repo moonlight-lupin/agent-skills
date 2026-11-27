@@ -36,7 +36,7 @@ workspace or `/tmp`), never committed:
   `[]` means the tree is clean. Untracked files are implementer output:
   no `git diff` shows them — open them directly.
 - `model` records the model that ACTUALLY ran, after any tier fallback
-  (the builder lane's fallback from `orchestrator/references/lanes.md` when the high tier hit resource_exhausted) —
+  (one effort tier below the builder lane's resolved pin after the high tier hit resource_exhausted) —
   same discipline as delegate-skills' `codexVersion`.
 - `notes` records dispatch deltas: fallback reasons, round lineage.
 

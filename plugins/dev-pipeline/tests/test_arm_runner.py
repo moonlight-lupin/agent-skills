@@ -589,7 +589,7 @@ def test_spawn_failure_record_carries_exit_4(tmp_path, monkeypatch):
         raise OSError("no such program")
 
     monkeypatch.setattr(run_arm.subprocess, "run", boom)
-    rc = run_arm.main(_base_argv(tmp_path, **{"--arm": "codex"}))
+    rc = run_arm.main(_base_argv(tmp_path, **{"--arm": "codex", "--model": "codex-test-model"}))
     assert rc == 4
     record = json.loads((tmp_path / "run.json").read_text())
     assert record["exit_code"] == 4

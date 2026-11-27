@@ -19,8 +19,8 @@ stage points to:
 
 - `references/risk-routing.md` — authoritative S0-S3 complexity and R0-R3 risk classification
 - `references/size-tiers.md` — compatibility T0-T3 reviewer depths and budgets
-- `references/lanes.md` — which model builds and which review (the only
-  place model names live)
+- `references/lanes.md` — lane roles and rules, which model builds and
+  which review; model pins live in the lanes config
 - `references/coding-principles.md` — how code gets written (think first,
   simplicity, surgical changes, goal-driven), the S0/S1 plan format, the
   unreachable-scenario definition, and the builder block every brief carries

@@ -37,7 +37,7 @@ features → TDD loops per batch → Opus review → fix → commit → push →
 ## CRITICAL: "Opus" Means the Current Opus Generation
 
 When the user says "Opus review," they mean the **current Opus generation** —
-the batch "Opus" lane in `orchestrator/references/lanes.md` (the only place the
+the batch review lane in the lanes config (`orchestrator/config/lanes.default.toml` + override; the
 exact model name lives). Do NOT substitute the builder model, an older Opus,
 or any other family. The user chose the Opus line for its
 architecture/security/correctness reasoning — using a different model defeats
@@ -68,11 +68,11 @@ If the user says "Grok review" or "Codex review," use that model.
 3. **`delegate_task` subagent** — when both CLIs are unavailable or the diff
    includes untracked new files that `git diff` misses.
 
-Cursor CLI Opus variants (high / high-fast / medium / low): check `agent --list-models`; the review default is in `lanes.md`.
+Cursor CLI effort variants (high / high-fast / medium / low): check `agent --list-models`; the review default pin is in the lanes config.
 
 Which model each review phrase resolves to — "Opus review" / "Grok review" /
 "Codex review" / the default when unspecified — is a model PIN: it lives only
-in `orchestrator/references/lanes.md`; this file does not restate pins.
+in the lanes config; this file does not restate pins.
 What remains here is the dispatch method per review kind (workflow, not pins):
 
 - **Batch review** — Claude Code print mode first (`claude --model "$BATCH_REVIEW_MODEL" -p`,
@@ -123,7 +123,7 @@ Include:
 - **Set max_tokens ≥20000, not 8000.** Reasoning models on Ollama Cloud can burn the ENTIRE max_tokens budget on the `reasoning` field and return empty `content` — an 8K-token attempt produced 34K reasoning chars and zero output; with 20K the same prompt returned the full file on one call.
 - Strip markdown fences from the reply before writing; write to /tmp first, read it fully, then place it in the repo.
 - Verify the model's output yourself — RED state (every test fails naming the missing module), full suite shows only the new failures, ruff clean — before committing RED and dispatching the GREEN builder.
-- **Check the dispatch target hosts the named model BEFORE dispatching.** Run `agent --list-models` first when routing through Cursor CLI; an Ollama-Cloud-hosted id is not Cursor-hosted, so Cursor rejects the dispatch at dispatch and the nearest-name fallback (a look-alike tier id) is a substitution the user never asked for; surface iter must be told about — flag it in the batch report, never present it as equivalence. Route GLM through its native API (the Ollama Cloud path above) and keep Cursor CLI for Cursor-hosted models only.
+- **Check the dispatch target hosts the named model BEFORE dispatching.** Run `agent --list-models` first when routing through Cursor CLI; an Ollama-Cloud-hosted id is not Cursor-hosted, so Cursor rejects the dispatch immediately and the nearest-name fallback (a look-alike tier id) is a substitution the user never asked for — surface it in the batch report, never present it as equivalenceer never asked for; surface iter must be told about — flag it in the batch report, never present it as equivalence. Route GLM through its native API (the Ollama Cloud path above) and keep Cursor CLI for Cursor-hosted models only.
 
 **If using Cursor** (user's preferred for multi-file builds):
 ```bash
@@ -290,5 +290,5 @@ The full report template and worked report examples live in
   (`review-commit/references/confirm-round-protocol.md`).
 - **`build` stage**: per-task subagent dispatch with per-task review sized by
   tier. This mode is simpler — one review per batch.
-- **Builder model**: the builder lane in `orchestrator/references/lanes.md`;
+- **Builder model**: the builder lane's pin in the lanes config;
   "Opus" overrides the reviewer, never the builder.

@@ -1,18 +1,25 @@
 # Lanes — roles and rules
 
-Model names, CLI binaries, and invocation flags live ONLY in
-`skills/orchestrator/config/lanes.default.toml` and never in this file, a
-stage skill, or a reference. When a pin changes, edit the TOML only.
+Lane configuration — lane definitions, CLI binaries, argv templates, and
+effort flags — lives in the lanes TOML (`skills/orchestrator/config/
+lanes.default.toml`) and never in this file, a stage skill, or a reference.
+The bundled default sets NO model pins: every lane ships with `model = ""`
+(the CLI's default). A model pin belongs in a machine override TOML that you
+own — see `config/examples/hermes-claude-code.toml` for a filled override.
+When a pin changes, edit your override TOML only.
 
 ## Where the config lives
 
-- Bundled default: `skills/orchestrator/config/lanes.default.toml` (the
-  resolved schema: dev-pipeline-lanes.v1).
-- Machine overrides, in precedence order: `$DEV_PIPELINE_LANES`,
-  `~/.hermes/dev-pipeline/lanes.toml`, `~/.config/dev-pipeline/lanes.toml`,
-  then project-level `<repo>/.dev-pipeline/lanes.toml` (untrusted surface:
-  per-lane model and effort labels only — see its trust rules in
+- Bundled default: `skills/orchestrator/config/lanes.default.toml`
+  (schema `dev-pipeline-lanes.v1`).
+- Env override: `$DEV_PIPELINE_LANES` REPLACES the machine files when set.
+- Otherwise the FIRST existing machine file is used — `~/.hermes/dev-pipeline/
+  lanes.toml` and `~/.config/dev-pipeline/lanes.toml` are alternatives, not
+  layers.
+- Project: `<repo>/.dev-pipeline/lanes.toml` merges on top (untrusted
+  surface: per-lane model and effort labels only — trust rules in
   `scripts/lanes.py`).
+- Explicit `--config` files are trusted, apply LAST, and win.
 - Resolver and doctor: `skills/orchestrator/scripts/lanes.py`. Check a
   machine with `python3 skills/orchestrator/scripts/lanes.py doctor`.
 
@@ -26,18 +33,24 @@ stage skill, or a reference. When a pin changes, edit the TOML only.
 | **Reviewer C** | re-probes prior cases, race/one-shot gaps | per config |
 | **Batch review** (test-evals batched loop) | per-batch review before commit | per config |
 
-All four CLI families (Claude Code, Cursor, Codex, Muse) stay declared in the
-default config. A lane whose CLI or key is missing is skipped at resolve
-time, so the default can list every lane a machine might use. The
-Claude-Code-only example file (`config/examples/hermes-claude-code.toml`)
-remains an override example for machines that have only that arm.
+All four model-family lanes (anthropic, openai, cursor, muse — driven by the
+Claude Code, Codex, Cursor, and Muse CLIs) stay declared in the default
+config. A lane whose CLI or key is missing is skipped at resolve time, so the
+default can list every lane a machine might use. The example override file
+(`config/examples/hermes-claude-code.toml`) shows a machine where Claude Code
+is the only CODING arm while other families still cover reviewer seats.
 
-When fewer than the tier's independent families resolve, the resolver keeps
-every lane but flags same-family seats: `review.same_family_seats` in the
-TOML governs them (`ask` by default; `allow` fills the seat and notes it;
-`never` refuses). T3 work and every live deploy still need THREE independent
-families — a degraded bench can ask, never silently widen. This documents
-the existing resolver behavior; it is not a policy change.
+When seats cannot be filled with independent model families, the resolver
+flags same-family fills; `review.same_family_seats` in the TOML governs them,
+documenting the existing resolver behavior (not a policy change):
+- `ask` (default): the seat is filled and the verdict becomes ASK-USER
+  (exit 3) — the gate surfaces the degraded bench instead of widening it.
+- `allow`: the seat is filled, the verdict stays OK, and a note records the
+  same-family fill.
+- `never`: the seat is left empty; the shortfall makes the verdict ASK-USER
+  (a gate holds the deploy until the user decides).
+A same-family fill never counts as an independent family; T3/gate panels are
+three seats, and only the override policy can let them share a family.
 
 ## Delegate pins (not lanes)
 
