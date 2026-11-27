@@ -1,7 +1,7 @@
 ## 0.6.0 — coding-capability upgrades
 
 Always-loaded text shrink (rules moved, none dropped):
-- `build` SKILL.md 19.6 KB → 7.9 KB: implementation doctrine, adjacent-work pointers, model pins, the full Red Flags compliance checklist, fix-loop + RED-test contract, and continuous-execution wording now live in `references/build-doctrine.md`; ledger curation + usage rules in `references/ledger-orchestration-adaptation.md`.
+- `build` SKILL.md 19.6 KB → 8.0 KB (cap 8.192): implementation doctrine, adjacent-work pointers, model pins, the full Red Flags compliance checklist, fix-loop + RED-test contract, and continuous-execution wording now live in `references/build-doctrine.md`; ledger curation + usage rules in `references/ledger-orchestration-adaptation.md`.
 - `spec` SKILL.md 18.5 KB → 7.7 KB: WHAT/WHY boundary table, seam-sketching rules, case-table rules, clarify phase, self-review checklist, Goldfish review, spec consumption, constitution gates, cross-artifact analyze, no-placeholders, and both handoff paths now live in `references/spec-doctrine.md`.
 - `test-evals` SKILL.md 15.0 KB → 6.2 KB: full TDD methodology, seam/mock discipline, batched TDD + Opus loop, pre-commit review, pattern integration, and the full Red Flags list now live in `references/test-doctrine.md`.
 - Hard cap 8 KB per always-loaded SKILL.md asserted by `tests/test_skill_sizes.py`.

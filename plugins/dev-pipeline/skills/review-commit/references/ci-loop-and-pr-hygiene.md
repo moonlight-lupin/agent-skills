@@ -9,7 +9,7 @@ After push:
 1. **Watch CI** to completion on the pushed head (background job with notification, not a busy poll). Which lane runs is deployment-specific; a branch with no CI configured ends this loop here — say so and proceed.
 2. **Read failing jobs** before changing anything: which job, which step, the exact error. A failure the local suite never produced (timeout, flaky network, resource limit) is classified as environment, not code.
 3. **Reproduce locally.** Run the failing job's command set locally. Local green + CI red is an environment/CI-configuration finding, not a fix round on code.
-4. **Fix with the same review budget rules** as the confirm rounds of this tier: one CI fix round = one commit addressing the classified failure, re-pushed, CI re-watched. Budget = the tier's confirm budget; when it is spent, stop and report the remaining failure with the analysis — do not keep re-pushing blind.
+4. **Fix with the same review budget rules** as the confirm rounds of this tier: one CI fix round = one commit addressing the classified failure, re-pushed, CI re-watched. Budget = a fresh confirm budget of the gating tier, separate from the review rounds already spent; when it is spent, stop and report the remaining failure with the analysis — do not keep re-pushing blind.
 5. Cap total CI fix rounds at the tier's confirm budget unless the user extends it. Never mark a milestone "done" with red CI on the head that claims it.
 
 **Pre-existing CI failures stay named, not ignored.** A failure present on `main` (or the merge base) before this branch's first push is a pre-existing failure: cite it by job name and error, link it in the PR body, and keep it visible in the final report. It is not "fixed" by ignoring, re-running until green, or marking the check expected-to-fail. Fixing pre-existing failures is a separate decision for the owner — it may be out of this build's scope, but it is never silent.
@@ -25,4 +25,4 @@ After push:
 
 ## Interplay with the confirm rounds
 
-CI failures found before the review gate are build defects — fix them inside the build loop and re-enter the gate. CI failures found after the gate has passed are handled by this loop with the confirm budget of the tier that gated the branch. Two loops, one budget.
+CI failures found before the review gate are build defects — fix them inside the build loop and re-enter the gate. CI failures found after the gate has passed are handled by this loop with a fresh confirm budget of the gating tier — separate from the review rounds that gated the branch. Two loops, one budget rule: each draws its own.

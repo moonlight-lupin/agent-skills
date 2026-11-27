@@ -27,7 +27,7 @@ Execute implementation plans by dispatching a fresh implementer subagent per tas
 
 **Tests:** the plan's tests are already RED (written by `test-evals`). The implementer makes them GREEN, does not rewrite them (attested), and adds a test only for behavior the plan missed, under TDD. Full fix-loop/RED-contract wording: `references/build-doctrine.md`.
 
-**Continuous execution:** run between tasks without pausing (stage wording: `references/build-doctrine.md`; fork-stop single home: `orchestrator/references/unattended.md`). Stop only for unresolvable `BLOCKED`, a new important fork, a genuine ambiguity, a plan contradiction, or completion.
+**Continuous execution:** run between tasks without pausing (wording: `references/build-doctrine.md`; fork-stop home: `orchestrator/references/unattended.md`). Stop only for unresolvable `BLOCKED`, an important fork, genuine ambiguity, a plan contradiction, or completion.
 
 ## When to Use
 
@@ -77,7 +77,8 @@ For EACH task: record the base commit → dispatch the implementer (task brief +
 
 ### Verify and Commit
 
-This is the `review-commit` stage's **Step C — Commit/deploy gate**, not a per-task step: never push without a review pass; never deploy live before the three-reviewer gate. The orchestrator's independent verification is the input that gate consumes.
+This is `review-commit`'s **Step C — Commit/deploy gate**, not a per-task step: never push without a review pass; never deploy live before the three-reviewer gate. The full-suite run and final commit happen there; the orchestrator's independent verification is the input that gate consumes.
+
 
 ## Red Flags — Never Do These
 

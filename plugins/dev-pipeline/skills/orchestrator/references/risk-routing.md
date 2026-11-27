@@ -58,7 +58,7 @@ waived merely because the original finding was resolved.
 
 ## Stage routing: complexity first, risk reviews afterward
 
-Bug-shaped work (failing test, stack trace, "fix this" with no feature ask) routes to the `debug` skill instead of the chain: reproduce, failing test at the highest public seam, minimal fix, full suite, then review-commit at the R-tier the bug's blast radius sets. Complexity classification still decides review depth for the fix.
+Bug-shaped work (failing test, stack trace, "fix this" with no feature ask) routes to the `debug` skill instead of the chain: reproduce, failing test at the highest public seam, minimal fix, full suite, then review-commit at the R-tier the bug's blast radius sets. Complexity sets only the fix's planning path; the R-tier alone sets review depth (S0/R3 is still T3).
 
 
 - S0: edit + verification, with risk-appropriate review (S0/R3 is still T3).

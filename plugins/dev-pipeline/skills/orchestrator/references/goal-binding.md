@@ -26,6 +26,21 @@ contract lines:
   stop_when: an important fork (one numbered question, then wait) — orchestrator/references/unattended.md
 ```
 
+Bug-route variant (S0/S1 no-plan — same fields, no plan path):
+
+```
+/goal <fix objective> — route via skill dev-pipeline:debug; no plan (bug-shaped)
+  outcome: bug reproduced; failing test at the highest public seam; minimal fix;
+  named test + full suite green; review-commit entered at the R-tier the bug's
+  blast radius sets; CI on the pushed head watched to completion (failures fixed
+  in the loop or named per ci-loop-and-pr-hygiene.md)
+  verify: cd <repo> && <named test command> && <full-suite command>
+  constraints: no test edited into passing; nothing outside the defect changed
+  boundaries: <the defect's file set / repo path>
+  stop_when: an important fork (one numbered question, then wait) — see
+  unattended.md § A new important fork mid-pipeline
+```
+
 Aliases the parser accepts: `verify:` = `verification:` (also `evidence`, `proof`),
 `done when:` = `outcome:`, `must not:`/`do not change:` = `constraints:`,
 `scope:`/`files:` = `boundaries:`. A bare free-form goal still works — but every
@@ -89,6 +104,6 @@ review-gate stop never requires burning the mechanical bound.
 ## What the goal must NOT contain
 
 - No fixed turn number inherited from the default — an explicit, computed one only.
-- No `stop_when` that stops on normal progress ("pause after each task" — the unattended anti-pattern; see unattended.md § "When to stop: important forks only" wording and the never-ask rule).
+- No `stop_when` that stops on normal progress ("pause after each task" — the unattended anti-pattern; unattended.md § What is NOT an important fork).
 - No secrets or personal paths in the goal text (it is stored per session and shown
   by `/goal show`).

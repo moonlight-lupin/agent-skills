@@ -69,6 +69,7 @@ single source of truth; this list exists so violations are checkable at a glance
 - Launch a bounded CLI arm job with `&` inside a foreground call — the subshell is killed when the call returns; arm jobs must run as Hermes background jobs with notify enabled
 - Share one log path between concurrent dispatches — each dispatch writes its OWN absolute log path
 - Run a gate claude review without route isolation (clean config dir without the settings `env` block) — `--model` resolves against the wrong provider
+
 ## Final verification rule
 
 **Review reports are not proof of completion.** Before marking a task done, validate achievement with an independent, re-runnable artifact:

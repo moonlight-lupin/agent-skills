@@ -29,7 +29,7 @@ Do the job the user invoked — specifying only, or planning only. The `grill` s
 
 ## When to Use
 
-- "write a spec for X", "plan X", "break this into tickets", "slice this up", "create tickets", "what are the work units"; a non-trivial build pinning intent first; a spec exists and you need the HOW; one context window may lose the work; parallelizable work units with dependency edges are wanted
+- "write a spec for X", "plan X", "plan mode", "break this into tickets", "slice this up", "create tickets", "what are the work units"; a non-trivial build pinning intent first; a spec exists and you need the HOW; one context window may lose the work; parallelizable work units with dependency edges are wanted
 
 **Don't use for:**
 
