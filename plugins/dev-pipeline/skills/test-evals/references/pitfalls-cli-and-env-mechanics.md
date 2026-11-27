@@ -29,9 +29,8 @@ Read before dispatching a build or review, opening a PR, or diagnosing a CI miss
    fixing a pre-existing CI failure, `grep -rn "<old-version>" tests/
    .github/` to find ALL hardcoded references. A single fix in the test
    file won't make CI green if the workflow YAML has its own inline Python
-   check with the same hardcoded pattern. See
-   `references/ci-pre-existing-failures.md` for the fastmcp version-pin
-   example.
+   check with the same hardcoded pattern. A fastmcp version-pin incident is
+   the canonical example.
 
 ### `delegate_task` subagent review is a viable Opus alternative
 
@@ -40,8 +39,8 @@ Read before dispatching a build or review, opening a PR, or diagnosing a CI miss
     that `git diff` misses, use `delegate_task` with an `output_schema` to
     dispatch a subagent review. The subagent can read the actual codebase on
     disk (not just the diff), cross-check the diff against the working tree,
-    and find issues the diff alone misses. In the Tablina semantic-cache+HyDE
-    session, the subagent noticed the on-disk code had already diverged from
+    and find issues the diff alone misses. In one semantic-cache subagent
+    review session, the subagent noticed the on-disk code had already diverged from
     the diff (a pre-emptive ACL fix) and correctly flagged the diff version
     as BLOCKING while confirming the working tree was safe. Pass enough
     context in the `goal` field — architecture facts, security boundaries,
@@ -93,7 +92,7 @@ Read before dispatching a build or review, opening a PR, or diagnosing a CI miss
     - Demand immediate write: "Write your review IMMEDIATELY to /tmp/opus-review-phaseN.md"
     - Specify the output format (Verdict, BLOCKING, MAJOR, MINOR, Summary)
     - Cap files to read (e.g. "Do NOT read more than 5 files")
-    **Use `--max-turns 25`, not 10.** Opus reads 1 file per turn (each Read call = 1 turn). With 4 files to review, that's 4 turns for reading + 1 for git diff + 1 for pytest = 6 turns before it can write. `--max-turns 10` was too low for any multi-file review — Opus hit the limit every time without writing output. 25 is the minimum for multi-file reviews. This was proven across CoS Phases 1-4C (2026-08-14/15): with max-turns 10, Opus failed 3/5 reviews (exhausted turns, no output file written). With max-turns 25, Opus succeeded 100% and produced detailed reviews (10-19K chars each).
+    **Use `--max-turns 25`, not 10.** Opus reads 1 file per turn (each Read call = 1 turn). With 4 files to review, that's 4 turns for reading + 1 for git diff + 1 for pytest = 6 turns before it can write. `--max-turns 10` was too low for any multi-file review — Opus hit the limit every time without writing output. 25 is the minimum for multi-file reviews. This was proven across a multi-phase build (2026-08-14/15): with max-turns 10, Opus failed 3/5 reviews (exhausted turns, no output file written). With max-turns 25, Opus succeeded 100% and produced detailed reviews (10-19K chars each).
 
 ### Parallel dispatch: Codex review + Cursor build for different files
 

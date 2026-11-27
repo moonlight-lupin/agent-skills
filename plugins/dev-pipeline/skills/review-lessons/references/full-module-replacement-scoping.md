@@ -164,5 +164,5 @@ without file locks.
 
 One session had 20+ caller files across `shared/scripts/` and `skills/` dirs.
 A brief that says "update all callers" without listing them will result in
-Cursor missing skill scripts (e.g. `skills/document-preparer/scripts/send_email.py`)
+Cursor missing project-local scripts (e.g. a bundled `skills/<name>/scripts/<tool>.py` helper)
 that import from the old modules. Always grep, always list.

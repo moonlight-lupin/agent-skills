@@ -31,10 +31,10 @@ dispatching the swarm.
 
 | Persona file (`references/goldfish/personas/`) | Role (one line) | Standard applied |
 |---|---|---|
-| `zoom_out.md` | Skeptical architect; kills over-engineering, dead-ends, speculative scope (YAGNI) | `standards/zoom-out-standard.md` |
-| `comprehension.md` | Naive fresh reader; flags anything not self-contained or hand-waved | `standards/feature-spec-standard.md` |
-| `design_critic.md` | Hostile senior critic; hidden risks, bottlenecks, unmitigated failure modes | `standards/feature-spec-standard.md` |
-| `implementation_readiness.md` | Tech lead as implementer; flags plans not immediately actionable | `standards/implementation-readiness-standard.md` |
+| `zoom_out.md` | Skeptical architect; kills over-engineering, dead-ends, speculative scope (YAGNI) | `goldfish/standards/zoom-out-standard.md` |
+| `comprehension.md` | Naive fresh reader; flags anything not self-contained or hand-waved | `goldfish/standards/feature-spec-standard.md` |
+| `design_critic.md` | Hostile senior critic; hidden risks, bottlenecks, unmitigated failure modes | `goldfish/standards/feature-spec-standard.md` |
+| `implementation_readiness.md` | Tech lead as implementer; flags plans not immediately actionable | `goldfish/standards/implementation-readiness-standard.md` |
 
 Off by default (enable only when the user asks):
 
@@ -110,7 +110,7 @@ report destination are unchanged; a `-Q` one-shot child is as isolated as a
 a tier's reviewer set. Record the dispatch route (one-shot child, model that
 ran) in the ledger.
 
-## Trial envelope (bounded trial —MH policy)
+## Trial envelope (bounded trial — operator policy)
 
 - Started 2026-10-25. Exclusions above are load-bearing-path exclusions:
   the swarm is advisory-only and adds no new mutation steps.
@@ -120,4 +120,4 @@ ran) in the ledger.
   acceptable; no persona prompt caused scope creep or question-asking.
 - If kept: fold the trigger line into the spec stage SKILL.md flow table
   permanently and drop this trial note. If dropped: delete `goldfish/`
-  and this file (ask before the deletion — MH policy).
+  and this file (ask before the deletion — operator policy).

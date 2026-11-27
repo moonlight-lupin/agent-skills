@@ -21,9 +21,9 @@ Read before every batch and every fix round. These rules gate RED authoring, rev
 
 ### Opus finds what Grok misses
 
-7. **Opus finds what Grok misses** — in the Pythia v0.3.0 session, the Grok
+7. **Opus finds what Grok misses** — in one batched round, the Grok
    4.5 High review of Batch A found 4 MAJOR findings (MASE denominator,
-   score_actuals pinball, seasonal_period wiring, TimesFM determinism).
+   forecast-ops wiring, seasonal_period wiring, TimesFM determinism).
    The subsequent Opus review found 3 additional MAJOR findings the Grok
    review missed: (a) `/v1/anomaly` holdout=0 DoS surface — route never
    passed `max_periods` to core despite supporting it, (b) work-cap
@@ -58,7 +58,7 @@ Read before every batch and every fix round. These rules gate RED authoring, rev
     and assert the new field is present. For MCP, use the `_call(server, tool,
     args)` helper pattern (see `test_mcp_ownership.py`). Without this, a
     regression that drops the field from the adapter is invisible to the
-    suite. In the Pythia v0.2.9 session, Codex caught this: the initial
+    suite. In one dogfooding session, Codex caught this: the initial
     `test_forecast_returns_warnings_array` only called `Forecaster.forecast()`
     directly — it would have passed even if both the REST and MCP changes were
     reverted. The fix was to add `test_result_json_includes_warnings` that
@@ -71,7 +71,7 @@ Read before every batch and every fix round. These rules gate RED authoring, rev
     - Phase N review finds Major X → deferred to Phase N+1
     - Phase N+1 contract test file includes `TestXFromPhaseN` class
     - TDD red → Cursor builds → test passes → item closed
-    This was proven in the CoS production roadmap (2026-08-14): Phase 1 Opus review deferred 5 majors to Phase 2, all 5 became Phase 2 contract tests, all fixed and verified.
+    This was proven in a multi-phase production roadmap build: Phase 1 Opus review deferred 5 majors to Phase 2, all 5 became Phase 2 contract tests, all fixed and verified.
 
 ### Review each batch's artifact against its DOWNSTREAM consumer, not just its RED contract.
 
@@ -81,7 +81,7 @@ Read before every batch and every fix round. These rules gate RED authoring, rev
 
 32. **Delegate RED-test authoring as brief → author → report, then GREEN as a separate brief that cites the report.** Write the authoring brief with the target test count, the spec sections to read, the existing test patterns to mirror, and hard rules (test file only, no implementation, no skipped tests). The author's ambiguity-resolution report — every spec ambiguity it hit, its chosen resolution, and its seam decisions (no invented kwargs, no audit assertions where no seam exists, fixture pattern to mirror) — becomes PART of the GREEN contract: cite it by path in the implementation brief so the builder inherits the seams instead of inventing different ones. Verify RED state yourself (right failure reason, full suite untouched) before dispatching GREEN. Batches structured this way land in one builder dispatch each with zero contract/builder conflicts.
 
-See `references/pythia-v03-review-findings.md` for a concrete session example:
+A concrete session example:
 10 MAJOR findings from Grok + 3 MAJOR from Opus across 2 batches, the
 pattern of what each review model catches (Grok: correctness + wiring;
 Opus: security + DoS + data-integrity), and what they miss.
@@ -100,7 +100,7 @@ Opus: security + DoS + data-integrity), and what they miss.
 
 ### Reachability: every new public function needs ≥1 production caller — contract tests passing proves nothing about wiring.
 
-36. **Reachability: every new public function needs ≥1 production caller — contract tests passing proves nothing about wiring.** Before declaring a feature build complete, grep each new public entry point for non-test callers (`grep -rn "func_name" shared/ --include="*.py" | grep -v test`). A full suite can be green while US acceptance criteria are unreachable in real runs: bind/skip/fire functions with zero callers mean the approval signal, GO verdicts, and scheduled firing never execute; and a hook that requires an `exit_code=`/`config=` kwarg is dead when the documented runtime signature supplies neither — tests that pass those kwargs by hand are exactly what makes dead paths look wired. Two closing gates per build: (a) drive at least one test per hook signal through the DOCUMENTED runtime signature with no extra kwargs; (b) any feature gate hanging on a runtime context field with no precedent in the repo (e.g. `context["session_id"]`) is a LIVE smoke-run-before-merge requirement — do not merge on synthetic evidence alone (procedure in `chief-of-staff-plugin-dev/references/release-checklist.md` § Live smoke run: branch the installed copy, drive modules directly, stop at the real approval gate, restore).
+36. **Reachability: every new public function needs ≥1 production caller — contract tests passing proves nothing about wiring.** Before declaring a feature build complete, grep each new public entry point for non-test callers (`grep -rn "func_name" shared/ --include="*.py" | grep -v test`). A full suite can be green while US acceptance criteria are unreachable in real runs: bind/skip/fire functions with zero callers mean the approval signal, GO verdicts, and scheduled firing never execute; and a hook that requires an `exit_code=`/`config=` kwarg is dead when the documented runtime signature supplies neither — tests that pass those kwargs by hand are exactly what makes dead paths look wired. Two closing gates per build: (a) drive at least one test per hook signal through the DOCUMENTED runtime signature with no extra kwargs; (b) any feature gate hanging on a runtime context field with no precedent in the repo (e.g. `context["session_id"]`) is a LIVE smoke-run-before-merge requirement — do not merge on synthetic evidence alone (procedure: branch the installed copy, drive modules directly, stop at the real approval gate, restore).
 
 ### Pin ordering/docstring contracts with exact-sequence assertions, not membership checks.
 

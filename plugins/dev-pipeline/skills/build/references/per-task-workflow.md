@@ -55,7 +55,7 @@ Use the least powerful model that can reliably handle each role. When the dispat
 
 **Turn count beats token price.** The cheapest model can take 2–3× more turns on multi-step work. Use a mid-tier model as the floor for reviewers and for implementers working from prose descriptions. Use the cheapest tier only when the plan text is complete enough that implementation is transcription plus testing, or for isolated single-file fixes.
 
-**Orchestration can hurt (negative result, GVS5H).** Fresh-subagent delegation is not a universal win. In the GVS5H benchmark one model regressed under orchestration: transcripts showed it discarding correct approaches during deliberation and letting unverified worker output overwrite correct work. Watch for the failure mode: if an implementer's post-fix output is worse than its first attempt, stop adding review rounds — diff the attempts, keep the better one, and consider running the task single-context instead.
+**Orchestration can hurt (negative result).** Fresh-subagent delegation is not a universal win. In one benchmark one model regressed under orchestration: transcripts showed it discarding correct approaches during deliberation and letting unverified worker output overwrite correct work. Watch for the failure mode: if an implementer's post-fix output is worse than its first attempt, stop adding review rounds — diff the attempts, keep the better one, and consider running the task single-context instead.
 
 ### 6. Per-Task Workflow
 
@@ -478,4 +478,4 @@ Both references adapted from gsd-build/get-shit-done (MIT © 2025 Lex Christophe
 
 Other references (load when relevant):
 - **Unauthenticated coding CLIs** — fallback order and cut-over rules live in the `cli-auth-fallback` skill (outside skill; extends "If Local Coding CLIs Are Unauthenticated" in §Handling Issues).
-- **`references/ledger-orchestration-adaptation.md`** — adaptation notes for the GVS5H ledger-based zero-shot self-orchestration port (which §3b Ledger curation rules came from).
+- **`references/ledger-orchestration-adaptation.md`** — adaptation notes for the upstream ledger-based zero-shot self-orchestration port (which §3b Ledger curation rules came from).

@@ -1,6 +1,6 @@
 # Example machine config: Hermes as the controller, with Claude Code as the sole
 # coding arm on env-routed providers.
-# It is MH's setup, from the design doc "Claude Code as Sole Coding Arm" (2026-11-13).
+# Example configuration for a Claude-Code-only machine.
 # To use it, copy it to ~/.hermes/dev-pipeline/lanes.toml and edit it there.
 # It holds env var NAMES only. Keys stay in the environment (~/.hermes/.env).
 #
@@ -76,7 +76,7 @@ family = "xai"
 model = "muse-spark-1.3"
 effort = "high"
 
-# The Goldfish spec-review children keep their Hermes one-shot (pinned by MH on 2026-10-26)
+# The Goldfish spec-review children keep their Hermes one-shot
 [lanes.goldfish-glm]
 via = "cli"
 binary = ["hermes"]
@@ -113,5 +113,5 @@ T3 = 3
 gate = 3                  # codex + opus + cursor or muse (the three-reviewer gate is kept)
 
 [pin]
-plugin_version = "0.4.0"
+plugin_version = "0.4.2"
 # master_path = "~/.hermes/plugins/dev-pipeline"   # set it on the Claude Code copy, so it checks against the Hermes master

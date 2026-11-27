@@ -78,13 +78,13 @@ Conversation memory may not survive compaction. Track progress in a ledger file,
 - After compaction, trust the ledger and `git log` over memory.
 - `git clean -fdx` can destroy this git-ignored scratch ledger; if that happens, recover from `git log`, review report files, and test output.
 
-### 3b. Ledger curation rules (ported from GVS5H)
+### 3b. Ledger curation rules (ported from an upstream ledger-orchestration pattern)
 
 The ledger and shared report files coordinate work; they are not logs.
 
 - **Curate, do not append.** When updating the ledger or a report after a fix round, rewrite the affected section to state the current truth (e.g. replace an issue line with its resolution) instead of stacking a new line under the old one. A stale "issue open" line next to a "fixed" line makes the next reviewer re-litigate settled findings.
 - **Hard caps.** Keep `progress.md` under ~200 lines and each report file under ~8,000 characters. Near the cap, consolidate: collapse resolved findings into one summary line, drop superseded notes. Long files degrade the fresh-context readers (reviewers, converge) they exist for.
-- **No-progress guard.** If two consecutive fix/review rounds on the same task produce the same finding or the same BLOCKED reason, stop the loop and escalate to the human (or split the task) instead of dispatching a third identical round. This mirrors GVS5H's guard that stops the manager re-issuing the task it just handed out.
+- **No-progress guard.** If two consecutive fix/review rounds on the same task produce the same finding or the same BLOCKED reason, stop the loop and escalate to the human (or split the task) instead of dispatching a third identical round. This mirrors the upstream ledger-orchestration guard that stops the manager re-issuing the task it just handed out.
 
 ### 4. File handoffs
 
@@ -122,7 +122,7 @@ consumes; the full-suite run and final commit happen there.
 - `references/simplify-code.md` — parallel 3-agent cleanup (reuse / quality / efficiency), user-asked only; the review gate before commit is the review-commit stage's job
 - `references/cross-project-quality-patterns.md` — recurring DRY / architectural / security patterns, applied as a checklist when writing or reviewing code
 - `references/implementation-hygiene.md` — verify requested command surfaces (not just canonical files), verify known bugs before fixing, batch read → batch fix
-- `references/gates-taxonomy.md` / `references/ledger-orchestration-adaptation.md` — gate vocabulary (Pre-flight / Revision / Escalation / Abort) and GVS5H ledger-port notes
+- `references/gates-taxonomy.md` / `references/ledger-orchestration-adaptation.md` — gate vocabulary (Pre-flight / Revision / Escalation / Abort) and the ledger-orchestration port notes
 - **Unauthenticated coding CLIs:** if a local coding CLI fails auth repeatedly, stop retrying — switch per the `cli-auth-fallback` skill (the single auth authority)
 
 ## Model pins and benchmarks
@@ -194,7 +194,7 @@ After completing all tasks in the plan, confirm:
 - `references/converge-loop.md` — the converge loop (spec ↔ code reconciliation) after the final review
 - `references/context-discipline.md` — context budget discipline (four-tier degradation model) + file handoffs; the shared home for this doctrine
 - `references/gates-taxonomy.md` — Pre-flight / Revision / Escalation / Abort gate vocabulary
-- `references/ledger-orchestration-adaptation.md` — adaptation notes for the GVS5H ledger-based zero-shot orchestration port
+- `references/ledger-orchestration-adaptation.md` — adaptation notes for the upstream ledger-based zero-shot orchestration port
 - `references/model-benchmarks.md` — pointer only; the benchmark table's sole copy lives in model-routing/references/subagent-model-benchmarks.md
 - `references/spike.md` — throwaway feasibility experiments
 - `references/simplify-code.md` — parallel 3-agent cleanup

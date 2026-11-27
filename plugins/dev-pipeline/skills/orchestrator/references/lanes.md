@@ -26,7 +26,7 @@ here, so this file stays the only place pins live.
 
 | Delegate | Job | Model / provider | Dispatch | Pinned |
 |---|---|---|---|---|
-| **Goldfish children** | the four zero-context personas of the Goldfish spec review (`spec/references/goldfish-spec-review.md`) | `glm-5.3` (non-flash) on `ollama-cloud`, whatever model the dispatching session runs | one-shot child: `hermes chat -Q -m glm-5.3 --provider ollama-cloud --query-file <task-file>` (`delegate_task` children can't pin a per-child model) | MH, 2026-10-26, this setup only |
+| **Goldfish children** | the four zero-context personas of the Goldfish spec review (`spec/references/goldfish-spec-review.md`) | `glm-5.3` (non-flash) on `ollama-cloud`, whatever model the dispatching session runs | one-shot child: `hermes chat -Q -m glm-5.3 --provider ollama-cloud --query-file <task-file>` (`delegate_task` children can't pin a per-child model) | pinned by the operator, this setup only |
 
 ## Which reviewers a tier uses
 

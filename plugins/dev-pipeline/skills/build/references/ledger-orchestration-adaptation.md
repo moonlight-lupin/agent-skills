@@ -1,13 +1,13 @@
-# GVS5H Concept Port — Adaptation Notes
+# Ledger-Orchestration Concept Port — Adaptation Notes
 
-Source: [slee-persis/GVS5H](https://github.com/slee-persis/GVS5H) — "ledger-based zero-shot
-self-orchestration" (Persis Capital, ICLR 2027 submission, reviewed 2026-09-12).
+Source: a public "ledger-based zero-shot
+self-orchestration" (a 2026 conference submission).
 Verdict on the repo itself: **Watch** (benchmark harness, not a tool; self-graded with a
 patched LiveCodeBench evaluator; no independent replication yet).
 
 ## What was ported (additive changes only)
 
-1. **Sample-test veto → build-review-loop Step 4 (v1.1.0).** In GVS5H, a failing public-test
+1. **Sample-test veto → build-review-loop Step 4 (v1.1.0).** In the upstream pattern, a failing public-test
    run overrides the manager's "done" verdict and forces a fix-or-switch task. Ported as:
    a failing Hermes verification check is ground truth, vetoes the build's DONE/APPROVED
    claim, becomes a BLOCKING issue, and becomes the fix brief's acceptance criterion.
@@ -17,7 +17,7 @@ patched LiveCodeBench evaluator; no independent replication yet).
    each round rather than appended, and capped at 4k/8k chars so context stays bounded.
    Ported as: curate-not-append for progress ledger and report files, ~200-line / ~8k-char
    caps with consolidation, and a no-progress guard (two identical rounds → escalate or
-   split, stop the loop) mirroring GVS5H's re-issue guard.
+   split, stop the loop) mirroring the upstream re-issue guard.
 3. **Orchestration-hurts caveat → subagent-driven-development §5.** The paper's negative
    result: one model regressed under orchestration — deliberation discarded correct
    approaches and unverified worker output overwrote correct work. Ported as a warning in
@@ -26,7 +26,7 @@ patched LiveCodeBench evaluator; no independent replication yet).
 
 ## What was deliberately NOT adopted
 
-- The GVS5H codebase itself (`codebase/v2-current`): an ICLR experiment harness tied to
+- The upstream pattern itself: an ICLR experiment harness tied to
   LiveCodeBench, `uv`-pinned deps, and pinned cloud backends. Our delegate_task/subagent
   workflows already cover the orchestration natively.
 - The full manager→brainstorm→manage→worker→verifier loop: our two-stage review

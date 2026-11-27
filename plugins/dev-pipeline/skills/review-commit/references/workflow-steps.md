@@ -151,7 +151,7 @@ After the process exits, capture the dispatch result (delegate-result.v1 — see
    compare it to the real function's return. This is the check that would have caught
    the earlier B1-class bug (stale mock → silent evidence-gate failure).
 
-If verification fails, the failing check is ground truth and **vetoes the build's "done" claim** — do not soften it into a review note. A failing test overrides any DONE/APPROVED signal, exactly as a public-test failure overrides the manager's verdict in GVS5H's orchestration loop. Immediately:
+If verification fails, the failing check is ground truth and **vetoes the build's "done" claim** — do not soften it into a review note. A failing test overrides any DONE/APPROVED signal, exactly as a public-test failure overrides the manager's verdict in the upstream ledger-orchestration pattern. Immediately:
 
 1. Write the failure (command, expected vs actual, first failing case) into the review file as a BLOCKING Hermes-verified issue.
 2. If the loop continues, the fix brief must lead with this failing check as its acceptance criterion — the fix round is not complete until that exact command passes.

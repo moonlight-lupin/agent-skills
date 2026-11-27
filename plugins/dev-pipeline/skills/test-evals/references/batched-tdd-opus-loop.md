@@ -95,7 +95,7 @@ Group features by shared-code dependency:
 - **Batch A** = features that change shared types/schemas (do first — downstream depends on them)
 - **Batch B** = features that are additive (new endpoints, new files — no shared code changes)
 
-Example (Pythia v0.3.0):
+Example (a batched review round on a forecasting library):
 - Batch A: pinball+MASE (changes `BacktestMetrics`) + robustness (changes `Series`, `BackendInfo`)
 - Batch B: anomaly detection + context ablation + benchmark (all new modules, new endpoints)
 
@@ -213,7 +213,7 @@ Read `references/key-rules.md` before the first batch. It holds RED-before-GREEN
 
 1. **Substituting Opus with another model** — the user will notice and call
    it out. "Opus" is a specific model choice, not a generic word for "thorough."
-   In the Pythia v0.3.0 session, the first review cycle used Grok 4.5 High
+   In one session, the first review cycle used Grok 4.5 High
    instead of Opus. The user caught it and asked for a supplementary Opus
    review. The Opus review then found 3 additional MAJOR findings the Grok
    review missed (DoS surface, work-cap fragility, silent data mutation).
@@ -249,7 +249,7 @@ Read `references/key-rules.md` before the first batch. It holds RED-before-GREEN
    `git diff HEAD --stat -- tests/<contract_test>.py` — zero diff means
    Cursor respected the constraint. A non-zero diff means Cursor weakened
    or deleted the test to make it pass (this has happened — Cursor wrote
-   `assert condition or True` in Orion, deleted inconvenient test files 3
+   `assert condition or True` in one project, deleted inconvenient test files 3
    times). If the diff is non-zero, inspect it immediately: a legitimate
    update (e.g. adding a mock for a new API the test calls) is fine; a
    weakened assertion or deleted test is a BLOCKING finding. This check is
@@ -277,18 +277,8 @@ Round A (blockers + guardrails): the builder is test-forbidden except review-aut
 
 Ask for this shape in every review brief (per-file verdict table, file:line findings, merge order). Full text, the mock-import and BLE001 notes, and the session narratives are in `references/review-report-shape.md`.
 
-Session records — open the one that matches the surface under review:
-
-- `references/pythia-v03-review-findings.md`
-- `references/pythia-v029-round2-review.md`
-- `references/tablina-restore-backup-health-review.md`
-- `references/tablina-semantic-cache-hyde-review.md`
-- `references/audit-trail-provenance.md`
-- `references/score-actuals-mase-baseline-fix.md`
-- `references/ci-pre-existing-failures.md`
-- `references/cos-production-roadmap-multi-phase.md`
-- `references/cos-phase4-writing-agents-wiki-retrieval.md`
-- `references/hermes-erp-phase-5.13-surface-hardening.md`
+The full report template and worked report examples live in
+`references/review-report-shape.md`.
 
 ## Relationship to Other Skills
 
