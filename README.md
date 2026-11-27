@@ -54,7 +54,7 @@ agent_skills/
 │   └── disk-triage/                  ← triage survey → safe/ask buckets → execute → verify delta (renamed from disk-cleanup — bundled Hermes plugin now owns that name)
 └── plugins/                          ← installable Hermes Agent plugins
     ├── skill-retrieval/              ← BM25 retrieval that injects the top-K relevant skills per turn
-    ├── dev-pipeline/              ← five-stage development pipeline (grill/spec/test-evals/build/review-commit) with a pre_tool_call create-gate hook
+    ├── dev-pipeline/              ← eight-skill development pipeline (orchestrator/grill/spec/test-evals/build/review-commit + briefs + review-lessons) with a pre_tool_call create-gate hook
     ├── skill-governance/          ← skill provenance + drift acks + advisory contrastive probes behind one composed hook surface (successor to the retired skill-manifest + contrastive-advisor plugins)
     └── lumen/                     ← LLM wiki plugin: methodology + memory-fed curator
 ```
@@ -95,7 +95,7 @@ New skills are added as folders under the relevant domain directory.
 | [operator-brain](agent-ops/operator-brain/) | agent-ops | 10-module behavioral stack from Anthropic's Fable 5 and Fable 5.1 guides: act, lead with outcome, ground every claim, narrate long work, stay surgical | — |
 | [hermes-onboarding](agent-ops/hermes-onboarding/) | agent-ops | 21-step customer onboarding: gateway, dashboard, memory, search, guardrails, maintenance crons | disk-triage, log-analyzer |
 | [disk-triage](devops/disk-triage/) | devops | Triage disk space: survey all mounts → safe/ask buckets → execute approved set → verify delta (renamed from disk-cleanup; the bundled Hermes `disk-cleanup` plugin owns that name) | — |
-| [dev-pipeline](plugins/dev-pipeline/) | plugins | Five-stage development pipeline: grill → spec → test-evals → build → review-commit, planned by S0-S3 complexity and reviewed by R0-R3 risk (T0-T3 review-tier aliases), with a review-lessons library and a pre_tool_call create-gate that blocks new software-development skills unless a single-use allow flag is consumed | skill-quality-review |
+| [dev-pipeline](plugins/dev-pipeline/) | plugins | Development pipeline: orchestrator → grill → spec → test-evals → build → review-commit (plus briefs and review-lessons — eight bundled skills), planned by S0-S3 complexity and reviewed by R0-R3 risk (T0-T3 review-tier aliases), with terminal-backed engineering capability discovery/evidence/gates and a pre_tool_call create-gate that blocks new software-development skills unless a single-use allow flag is consumed | skill-quality-review |
 | [skill-governance](plugins/skill-governance/) | plugins | Consolidated skill provenance and governance: manifest fingerprints + drift acks and advisory-only contrastive probes behind one composed hook surface, conservative `governance.records` join, non-destructive legacy state import, and one clearance Automation Blueprint (`/blueprint`-adopted, no self-installed cron; sole successor to the retired skill-manifest + contrastive-advisor plugins) | — |
 
 > **Related work:** [Odysseus](https://github.com/pewdiepie-archdaemon/odysseus) (PewDiePie's self-hosted AI workspace) ships similar features as a standalone web app — "Deep Research" and "Compare" — while `deep-research` and `model-compare` cover the same ground as pure-prompt workflows + stdlib scripts inside any agent's tool loop.

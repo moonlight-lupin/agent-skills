@@ -11,41 +11,37 @@ Read before writing every review brief. Demand this shape, then open the session
 ## Review report shape (ask for this in every review brief)
 A per-file verdict table (SHIP / FIX-FIRST / BLOCK) at the top, findings after, each with file:line + the minimal fix. This is the shape the operator reads first and the fix-round brief cites by path. Ask for a merge-order section too (blockers → guardrails → fail-soft → NICE post-merge); fix rounds then implement all reproduced BLOCKING/MAJOR findings in ONE brief, sequenced in that order — one brief per round with the order carried inside it (the confirm-round protocol's ONE-deduped-list rule), never split into one dispatch per group. For reviews of wiring/live-seam code, add to the brief: production modules must not reference test modules (the reviewer greps for it), and "reachability" is a named priority — every new public function checked for ≥1 production caller.
 
-See `references/pythia-v029-round2-review.md` for the v0.2.9 dogfooding round 2
-session: Codex + Opus 5 parallel review, the semantic inversion catch
+A concrete session (a dogfooding round 2): Codex + Opus 5 parallel review, the semantic inversion catch
 ("inflated" vs "overstates skill"), the actionable-advice suppression pattern,
 and the multi-surface payload builder sync issue.
 
-See `references/tablina-restore-backup-health-review.md` for the Tablina backup-restore + health-diagnostics review (2026-08-11 Opus 5 session: spec-vs-test pin conflicts, TDD discipline finding).
+A concrete session — backup-restore + health-diagnostics review (2026-08-11 Opus 5 session: spec-vs-test pin conflicts, TDD discipline finding).
 
-See `references/audit-trail-provenance.md` for the model_id provenance fix
+A concrete case — the model_id provenance fix:
 pattern: when an audit field is always set from the server default rather
 than the backend that actually ran, every audit record lies about what
 produced the forecast. The fix: add a `model_id` property to every backend
 class and use `backend.model_id` at every audit-record call site.
 
-See `references/score-actuals-mase-baseline-fix.md` for the score_actuals
-MASE baseline bug: the function's `train=None` fallback used the holdout
+A concrete catch — a MASE baseline bug: the function's `train=None` fallback used the holdout
 window's own volatility as the MASE denominator instead of the training
 history's naive error, sign-flipping "worse than random walk" into "beats
 random walk." The fix pattern: always check whether callers actually pass
 the non-fallback argument — the fallback is a correctness hazard, not a
 convenience.
 
-See `references/ci-pre-existing-failures.md` for the version-pin hardcoded
+See a CI pre-existing-failure incident for the version-pin hardcoded
 regex pattern — when CI fails on a pre-existing dependency version test,
 grep both `tests/` AND `.github/workflows/` for hardcoded version strings.
 
-See `references/score-actuals-mase-baseline-fix.md` for the score_actuals
-MASE baseline bug: the function's `train=None` fallback used the holdout
+A concrete catch — a MASE baseline bug: the function's `train=None` fallback used the holdout
 window's own volatility as the MASE denominator instead of the training
 history's naive error, sign-flipping "worse than random walk" into "beats
 random walk." The fix pattern: always check whether callers actually pass
 the non-fallback argument — the fallback is a correctness hazard, not a
 convenience.
 
-See `references/cos-production-roadmap-multi-phase.md` for a 3-phase
-production readiness build (CoS plugin, 2026-08-14): deferred review
+A concrete case — a 3-phase production readiness build: deferred review
 findings carried forward as next-phase contract tests, Opus multi-file
 review with file naming pattern (4 successes), parallel Codex+Cursor
 dispatch, the _fill_defaults backward compat technique, flaky race test
@@ -55,8 +51,7 @@ reconciliation sharing MAX_RETRIES budget, and Claude Desktop
 compatibility investigation. 1802→1895 tests across 3 phases with 0
 regressions. Phase 4 adds OKF 0.2 upgrade + note-capture hook.
 
-See `references/cos-phase4-writing-agents-wiki-retrieval.md` for CoS
-Phase 4A/4B/4C (2026-08-15): OKF 0.2 upgrade + note-capture hook,
+A concrete case — a phased upgrade build (2026-08-15): note-capture hook,
 writing-for-agents review fixes (workspace-access extraction, routing
 tail removal, completion criteria, negation→positive), wiki search
 subcommand + context injection hook. Dual-reviewer (Codex+Opus) findings
@@ -64,8 +59,7 @@ including the stop-word substring matching bug, dangling shared reference
 path, constraint deletion in negation rewrites, and Opus max-turns 25
 requirement. 1910→1947 tests across 3 sub-phases with 0 regressions.
 
-See `references/hermes-erp-phase-5.13-surface-hardening.md` for a 4-batch
-surface-hardening build (hermes-ERP, 2026-08-22): 981→1095 tests, Grok high
+A concrete case — a 4-batch surface-hardening build (2026-08-22): 981→1095 tests, Grok high
 review found 1 BLOCKING (HTTP MCP authz never wired — BearerGate stashed
 principal on ASGI scope but tools read from env var) + 8 MAJOR (encryption
 fail-open, hash chain NULL bypass, migration partial-apply, restore
@@ -74,8 +68,7 @@ unregistered entity DBs). All fixed in one TDD fix cycle. Key lesson: when
 the user does not repeat "Opus" in a session, do NOT silently default to
 Grok — check canonical memory for their preferred review model.
 
-See `references/tablina-semantic-cache-hyde-review.md` for a `delegate_task`
-subagent review session: 13 findings (1 BLOCKING tenant-ACL cache leak, 2
+A concrete case — a `delegate_task` subagent review session: 13 findings (1 BLOCKING tenant-ACL cache leak, 2
 MAJOR query-flow design decisions, 5 MINOR, 4 NIT), the pre-emptive fix
 pattern, and the test helper pattern for mocking `get_embedding` at multiple
 import sites.
@@ -84,10 +77,10 @@ import sites.
 
 When a function is imported at module level in multiple files (e.g.
 `get_embedding` imported in both `search.py` and `search_stages.py`),
-patching only `tablina.embeddings.get_embedding` leaves the other import
+patching only `app.embeddings.get_embedding` leaves the other import
 site calling the real function. Tests will fail with network/credential
 errors that look unrelated to your mock. Patch at every
-`tablina.<module>.<function>` site where the name is bound. A
+`app.<module>.<function>` site where the name is bound. A
 contextmanager helper that patches all known sites is cleaner than
 scattered `with patch(...)` blocks:
 
@@ -95,8 +88,8 @@ scattered `with patch(...)` blocks:
 @contextmanager
 def _patch_embedding(embedding=None):
     emb = embedding if embedding is not None else _make_embedding()
-    with patch("tablina.search.get_embedding", return_value=emb), \
-         patch("tablina.search_stages.get_embedding", return_value=emb):
+    with patch("app.search.get_embedding", return_value=emb), \
+         patch("app.search_stages.get_embedding", return_value=emb):
         yield
 ```
 

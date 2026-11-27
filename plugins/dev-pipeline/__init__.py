@@ -1,141 +1,62 @@
 """dev-pipeline plugin — create-gate policy hook.
 
 Registers a ``pre_tool_call`` POLICY hook that vets ``skill_manage`` calls
-containing ``create`` targets. A create is allowed only when the target skill
-already exists under a real skill root of the ACTIVE profile — the exact roots
-the runtime resolves skills against (``agent.skill_utils.get_all_skills_dirs()``:
-active profile skills dir, ``skills.create_dir``, ``skills.external_dirs``) plus
-this plugin's own bundled stage skills under their REGISTERED names
-``dev-pipeline:<stage>`` (hermes_cli/plugins_content.py ``register_skill``) —
-when the single-use allow flag at the RESOLVED flag path
-(``_flag_path()`` = active home's ``skills/.allow-create``) is present —
-one flag authorizes exactly ONE create, and the flag is unlinked BEFORE the
-create passes (an unlink failure blocks with the flag left in place).
+carrying ``create`` targets.
 
-The existence oracle mirrors the runtime ``_find_skill``
-(tools/skill_manager_tool.py) with ONE walker and ONE truth source: the bare
-name matches where a ``SKILL.md`` whose enclosing directory name equals the
-target name is found at ANY depth under a root (even without a ``category``,
-e.g. ``root/team/existing/SKILL.md``) by a filtered recursive walk over the
-same directories the runtime scanner yields — ``root.rglob("SKILL.md")``
-filtered by ``agent.skill_utils.is_excluded_skill_path`` (excluded/dependency
-dirs pruned, support dirs under a SKILL.md-bearing skill dir pruned, symlinked
-directories NOT descended: pathlib ``rglob`` on the runtime's Python does not
-recurse into them). There are NO direct ``root/<name>`` or
-``root/<category>/<name>`` candidate checks: those bypassed the walker's
-exclusion rule (an excluded-dir-nested create target — e.g. a ``category`` of
-``node_modules`` — is rejected by the runtime scanner, and a symlinked
-directory name is not followed, while the direct realpath checks answered
-True for both). The runtime's FINAL lookup step is mirrored too: only when the directory-name
-scan has failed across ALL roots does a skill whose ``SKILL.md`` frontmatter
-``name:`` equals the target count as existing (the gate makes TWO passes —
-every root's directory scan first, the frontmatter pass only after that whole
-scan found nothing — the runtime consults frontmatter name matching only
-after the directory scan, so a SKILL.md whose frontmatter cannot be parsed
-never blocks a name the runtime resolves by directory name; directory-name
-matches keep priority). Frontmatter claimants are deduped by the RESOLVED
-SKILL.md FILE (realpath), the runtime's own dedupe key: two directories
-symlinking one SKILL.md are ONE holder. More than one DISTINCT frontmatter
-claimant is ambiguous — the runtime refuses to
-guess and creates fresh, so the gate must gate it. The create-dedup check is
-category-INDEPENDENT (runtime ``_create_skill`` calls ``_find_skill(name)``
-with no category); the category argument is accepted but inert. Sibling
-(INACTIVE) profiles are NOT existence roots — the runtime would create such a
-name fresh in the active profile, so the gate must treat it too as a genuinely
-new skill. Each configured root is itself checked against the runtime's
-component-wise exclusion rule (``agent.skill_utils.is_excluded_skill_path``
-over the ROOT's full path; mirrored full-path rule as fallback) BEFORE it is
-scanned: a root whose own path carries an excluded component (e.g.
-``/configured/node_modules/skills``) is skipped ENTIRELY — the runtime
-scanner excludes every SKILL.md under such a root, so names "existing" only
-there stay gated (the gate returning exists there would be a flag-free
-bypass). And EACH DISCOVERED SKILL.md path is re-checked at FILE level by the
-same runtime exclusion predicate before it may count as a claimant
-(``_file_is_excluded`` → ``agent.skill_utils.is_excluded_skill_path`` on the
-full path; mirrored full-path rule as fallback) — the AUTHORITATIVE filter:
-the walker's directory-name pruning is an equivalent by-product, but it misses
-a top-level ``SKILL.md`` that is a DIRECTORY (or a symlink to one), which
-``os.walk`` files into ``dirnames`` instead of ``filenames`` — the walker then
-descends into a ``references/`` tree under it that the runtime's rglob +
-full-path check excludes entirely (round-6 fix #1: an external root like a
-skill's own dir with ``references/nested/SKILL.md`` passed flag-free while
-the runtime created 'nested' fresh). The root check remains as a cheap
-pre-filter.
+What is gated
+    Only creates whose ``category`` normalizes (strip + lowercase) to
+    ``software-development``. Every other create — different category,
+    non-string, or absent — passes untouched: it never blocks, never counts
+    toward batch rules, never consumes the flag. Registered plugin skill
+    names (``dev-pipeline:<stage>``) pass through as already-existing.
 
-Runtime shapes covered (tools/skill_manager_tool.py: ``skill_manage``): the
-flat shape ``{action: "create", name: ..., category: ...}`` and the atomic
-batch shape ``{operations: [{action: "create", name: ...}, ...]}``, including
-an ``operations`` value arriving as a JSON string (parsed and examined the
-same way) and a DICT-valued ``operations`` (re-examined by the same recursion,
-so the dict-structured and JSON-string-wrapped forms behave identically).
-Every entry in a batch is examined; a benign first entry can never smuggle a
-later new-skill create through. A batch with MORE THAN ONE well-formed entry
-(creates plus any non-create mutating op — patch/edit/delete/write_file/
-remove_file or any other entry shape) gets NO existence short-circuit at all:
-every well-formed create goes to pending WITHOUT the pre-batch existence
-lookup (round-6, Opus N1+N2). The runtime runs batch ops in order, so
-pre-batch directory state cannot be trusted under such a batch: a mid-batch
-delete can remove a pre-batch holder (the create then runs on a genuinely
-fresh name), a mid-batch create can ADD a frontmatter claimant (making an
-existing display name ambiguous, which the runtime resolves as not-found and
-creates fresh), and a mid-batch patch can rewrite any of it. The runtime
-outcome for an already-existing create target under such a batch is an
-``already exists`` tool error and a full batch rollback — blocking those
-(even with the flag) is the accepted over-gating; a genuinely fresh name is
-gated as it must be. ONLY single-op calls (a flat create, or exactly one
-well-formed create entry with no other op) keep the full runtime-parity
-existence check — a create-only single-entry batch keeps frontmatter parity.
-Recursion into a dict-shaped (or JSON-string-wrapped dict) ``operations``
-ALWAYS carries the CALL's own flat create along with whatever the nested
-dict yields — one payload must not lose a flat create it also carries.
-FALSY ``operations`` values ('', 'null' after
-parse, ' ', {}, 0, False, []) fall back to the flat fields, which stay GATED;
-an unknown/unparseable shape gates the FLAT create instead of passing. This
-is STRICTER than the skill_manage runtime, not a mirror of it: the runtime
-routes anything that is ``not None`` to the batch path, which tool-errors
-every non-non-empty-array shape — the gate would never let a flat create run
-ungated if that truthiness ever differs, and a block of a payload the runtime
-rejects anyway costs nothing, while a pass of one bypasses. Payloads the
-runtime itself rejects pass through UNGATED only when they carry no flat
-create to decide (the tool call fails there anyway).
+One flag, one create
+    A create is allowed only when the single-use allow flag (active home's
+    ``skills/.allow-create``, resolved at decision time) is present, and the
+    flag is UNLINKED BEFORE the create passes. One flag authorizes exactly
+    one create; an unlink failure blocks with the flag left in place. In a
+    mixed batch only the gated create is decided, and one flag still covers
+    exactly that one.
 
-Runtime contract (hermes_cli/plugins_dispatch.py, ``invoke_hook``): a
-``pre_tool_call`` callback that RAISES or TIMES OUT fails CLOSED — the tool is
-blocked with a policy error directive. This hook uses that deliberately:
+Existence check (runtime parity)
+    For single gated creates the gate mirrors the runtime ``_find_skill``
+    walker: a bare name exists where a ``SKILL.md`` whose enclosing
+    directory equals the target name is found under the runtime's active
+    skill roots (directory scan first, frontmatter-name pass second,
+    ``agent.skill_utils.is_excluded_skill_path`` applied to roots and every
+    discovered ``SKILL.md`` at file level, symlinked directories not
+    descended). Multiple distinct frontmatter claimants are ambiguous —
+    the runtime refuses to guess and creates fresh, so the gate gates it.
+    The walker history and round-by-round fix records live in
+    ``plugins/dev-pipeline/CHANGELOG.md``.
 
-- Non-``skill_manage`` calls return ``None`` immediately, before any code that
-  can raise (fast pass path).
-- On a create decision there is NO blanket try/except: an unexpected internal
-  error propagates and the runtime turns it into a block. An undecided gate
-  must not pass a create.
+Batches are gated STRICTER than the runtime
+    Both payload shapes are examined (flat create; ``operations`` as list,
+    dict, or JSON string, including falsy/unknown shapes, which fall back to
+    the flat fields so nothing passes ungated). A batch with more than one
+    well-formed entry gets NO pre-batch existence short-circuit: every
+    well-formed create goes to pending, because mid-batch delete/create/patch
+    can invalidate pre-batch directory state. Accepting ``already exists``
+    rollbacks for those is the documented over-gating. One create-only
+    single-entry batch keeps full runtime-parity existence checking.
 
-Accepted boundary (documented risk): this hook gates ONLY the ``skill_manage``
-tool. The allow flag is an ordinary file the agent can write itself via
-terminal/write_file, and skills can be created outside ``skill_manage`` with
-the same file tools. Requiring the flag therefore makes the skill_manage path
-ask for the user's consent but does not and cannot consent-lock the other
-tools — user consent across terminal/write_file paths depends on those tools'
-own policies and is the accepted, documented risk of this policy. The gate's
-decision spans ONLY this call's payload: tool calls running in PARALLEL can
-interleave mutations (another tool deleting or creating a skill) between the
-gate's decision and this call's execution — that TOCTOU gap lies outside the
-gate's serialization and is equally accepted (a decision is a snapshot of the
-tree at decision time).
+Fail-closed contract
+    A ``pre_tool_call`` callback that raises or times out blocks the tool
+    (hermes_cli/plugins_dispatch.py). This hook relies on it deliberately:
+    non-``skill_manage`` calls return ``None`` before any fallible code, and
+    on a create decision there is NO blanket try/except — an unexpected
+    internal error propagates and becomes a block. An undecided gate must
+    never pass a create.
 
-Category scoping (v0.1.7): the gate reserves NEW SOFTWARE-DEVELOPMENT skills
-ONLY. A create whose ``category`` normalizes (strip + lowercase) to
-``software-development`` is gated exactly as before — registered-name
-pass-through, runtime-parity existence checks for single gated creates,
-multi-entry batch gating over the gated creates, one-flag-one-create, the
-file-level exclusion filter, the dangling-link check, and
-consume-before-allow. EVERY OTHER create — any other category string, a
-non-string category, or an absent/empty/whitespace category — is SKIPPED from
-the decision pipeline exactly like registered-name creates: it contributes
-nothing, never blocks (a malformed name on such a create is left to the
-runtime's own validation), never counts toward the multi-entry rule, and
-never consumes the allow flag. In a mixed batch (a gated create plus an
-ungated one) only the gated create is decided; one flag still authorizes
-exactly that one.
+Accepted boundary risks (documented, deliberate)
+    1. File-tool bypass: the hook gates ONLY ``skill_manage``. The allow flag
+       is an ordinary file the agent can write itself, and skills can be
+       created outside ``skill_manage`` with terminal/write_file. The flag
+       therefore asks for consent on the skill_manage path; consent across
+       other tools depends on those tools' own policies.
+    2. TOCTOU: the decision is a snapshot of the tree at decision time —
+       parallel tool calls may interleave mutations between decision and
+       execution, and the gate cannot serialize them.
 """
 
 from __future__ import annotations

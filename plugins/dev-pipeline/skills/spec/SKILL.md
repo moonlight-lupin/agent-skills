@@ -103,7 +103,7 @@ Before writing the spec, sketch the **seams** at which the feature will be teste
 
 This matters for agentic development: a good interface gives tests something durable to target, so the code underneath can change without the tests moving.
 
-See `references/codebase-design.md` in the `improve-codebase-architecture` skill for the full vocabulary (module, interface, depth, seam, adapter, leverage, locality).
+See the `improve-codebase-architecture` skill (outside skill, not bundled here) — its codebase-design reference — for the full vocabulary (module, interface, depth, seam, adapter, leverage, locality).
 
 ## Scope Check
 
