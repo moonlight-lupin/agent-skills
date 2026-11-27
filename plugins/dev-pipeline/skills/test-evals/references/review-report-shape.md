@@ -30,16 +30,9 @@ random walk." The fix pattern: always check whether callers actually pass
 the non-fallback argument — the fallback is a correctness hazard, not a
 convenience.
 
-See a CI pre-existing-failure incident for the version-pin hardcoded
+A CI pre-existing-failure incident shows the version-pin hardcoded
 regex pattern — when CI fails on a pre-existing dependency version test,
 grep both `tests/` AND `.github/workflows/` for hardcoded version strings.
-
-A concrete catch — a MASE baseline bug: the function's `train=None` fallback used the holdout
-window's own volatility as the MASE denominator instead of the training
-history's naive error, sign-flipping "worse than random walk" into "beats
-random walk." The fix pattern: always check whether callers actually pass
-the non-fallback argument — the fallback is a correctness hazard, not a
-convenience.
 
 A concrete case — a 3-phase production readiness build: deferred review
 findings carried forward as next-phase contract tests, Opus multi-file
@@ -49,7 +42,7 @@ fix (thread count ≤ retry budget), audit hash chain corrupt-tail
 detection, the _parse_ts helper for all timestamp sites, stuck-action
 reconciliation sharing MAX_RETRIES budget, and Claude Desktop
 compatibility investigation. 1802→1895 tests across 3 phases with 0
-regressions. Phase 4 adds OKF 0.2 upgrade + note-capture hook.
+regressions.
 
 A concrete case — a phased upgrade build (2026-08-15): note-capture hook,
 writing-for-agents review fixes (workspace-access extraction, routing

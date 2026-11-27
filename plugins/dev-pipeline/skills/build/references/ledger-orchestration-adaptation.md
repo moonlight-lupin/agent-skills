@@ -1,7 +1,7 @@
 # Ledger-Orchestration Concept Port — Adaptation Notes
 
 Source: a public "ledger-based zero-shot
-self-orchestration" (Persis Capital, ICLR 2027 submission, reviewed 2026-09-12).
+self-orchestration" (a 2026 conference submission).
 Verdict on the repo itself: **Watch** (benchmark harness, not a tool; self-graded with a
 patched LiveCodeBench evaluator; no independent replication yet).
 

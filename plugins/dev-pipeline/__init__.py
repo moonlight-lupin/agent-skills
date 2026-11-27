@@ -6,9 +6,11 @@ carrying ``create`` targets.
 What is gated
     Only creates whose ``category`` normalizes (strip + lowercase) to
     ``software-development``. Every other create — different category,
-    non-string, or absent — passes untouched: it never blocks, never counts
-    toward batch rules, never consumes the flag. Registered plugin skill
-    names (``dev-pipeline:<stage>``) pass through as already-existing.
+    non-string, or absent — never blocks and never consumes the flag, but it
+    DOES count toward the batch rule: an ungated create can add a frontmatter
+    claimant mid-batch, so it participates in the multi-entry decision.
+    Registered plugin skill names (``dev-pipeline:<stage>``) pass through as
+    already-existing.
 
 One flag, one create
     A create is allowed only when the single-use allow flag (active home's
@@ -33,12 +35,17 @@ Existence check (runtime parity)
 Batches are gated STRICTER than the runtime
     Both payload shapes are examined (flat create; ``operations`` as list,
     dict, or JSON string, including falsy/unknown shapes, which fall back to
-    the flat fields so nothing passes ungated). A batch with more than one
-    well-formed entry gets NO pre-batch existence short-circuit: every
-    well-formed create goes to pending, because mid-batch delete/create/patch
-    can invalidate pre-batch directory state. Accepting ``already exists``
-    rollbacks for those is the documented over-gating. One create-only
-    single-entry batch keeps full runtime-parity existence checking.
+    the flat fields). Payloads with no identifiable create name, and calls
+    carrying no flat create, pass with NO decision (ungated). A batch with
+    more than one well-formed entry gets NO pre-batch existence
+    short-circuit: every well-formed create goes to pending, because
+    mid-batch delete/create/patch can invalidate pre-batch directory state.
+    Accepting ``already exists`` rollbacks for those is the documented
+    over-gating. A single-entry batch keeps full runtime-parity existence
+    checking ONLY when it has a single create, no mutating operation, and no
+    other create of any category. Creates whose names are outside the
+    well-formed set are rejected regardless of the flag, and the flag is
+    left in place.
 
 Fail-closed contract
     A ``pre_tool_call`` callback that raises or times out blocks the tool

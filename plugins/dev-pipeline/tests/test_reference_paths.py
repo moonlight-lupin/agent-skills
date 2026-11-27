@@ -15,7 +15,7 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]  # plugins/dev-pipeline
 CITE_EXT = (".md", ".py", ".toml", ".yaml", ".yml")
-SCAN_SUFFIXES = (".md", ".py", ".toml")
+SCAN_SUFFIXES = None  # scan every file; binary content decodes with errors="replace"
 
 CITE_RE = re.compile(r"(?:`([`~\w./-]+\.(?:md|py|toml|yaml|yml))`|\]\(([\w~/.-]+\.(?:md|py|toml|yaml|yml))\))")
 
@@ -36,7 +36,10 @@ OUTSIDE_SKILL_DIRS = (
 )
 
 # Placeholder/example paths (illustrative code, never plugin files).
-PLACEHOLDER_RE = re.compile(r"path/to|new_file|exact/path|<[^>]*(dir|project|path)|\bsrc/\w+/\w+\.\w+|tests/path/to")
+# tests/test_<name>.py names in lesson references are artifacts of a TARGET
+# project being reviewed (same class as src/models/user.py) — the brief
+# exempts them; plugin's own tests are cited as plugins/dev-pipeline/tests/…
+PLACEHOLDER_RE = re.compile(r"path/to|new_file|exact/path|<[^>]*(dir|project|path)|\bsrc/\w+/\w+\.\w+|^tests/test_\w+\.py$")
 
 # Standard repo files that any target project owns — not this plugin's files.
 STANDARD_FILES = ("pyproject.toml", "package.json")
@@ -46,11 +49,14 @@ STANDARD_FILES = ("pyproject.toml", "package.json")
 # illustrate a target project and are not citations.
 PLUGIN_CONTEXT_RE = re.compile(
     r"^(references/|scripts/|skills/|plugins/|benchmarks/|tools/run_arm|config/|tests/test_)"
+    r"|^\w[\w-]*/(references|scripts|config)/"
+    r"|^goldfish/"
     r"|SKILL\.md$"
 )
 
 PRIVATE_NAMES_RE = re.compile(
-    r"(?i)\bpythia\b|\btablina\b|hermes-?erp|chief[ -]of[ -]staff|\bGVS5H\b|\bscore-actuals\b|\bCoS\b|\bMH\b"
+    r"(?i:\bpythia\b|\btablina\b|hermes-?erp|chief[ -]of[ -]staff|\bGVS5H\b|\bscore-actuals\b"
+    r"|\bpersis\b|\bargus\b|\bMH\b)|(?-i:\bCoS\b)"
 )
 
 _SKILL_SUBDIRS = None
@@ -81,6 +87,12 @@ def _resolves(token: str, citing: Path) -> bool:
     if token.startswith("plugins/"):
         # repo-rooted citation (file sits under plugins/dev-pipeline)
         cands.append(BASE.parent.parent / token)
+    m_skill = re.match(r"^(\w[\w-]*)/(references|scripts|config)/", token)
+    if m_skill:
+        # <skill>/references/x.md names the skill explicitly
+        cands.append(BASE / "skills" / m_skill.group(1) / token)
+    if token.startswith("goldfish/") or token.startswith("references/goldfish/"):
+        cands.append(citing.parent / "references" / token)
     cands.extend(d / token for d in _skill_lookup_dirs())
     return any(c.is_file() for c in cands)
 
@@ -95,7 +107,7 @@ def _citations(text: str):
 def test_no_private_project_identities():
     offenders = []
     for f in sorted(BASE.rglob("*")):
-        if not f.is_file() or f.suffix not in SCAN_SUFFIXES:
+        if not f.is_file() or "__pycache__" in f.parts or f.suffix in (".pyc", ".pyo"):
             continue
         if f.name == Path(__file__).name:
             continue  # the scanner itself names the pattern list
@@ -108,7 +120,7 @@ def test_no_private_project_identities():
 def test_every_plugin_context_citation_resolves():
     offenders = []
     for f in sorted(BASE.rglob("*")):
-        if not f.is_file() or f.suffix not in SCAN_SUFFIXES:
+        if not f.is_file():
             continue
         if f.name == "CHANGELOG.md":  # history text, brief allows skipping
             continue
@@ -131,7 +143,7 @@ def test_every_plugin_context_citation_resolves():
             if tok_clean.startswith(OUTSIDE_SKILL_DIRS) or tok_clean.startswith(
                     tuple(e + "/" for e in OUTSIDE_SKILL_DIRS)):
                 skip = True
-            if tok_clean == "SKILL.md" or (tok_clean.endswith("/SKILL.md") and not tok_clean.startswith(("skills/", "plugins/"))) or tok_clean.startswith("tests/test_"):
+            if tok_clean == "SKILL.md" or (tok_clean.endswith("/SKILL.md") and not tok_clean.startswith(("skills/", "plugins/"))):
                 # bare SKILL.md mentions describe the concept, not a path
                 skip = True
             if not PLUGIN_CONTEXT_RE.search(tok_clean):

@@ -1,6 +1,6 @@
 # Example machine config: Hermes as the controller, with Claude Code as the sole
 # coding arm on env-routed providers.
-# Example configuration for a Claude-Code-only machine, from the design doc
+# Example configuration for a Claude-Code-only machine.
 # To use it, copy it to ~/.hermes/dev-pipeline/lanes.toml and edit it there.
 # It holds env var NAMES only. Keys stay in the environment (~/.hermes/.env).
 #
