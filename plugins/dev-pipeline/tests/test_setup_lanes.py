@@ -371,7 +371,7 @@ def test_verify_roundtrip_prints_roles(_FIXTURES, tmp_path):
     assert proc.returncode == 0, proc.stderr
     body = out_json(proc)
     assert body["doctor"]["ok"] is not None
-    assert body["roundtrip"]["roles"]["coder"]  # a coder lane was picked (env-dependent choice)
+    assert "coder" in body["roundtrip"]["roles"]  # the effective-roles table prints (adjudicated 2026-11-28: coder may be None on a tool-less runner — machine state, not a config defect)
     assert body["roundtrip"]["verdict"]
 
 
