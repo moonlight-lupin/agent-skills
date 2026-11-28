@@ -1,5 +1,5 @@
 name: dev-pipeline
-version: 0.6.0
+version: 0.6.1
 description: "Development pipeline: six stage skills (orchestrator, grill, spec, test-evals, build, review-commit) planned by S0-S3 complexity and reviewed by R0-R3 risk (T0-T3 compatibility), a briefs skill (stamped briefs, case tables), a review-lessons library, a debug skill (bug-shaped work: reproduce, failing test, minimal fix, tiered review), a repo-context skill (deterministic repo inventory to a maintained context doc, reuse-first for existing convention docs), and a pre_tool_call create-gate hook that blocks new software-development skills unless a single-use allow flag is consumed. Stages run unattended and stop only at important forks. Registers a short system-prompt hint routing plain build/review asks to the orchestrator when the host API exists. Includes terminal-backed engineering capability discovery, setup, evidence and gates. See CHANGELOG.md."
 author: moonlight-lupin
 license: MIT

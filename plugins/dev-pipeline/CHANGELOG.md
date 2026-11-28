@@ -1,3 +1,51 @@
+## 0.6.1 — repo-context and the pstack principle adoptions
+
+New `repo-context` skill (tenth bundled skill) with a deterministic engine:
+- `skills/repo-context/scripts/inventory.py` — a read-only, stdlib-only survey
+  (`tree` depth-2 bounded, languages/entry-points/test-commands from fixed
+  manifest and CI rules, standards-source discovery, 90-day churn ranked, all
+  capped with `<name>_truncated` flags) plus a `check` mode. The doc skeleton
+  opens with the survey stamp (`survey_date` + `head_sha` + `det_hash` of the
+  deterministic block); `check` re-hashes that block: exit 0 fresh, 1 stale
+  (HEAD advanced, or the stamp head no longer resolves — rebase/rewrite), 2
+  bootstrap-needed, 3 doc-edited (the det block was hand-edited; the stamp
+  refreshes only via re-survey). Five-row case table pinned by
+  `tests/test_repo_context.py` (11 cases, RED-then-GREEN).
+- Doc target is reuse-first: extend the repo's existing convention doc
+  (AGENTS.md / CLAUDE.md / CONTRIBUTING.md class); a dedicated document is
+  created only when the repo records no conventions. The engine's
+  `standards_sources` result drives the choice. Judgment sections (seams,
+  invariants, why-notes) are the skill's to fill — the seaming vocabulary
+  distills mattpocock/skills codebase-design (MIT).
+- Wired at both ends: orchestrator Routing rules #5 sends existing-repo starts
+  to the bootstrap before spec/build planning; review-commit's Step C runs
+  `inventory.py check` at the commit/deploy gate — stale verdicts delta-update
+  the doc inside the same reviewed change or carry a named skip; `doc-edited`
+  is never blessed as fresh.
+
+pstack principle adoptions (Lauren Tan's pstack pack; MIT, verified 2026-11-28):
+- `debug`: the attack-the-premise stop rule — two fixes failing at the same
+  gate on one shared premise must test the premise itself before fix #3; the
+  premise test is priced inside the current fix round, never as an extra one;
+  a Red Flag guards the skipped-premise path.
+- `orchestrator/references/principles-index.md`: the six-entry index of
+  one-principle skills (laziness-protocol, attack-the-premise,
+  build-the-lever, explain-the-number, encode-lessons-in-structure,
+  sequence-verifiable-units), pointer-form, load on demand, wired from the
+  orchestrator's references list.
+- `review-lessons/references/rule-to-enforcer.md`: the `correct`-style
+  enforcement ladder (architecture → types → lint → CI → test → doc) with the
+  promote-one-rung-on-second-correction rule; index row added.
+
+Upstream drift re-checks (evidence in the release PR): the two-axis smell
+baseline verified identical against mattpocock/skills @ bbadaa63;
+`improve-codebase-architecture` re-verified current with two cosmetic-only
+upstream deltas, reported not folded.
+
+Registration: bundle tuple 9 → 10 with all four count-pin sites updated; the
+8 KB cap now covers repo-context; grep contracts pin the routing, the gate
+check, the engine citations, and the two new references.
+
 ## 0.6.0 — coding-capability upgrades
 
 Always-loaded text shrink (rules moved, none dropped):
