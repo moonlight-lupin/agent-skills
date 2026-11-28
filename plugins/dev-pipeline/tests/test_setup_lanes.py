@@ -27,6 +27,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LANES = REPO_ROOT / "skills" / "orchestrator" / "scripts" / "lanes.py"
+_FX_STATE: dict = {}  # the module fixture posts its defaults path here
 
 FIXTURE_DEFAULTS = """\
 schema = "dev-pipeline-lanes.v1"
@@ -141,7 +142,9 @@ def run_lanes(*args: str, home: Path | None = None, timeout: float = 120) -> sub
 
 
 def run_setup(*args: str, home: Path) -> subprocess.CompletedProcess:
-    return run_lanes("--defaults", str(_FIXTURES["defaults"]), "setup", *args, home=home)
+    path = _FX_STATE.get("defaults", Path())
+    assert path.is_file(), "module fixture _FIXTURES must have run first"
+    return run_lanes("--defaults", str(path), "setup", *args, home=home)
 
 
 def out_json(proc: subprocess.CompletedProcess) -> dict:
@@ -169,9 +172,8 @@ def _engine_registered():
 def _FIXTURES(tmp_path_factory):
     base = tmp_path_factory.mktemp("lanes08_setup")
     defaults = write_defaults(base, "defaults")
-    fixture = {"defaults": defaults, "base": base}
-    globals()["_FIXTURES"] = fixture
-    return fixture
+    _FX_STATE["defaults"] = defaults
+    return {"defaults": defaults, "base": base}
 
 
 # ── machine scope writes ──────────────────────────────────────────────────
