@@ -15,6 +15,45 @@ def test_always_loaded_skill_files_stay_under_the_hard_cap():
         size = _skill_md(skill).stat().st_size
         assert size <= budget, f"{skill}/SKILL.md is {size} bytes (cap {budget})"
 
+def _setup_lanes_module():
+    """Load the plugin module for the bundle count pin (plain-module loader,
+    same contract as test_create_gate._plugin — cross-test-module imports do
+    not resolve under the runtime suite's rootdir)."""
+    import importlib.util
+    init_path = PLUGIN_DIR / "__init__.py"
+    spec = importlib.util.spec_from_file_location("dev_pipeline_sizes_under_test", init_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_setup_lanes_bundled():
+    """v0.7.0: the 11th bundled skill registers — len pins at 11 and the tuple
+    names setup-lanes (the count-pins make the bundle change visible, not
+    silent; same rule as the 0.6.1 repo-context row)."""
+    mod = _setup_lanes_module()
+    assert len(mod._BUNDLED_SKILLS) == 11 and "setup-lanes" in mod._BUNDLED_SKILLS
+
+def test_setup_lanes_size_cap():
+    """v0.7.0: setup-lanes SKILL.md joins the always-loaded 8 KB cap."""
+    size = _skill_md("setup-lanes").stat().st_size
+    assert size <= 8192, f"setup-lanes/SKILL.md is {size} bytes (cap 8192)"
+
+def test_setup_lanes_cites_engine():
+    """v0.7.0: the skill references the deterministic engine, its three
+    modes, and the $HERMES_HOME-anchored invocation (the 0.6.1 R1 lesson:
+    the engine path anchors on the plugin install, never the cwd)."""
+    body = _skill_md("setup-lanes").read_text()
+    for probe in ("scripts/lanes.py", "--check", "--force", "detect",
+                  "$HERMES_HOME/plugins/dev-pipeline/skills/orchestrator/scripts/lanes.py"):
+        assert probe in body, f"setup-lanes/SKILL.md missing {probe!r}"
+
+def test_setup_lanes_route_wired():
+    """v0.7.0: the orchestrator routes lane-configuration asks to setup-lanes
+    from its existing Outside-skill pointer line."""
+    body = _skill_md("orchestrator").read_text()
+    assert "setup-lanes" in body
+
 def test_repo_context_skill_cites_engine():
     """v0.6.1: the skill must reference its deterministic engine by path and
     by BOTH modes, plus the survey-stamp wording it shares with review-commit."""

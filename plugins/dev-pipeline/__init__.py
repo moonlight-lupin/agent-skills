@@ -95,6 +95,7 @@ _BUNDLED_SKILLS = (
     "briefs",           # v0.3.1: brief templates, case tables, stamp script
     "debug",            # v0.6.0: bug-shaped work — reproduce, failing test, minimal fix, tiered review
     "repo-context",     # v0.6.1: deterministic repo inventory to a maintained context doc
+    "setup-lanes",      # v0.7.0: interview + deterministic lanes.py setup — coder config and reviewer lanes
 )
 
 _PLUGIN_SKILL_NAMESPACE = "dev-pipeline"

@@ -25,12 +25,14 @@ from __future__ import annotations
 import argparse
 import copy
 import datetime as _dt
+import difflib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 from pathlib import Path
@@ -59,6 +61,26 @@ class Refused(Exception):
     pass
 
 
+class SetupRefused(Exception):
+    """setup-local validation/trust/force refusals, consumed before the
+    shared Refused (4) and ConfigError (5) arms. Codes are subcommand-scoped
+    and documented by `setup --help`."""
+
+    def __init__(self, code: int, msg: str, diff: str | None = None):
+        super().__init__(msg)
+        self.code = code
+        self.diff = diff
+
+
+# Optional test seam: `lanes.py --defaults P <subcommand>` replaces the bundled
+# defaults file for every subcommand (top level, before the subcommand token).
+_DEFAULTS_OVERRIDE: Path | None = None
+
+
+def defaults_src() -> Path:
+    return _DEFAULTS_OVERRIDE or Path(DEFAULT_CONFIG)
+
+
 # --------------------------------------------------------------------------- config
 
 def deep_merge(base: dict, over: dict) -> dict:
@@ -75,7 +97,7 @@ def config_sources(explicit: list[str] | None, repo: str | None) -> list[tuple[P
     """Returns (path, trusted) pairs. Only the bundled default, operator env,
     machine config and explicitly named files are trusted; the repo-local
     .dev-pipeline/lanes.toml is untrusted (see strip_untrusted)."""
-    srcs: list[tuple[Path, bool]] = [(Path(DEFAULT_CONFIG), True)]
+    srcs: list[tuple[Path, bool]] = [(defaults_src(), True)]
     env = os.environ.get("DEV_PIPELINE_LANES")
     if env:
         srcs.append((Path(env).expanduser(), True))
@@ -189,6 +211,9 @@ def validate(cfg: dict) -> None:
     for where, val in checks:
         if val not in ("config-dir", "no-memory"):
             raise ConfigError(f"{where} must be config-dir | no-memory")
+    for tier, seats in cfg.get("review", {}).get("seats", {}).items():
+        if isinstance(seats, bool) or not isinstance(seats, int) or seats < 0:
+            raise ConfigError(f"review.seats.{tier} must be a nonnegative integer, got {seats!r}")
 
 
 # --------------------------------------------------------------------------- detect
@@ -639,15 +664,668 @@ def doctor(cfg, used) -> tuple[int, dict]:
     return (0 if not problems else 3), rep
 
 
+# --------------------------------------------------------------------------- setup (override writer)
+
+SETUP_EXIT_HELP = (
+    "exit codes (subcommand-scoped): 0 ok; 2 validation refusal (unknown key, "
+    "invalid lane, bad value); 3 trust-boundary refusal (untrusted project "
+    "scope); 4 force required; 5 parse/config error."
+)
+
+_TRUST_EDITABLE_LANE_KEYS = ("model", "effort")
+MACHINE_TARGET_ENV = "DEV_PIPELINE_LANES"
+
+
+def _parse_value(raw: str):
+    """Comma splits into a list; true/false booleans; ints and floats next;
+    everything else is a string."""
+    low = raw.strip().lower()
+    if low == "true":
+        return True
+    if low == "false":
+        return False
+    if "," in raw:
+        return [_parse_value(v) for v in raw.split(",")]
+    for cast in (int, float):
+        try:
+            return cast(raw)
+        except ValueError:
+            pass
+    return raw
+
+
+def _to_toml_value(v) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return repr(v)
+    if isinstance(v, str):
+        if any(ord(ch) < 0x20 for ch in v):
+            raise ConfigError("string values must not contain control characters")
+        return '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace(chr(0x7F), "\\u007F") + '"'
+    if isinstance(v, list):
+        return "[" + ", ".join(_to_toml_value(x) for x in v) + "]"
+    raise ConfigError(f"cannot serialize TOML value of type {type(v).__name__}")
+
+
+_TOML_BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _to_toml_key(k: str) -> str:
+    if _TOML_BARE_KEY.match(k):
+        return k
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in k):
+        raise ConfigError("string keys must not contain control characters")
+    return '"' + k.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _serialize_tree(tree: dict, prefix: str = "") -> str:
+    """Deterministic: dict insertion order; scalar keys first, then tables.
+    Keys that are not TOML bare keys are quoted, so an existing
+    [providers."z.ai"] survives a rewrite unchanged (R2 finding 2)."""
+    lines: list[str] = []
+    for k in [k for k in tree if not isinstance(tree[k], dict)]:
+        lines.append(f"{_to_toml_key(k)} = {_to_toml_value(tree[k])}")
+    for k, v in tree.items():
+        if isinstance(v, dict) and v:
+            name = f"{prefix}.{_to_toml_key(k)}" if prefix else _to_toml_key(k)
+            lines.append("")
+            lines.append(f"[{name}]")
+            body = _serialize_tree(v, name)
+            if body:
+                lines.append(body)
+    return "\n".join(lines).strip()
+
+
+def _serialize_override(override: dict) -> str:
+    header = (
+        "schema = \"dev-pipeline-lanes.v1\"\n\n"
+        "# dev-pipeline lanes override — written by lanes.py setup.\n"
+        "# Merges over the plugin defaults table by table; a list replaces\n"
+        "# the whole list. Do not edit the defaults file the plugin ships.\n\n"
+    )
+    body = _serialize_tree(override)
+    return header + (body + "\n" if body else "")
+
+
+def _prune(tree: dict) -> dict:
+    out: dict = {}
+    for k, v in tree.items():
+        if isinstance(v, dict):
+            sub = _prune(v)
+            if sub:
+                out[k] = sub
+        else:
+            out[k] = v
+    return out
+
+
+def _apply_set(tree: dict, dotted: str, value) -> None:
+    parts = dotted.split(".")
+    node = tree
+    for p in parts[:-1]:
+        nxt = node.get(p)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            node[p] = nxt
+        node = nxt
+    node[parts[-1]] = value
+
+
+def _remove_key(tree: dict, dotted: str) -> None:
+    parts = dotted.split(".")
+    node: dict = tree
+    for p in parts[:-1]:
+        if not isinstance(node.get(p), dict):
+            return
+        node = node[p]
+    node.pop(parts[-1], None)
+    trail = parts[:-1]
+    while trail:
+        parent = tree
+        for p in trail[:-1]:
+            parent = parent.get(p, {})
+        if isinstance(parent, dict) and isinstance(parent.get(trail[-1]), dict) \
+                and not parent[trail[-1]]:
+            del parent[trail[-1]]
+        else:
+            break
+        trail = trail[:-1]
+
+
+def _known_lane_ids(defaults: dict, existing: dict) -> set:
+    known = set(defaults.get("lanes", {}))
+    known |= set(existing.get("lanes", {}))
+    return known
+
+
+def _nearest_candidates(defaults: dict, dotted: str) -> str:
+    node = defaults
+    for part in dotted.split(".")[:-1]:
+        node = node.get(part) if isinstance(node, dict) else None
+        if not isinstance(node, dict):
+            return ", ".join(sorted(defaults)) or "(empty tree)"
+    names = sorted(node) or sorted(defaults)
+    return ", ".join(names) or "(empty tree)"
+
+
+def _read_existing(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    raw = path.read_text(encoding="utf-8")
+    if not raw.strip():
+        return {}
+    try:
+        data = tomllib.loads(raw)
+    except tomllib.TOMLDecodeError as e:
+        raise SetupRefused(5, f"{path}: unparseable existing TOML override ({e})") from e
+    data.pop("schema", None)  # the engine owns the schema line in overrides
+    return data
+
+
+def _collect_edits(a) -> list[tuple[str, str, str]]:
+    edits: list[tuple[str, str, str]] = []
+    for item in a.quick or []:
+        if "=" not in item:
+            raise SetupRefused(2, f"--quick expects KEY=VALUE, got {item!r}")
+        k, v = item.split("=", 1)
+        edits.append((k.strip(), v, "set"))
+    for item in a.set or []:
+        if "=" not in item:
+            raise SetupRefused(2, f"--set expects KEY=VALUE, got {item!r}")
+        k, v = item.split("=", 1)
+        edits.append((k.strip(), v, "set"))
+    for item in a.unset or []:
+        edits.append((item.strip(), "", "unset"))
+    if not edits and not a.check:
+        raise SetupRefused(2, "nothing to do: give at least one of --check, --set, --unset, --quick")
+    return edits
+
+
+_SETUP_KEY_RE = re.compile(r"^[A-Za-z0-9_\-+@.]+$")
+
+
+def _machine_active_path() -> Path:
+    """The machine override path the LOADER would use next: $DEV_PIPELINE_LANES,
+    else the first candidate that exists, else the first candidate (the write
+    target when no override exists yet). Mirrors config_sources, so setup
+    never silently shadows an active ~/.config override (R2 finding 5)."""
+    env = os.environ.get(MACHINE_TARGET_ENV)
+    if env:
+        return Path(env).expanduser()
+    for cand in MACHINE_CANDIDATES:
+        p = Path(cand).expanduser()
+        if p.is_file():
+            return p
+    return Path(MACHINE_CANDIDATES[0]).expanduser()
+
+
+def _trusted_base(defaults: dict) -> dict:
+    """The trusted config state (defaults + machine/env override) that project
+    scope types against — the same view the loader strips against. A missing
+    $DEV_PIPELINE_LANES file is a legal first-time setup target (empty base);
+    an EXISTING file that does not parse is refused up front (R3 finding B)."""
+    base = copy.deepcopy(defaults)
+    p = _machine_active_path()
+    if p.is_file():
+        try:
+            data = tomllib.loads(p.read_text(encoding="utf-8"))
+        except (tomllib.TOMLDecodeError, OSError) as e:
+            raise SetupRefused(5, f"the machine override does not parse: {p}: {e}") from e
+        data.pop("schema", None)
+        base = deep_merge(base, data)
+    return base
+
+
+def _validate_typed_value(dotted: str, raw: str, schema: dict):
+    """Coerce and type-check --set/--quick against the schema leaf at
+    dotted (list-typed leaves accept bare scalars as one-element lists)
+    and RETURN the coerced value."""
+    table: dict = schema
+    for part in dotted.split(".")[:-1]:
+        nxt = table.get(part) if isinstance(table, dict) else None
+        if not isinstance(nxt, dict):
+            table = None
+            break
+        table = nxt
+    leaf = dotted.split(".")[-1]
+    value = _parse_value(raw)
+    if not isinstance(table, dict):
+        raise SetupRefused(2, f"unexpected path: {dotted!r} is not a defined surface")
+    def_leaf = table.get(leaf)
+    if isinstance(def_leaf, list) or def_leaf == []:
+        # dispatch-facing lists are string lists (roles, argv templates, tools)
+        if raw == "":
+            value = []  # explicit empty list (P3: reachable valid value)
+        elif isinstance(value, list):
+            if not all(isinstance(x, str) for x in value):
+                raise SetupRefused(2, f"{dotted!r}: list elements must be strings, got {raw!r}")
+        elif isinstance(value, str):
+            value = [value]
+        else:
+            raise SetupRefused(2, f"{dotted!r}: string list expected, got {raw!r}")
+    elif isinstance(def_leaf, str):
+        # string-typed schema leaves accept the RAW input (model names may
+        # contain commas; version pins parse as floats — R3 finding G)
+        value = raw
+    elif isinstance(def_leaf, bool):
+        if not isinstance(value, bool):
+            raise SetupRefused(2, f"{dotted!r}: true or false expected, got {raw!r}")
+    elif isinstance(def_leaf, (int, float)) and not isinstance(def_leaf, bool):
+        if isinstance(value, list) or not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise SetupRefused(2, f"{dotted!r}: a finite number is expected, got {raw!r}")
+        if value != value or value in (float("inf"), float("-inf")):
+            raise SetupRefused(2, f"{dotted!r}: a finite number is expected, got {raw!r}")
+        if isinstance(def_leaf, int) and not float(value).is_integer():
+            # integer-typed leaves (seat counts) reject fractional input
+            raise SetupRefused(2, f"{dotted!r}: an integer is expected, got {raw!r}")
+        if isinstance(def_leaf, int):
+            value = int(value)  # store an int, not a trailing .0 (panel finding 4)
+    elif def_leaf is None:
+        # dynamic surface (dispatch name, whitelisted lane/provider key)
+        if isinstance(value, str):
+            value = raw
+        elif isinstance(value, list) and all(isinstance(x, str) for x in value):
+            pass
+        else:
+            raise SetupRefused(2, f"{dotted!r}: a string or string list is expected, got {raw!r}")
+    elif not isinstance(value, (str, bool, int, float)):
+        raise SetupRefused(2, f"{dotted!r}: a scalar is expected, got {raw!r}")
+    for s in ([value] if isinstance(value, str) else value if isinstance(value, list) else []):
+        if isinstance(s, str) and any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in s):
+            raise SetupRefused(2, f"{dotted!r}: control characters are not valid values")
+    return value
+
+
+def _setup_project_surface(tree: dict, trusted_lanes: set) -> dict:
+    """Project files may contain ONLY the untrusted surface: per-lane
+    model/effort keys holding plain strings, on lanes defined by trusted
+    sources. Everything else in the file is dropped at write time."""
+    out: dict = {}
+    lanes = tree.get("lanes")
+    if not isinstance(lanes, dict):
+        return {}
+    for lid, lane in lanes.items():
+        if lid not in trusted_lanes or not isinstance(lane, dict):
+            continue
+        keep = {}
+        for k, v in lane.items():
+            if k in _TRUST_EDITABLE_LANE_KEYS and isinstance(v, str) \
+                    and not any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in v):
+                keep[k] = v
+        if keep:
+            out.setdefault("lanes", {})[lid] = keep
+    return _prune(out)
+
+
+_PROVIDER_LEAVES = ("kind", "base_url", "auth_env")
+
+
+def _dynamic_surface_tree(dotted: str, defaults: dict, existing: dict) -> dict | None:
+    """Two schema surfaces may take NEW content (spec US-2: review dispatch
+    by lane, and new provider definitions) plus whitelisted lane options
+    (blinding). Returns a synthetic typing tree for the edit, or None when
+    the path is neither a defaults key nor one of these surfaces — the
+    caller then refuses with the nearest candidates (R3 finding 2)."""
+    parts = dotted.split(".")
+    if len(parts) == 3 and parts[0] == "review" and parts[1] == "dispatch":
+        merged_dispatch = deep_merge(defaults.get("review", {}).get("dispatch", {}),
+                                     existing.get("review", {}).get("dispatch", {}))
+        return {"review": {"dispatch": merged_dispatch}}
+    if len(parts) == 3 and parts[0] == "lanes" and parts[1] in _known_lane_ids(defaults, existing):
+        lane_def = deep_merge(defaults.get("lanes", {}).get(parts[1]) or {},
+                              existing.get("lanes", {}).get(parts[1]) or {})
+        if parts[2] not in lane_def and parts[2] != "blinding":
+            return None  # per-lane options are whitelisted (R3 finding 2)
+        return {"lanes": {parts[1]: lane_def}}
+    if len(parts) == 3 and parts[0] == "providers":
+        prov_def = deep_merge(defaults.get("providers", {}).get(parts[1]) or {},
+                              existing.get("providers", {}).get(parts[1]) or {})
+        if parts[2] not in _PROVIDER_LEAVES:
+            return None
+        # provider keys are single strings (base_url/auth_env are never lists —
+        # codex panel P1)
+        prov_def[parts[2]] = ""
+        return {"providers": {parts[1]: prov_def}}
+    return None
+
+
+def _validate_and_apply_edits(edits, existing: dict, defaults: dict, project: bool,
+                              trusted_base: dict | None = None) -> dict:
+    """Machine writes edit the existing override (preserving its other
+    customizations), validated against the DEFAULTS schema. Project writes
+    are typed against the trusted base, filtered to the trusted surface
+    (per-lane model/effort on lanes defined by TRUSTED sources — defaults
+    and the machine override, never the project file itself), and refused
+    WHOLE on any violation."""
+    tree = copy.deepcopy(existing)
+    trusted_lanes = set(defaults.get("lanes", {})) if not project else \
+        _known_lane_ids(trusted_base or {}, {})
+    for dotted, raw, op in edits:
+        for part in dotted.split("."):
+            if not _SETUP_KEY_RE.match(part or " "):
+                raise SetupRefused(2, f"invalid key segment {part!r} in {dotted!r}")
+        top = dotted.split(".", 1)[0]
+        if project:
+            rest = dotted.split(".")
+            if top != "lanes" or len(rest) != 3 \
+                    or rest[1] not in trusted_lanes or rest[2] not in _TRUST_EDITABLE_LANE_KEYS:
+                raise SetupRefused(
+                    3,
+                    f"untrusted project scope: {dotted!r} is not writable there; the only "
+                    "untrusted surface is per-lane model/effort on lanes already defined by "
+                    "trusted sources — everything else belongs to the machine override "
+                    "(the active machine override file)",
+                )
+            if op == "set":
+                # model/effort are single strings (comma-splitting would produce a
+                # value the project filter then drops — panel finding 2/p2)
+                value = raw
+                if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
+                    raise SetupRefused(2, f"{dotted!r}: control characters are not valid values")
+                _apply_set(tree, dotted, value)
+            else:
+                _remove_key(tree, dotted)
+            continue
+        table: dict = defaults
+        for part in dotted.split(".")[:-1]:
+            nxt = table.get(part) if isinstance(table, dict) else None
+            if not isinstance(nxt, dict):
+                table = None
+                break
+            table = nxt
+        leaf = dotted.split(".")[-1]
+        if not isinstance(table, dict) or leaf not in table:
+            dynamic = _dynamic_surface_tree(dotted, defaults, existing)
+            if dynamic is None:
+                raise SetupRefused(
+                    2,
+                    f"unknown key {dotted!r}: not defined by the defaults schema; "
+                    f"nearest keys at that table: {_nearest_candidates(defaults, dotted)}",
+                )
+            if op == "set" and dotted.startswith("review.dispatch."):
+                val = raw.strip()
+                if val not in ("runner", "controller"):
+                    raise SetupRefused(2, "review.dispatch.<lane> must be runner or controller")
+                _apply_set(tree, dotted, val)
+                continue
+            if op == "set" and dotted.startswith("providers.") and leaf == "kind":
+                val = raw.strip()
+                if val not in ("anthropic-login", "anthropic-compatible"):
+                    raise SetupRefused(
+                        2, "provider kind must be anthropic-login or anthropic-compatible")
+                _apply_set(tree, dotted, val)
+                continue
+            if op == "set":
+                value = _validate_typed_value(dotted, raw, dynamic)
+                _apply_set(tree, dotted, value)
+                continue
+            if op == "unset":
+                _remove_key(tree, dotted)
+                continue
+        if op == "set":
+            value = _validate_typed_value(dotted, raw, defaults)
+            if top == "roles" and isinstance(value, list):
+                known = _known_lane_ids(defaults, existing)
+                bad = [x for x in value if x not in known]
+                if bad:
+                    raise SetupRefused(
+                        2,
+                        f"unknown lane id(s) {', '.join(bad)}; lanes defined here: "
+                        f"{', '.join(sorted(known))}",
+                    )
+            _apply_set(tree, dotted, value)
+        else:
+            _remove_key(tree, dotted)
+    return _prune(tree)
+
+
+def _setup_machine_write(target: Path, new_text: str, force: bool) -> str | None:
+    """Writes atomically (temp file + os.replace). Returns the backup path or
+    None; enforces the diff+force rule and keeps the 2 most recent backups."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    real = target.resolve(strict=False)  # symlinked overrides rewrite the real file
+    old_text = real.read_text(encoding="utf-8") if real.is_file() else ""
+    if old_text.strip() and old_text != new_text and not force:
+        diff = "\n".join(difflib.unified_diff(
+            old_text.splitlines(), new_text.splitlines(),
+            fromfile=str(target) + " (current)", tofile=str(target) + " (proposed)",
+            lineterm=""))
+        raise SetupRefused(4, "the override file exists; pass --force after reviewing the diff", diff=diff)
+    backup: str | None = None
+    if old_text.strip() and old_text != new_text:
+        stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        bak = real.with_name(real.name + f".bak-{stamp}")
+        bak.write_bytes(real.read_bytes())
+        os.chmod(bak, real.stat().st_mode & 0o7777)  # no broader than the source
+        backup = str(bak)
+    fd, tmpname = tempfile.mkstemp(dir=str(real.parent), prefix=".lanes-setup-", suffix=".toml")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(new_text)
+    old_mode = None
+    if real.is_file():
+        old_mode = real.stat().st_mode & 0o7777  # preserve the replaced file's mode
+    os.replace(tmpname, real)
+    if old_mode:
+        os.chmod(real, old_mode)
+    baks = sorted(real.parent.glob(real.name + ".bak-*"))
+    for stale in baks[:-2]:
+        stale.unlink()
+    return backup
+
+
+def _load_current(project: bool, repo: str | None):
+    """load_config with the first-time machine surface: when the active
+    machine override does not exist yet, the state is defaults plus whatever
+    trusted content exists (project scope adds the repo file) — gate finding 2
+    and opus panel finding 1: no exit-5 after a write, for either scope."""
+    try:
+        return load_config(None, repo if project else None)
+    except ConfigError as e:
+        if "config file not found" not in str(e):
+            raise
+        data = tomllib.loads(defaults_src().read_text(encoding="utf-8"))
+        if project and repo:
+            p = Path(repo) / ".dev-pipeline" / "lanes.toml"
+            if p.is_file():
+                try:
+                    raw = tomllib.loads(p.read_text(encoding="utf-8"))
+                except tomllib.TOMLDecodeError as e2:
+                    raise ConfigError(f"{p}: {e2}") from e2  # the loader owns this failure
+                data = deep_merge(data, strip_untrusted(raw, data))
+        validate(data)
+        return data, [str(defaults_src())]
+
+
+def _setup_roundtrip(project: bool, repo: str | None) -> tuple[dict, dict]:
+    """doctor + resolve-T2 over the CURRENT config state. A machine override
+    that does not exist YET (first-time $DEV_PIPELINE_LANES target) loads as
+    defaults-only, in memory — the roundtrip still reports real state instead
+    of refusing (gate finding 2)."""
+    cfg, used = _load_current(project, repo)
+    _code, rep = doctor(cfg, used)
+    ns = argparse.Namespace(tier="T2", gate=False, usage=None, failed=[], rate_limited=[],
+                            approved=False, reuse_last=False, ledger=None, round="")
+    _code, res = resolve(cfg, ns)
+    return rep, res
+
+
+def _dig(tree: dict, dotted: str, op: str):
+    node = tree
+    for part in dotted.split(".")[:-1]:
+        node = node.get(part) if isinstance(node, dict) else {}
+    return node.get(dotted.split(".")[-1]) if isinstance(node, dict) else None
+
+
+def setup_cmd(a) -> int:
+    defaults_path = defaults_src()
+    defaults = tomllib.loads(defaults_path.read_text(encoding="utf-8"))
+    if defaults.get("schema") != SCHEMA:
+        raise ConfigError(f"{defaults_path}: schema must be {SCHEMA!r}")
+    project = bool(a.project)
+    repo = str(a.repo) if getattr(a, "repo", None) else None
+    if project:
+        if not repo:
+            raise SetupRefused(2, "--project needs --repo <project root>")
+        if not Path(repo).is_dir():
+            raise SetupRefused(2, f"--repo {repo} is not a directory")
+        target = Path(repo) / ".dev-pipeline" / "lanes.toml"
+        # trust-escape guard (R2 finding 7): a repo must not steer a project
+        # write at the machine file (or anywhere outside the repo) via symlinks
+        if target.is_symlink() or target.parent.is_symlink():
+            raise SetupRefused(3, "the project override path must not be a symlink")
+        resolved = target.resolve()
+        repo_root = Path(repo).resolve()
+        if resolved != repo_root and repo_root not in resolved.parents:
+            raise SetupRefused(3, "the project override path resolves outside the repo")
+        try:
+            machine_active = _machine_active_path().resolve()
+            if resolved == machine_active:
+                raise SetupRefused(3, "the project override path resolves to the machine override")
+        except OSError:
+            pass
+    else:
+        if repo:
+            raise SetupRefused(2, "--repo belongs to --project; machine scope writes the home path")
+        target = _machine_active_path()
+    existing = _read_existing(target)
+    edits = _collect_edits(a)
+    tbase = _trusted_base(defaults)
+    if project and existing:
+        # decision line 3: a project write REFUSES when the existing file
+        # carries content outside the untrusted surface — never silent-drop
+        stripped = _setup_project_surface(existing, set(tbase.get("lanes", {})))
+        if stripped != _prune(existing):
+            raise SetupRefused(
+                3, "the existing project file already carries content outside the "
+                "untrusted surface; setup refuses whole — remove it by hand first")
+    override = _validate_and_apply_edits(edits, existing, defaults, project=project,
+                                         trusted_base=tbase)
+    if project:
+        # project files carry the untrusted surface only, whatever was in them
+        override = _setup_project_surface(override, set(tbase.get("lanes", {})))
+    # pre-write validation (R1-R3: no write, and no viable-looking --check,
+    # of a config that fails validate()). Machine scope merges DEFAULTS with
+    # the override — the old machine file being replaced must not put its
+    # keys back (R3 finding 3 / opus finding A).
+    base_view = deep_merge(tbase, strip_untrusted(override, tbase)) if project \
+        else deep_merge(defaults, override)
+    try:
+        validate(base_view)
+    except ConfigError as e:
+        raise SetupRefused(
+            2, f"the proposed configuration does not validate: {e}; "
+            "nothing was written — fix or remove the flagged keys") from e
+    out: dict = {"wrote": None, "schema": SCHEMA, "warnings": []}
+    if a.check:
+        old_text = target.read_text(encoding="utf-8") if target.is_file() else ""
+        new_text = _serialize_override(override)
+        if old_text == new_text:
+            out["proposed"] = ""
+            out["note"] = "nothing to write: the requested edits are already in effect"
+        else:
+            out["proposed"] = "\n".join(difflib.unified_diff(
+                old_text.splitlines(), new_text.splitlines(),
+                fromfile=str(target) + " (current)", tofile=str(target) + " (proposed)",
+                lineterm=""))
+        backup = None
+    else:
+        new_text = _serialize_override(override)
+        try:
+            parsed = tomllib.loads(new_text)  # round-trip proof: keys must not restructure
+        except tomllib.TOMLDecodeError as e:
+            raise SetupRefused(5, f"internal: serialized override failed to parse ({e})") from e
+        parsed.pop("schema", None)
+        if parsed != override:
+            raise SetupRefused(5, "internal: serialization changed the parsed tree")
+        backup = _setup_machine_write(target, new_text, a.force)
+        out["wrote"] = str(target)
+    out["backup"] = backup
+    rep, res = _setup_roundtrip(project, repo)
+    code = 0
+    cfg, _used = _load_current(project, repo)
+    status = {d["lane"]: d for d in detect(cfg)}
+    if a.check:
+        # --check reports the CURRENT on-disk state; the proposal itself was
+        # already validated above (R2 finding 6 / codex finding 5)
+        out["state"] = "current-on-disk"
+    else:
+        # verification report (R2 finding 1 as re-adjudicated 2026-11-28: a
+        # landed write returns 0; the rc must never encode machine tooling —
+        # CI runners have no lane binaries, and a tool-lane coder then refused
+        # EVERY write). Availability stays in the report: notice + warnings +
+        # roundtrip verdict; the resolve subcommand keeps its NO-LANE exit 2.
+        coder_lanes = ((cfg.get("roles") or {}).get("coder") or [])
+        if res.get("roles", {}).get("coder") is None:
+            if not any((status.get(ln) or {}).get("available") for ln in coder_lanes):
+                out["verification"] = (
+                    "notice: no coder lane in roles.coder is available on this machine; "
+                    "the write stands and resolve reports NO-LANE until one is "
+                    "(per-lane availability is in warnings)")
+            else:
+                code = 2
+                out["verification"] = "failed: no coder lane resolves for the proposed configuration"
+        else:
+            code = 0
+    # requested-key effective values for --check (R2 finding 6)
+    if a.check and (a.set or a.quick or a.unset):
+        current_view = deep_merge(tbase, strip_untrusted(existing, tbase)) if project \
+            else deep_merge(defaults, existing)
+        proposed_view = deep_merge(tbase, strip_untrusted(override, tbase)) if project \
+            else deep_merge(defaults, override)
+        requested: dict = {}
+        for dotted, raw, op in edits:
+            requested[dotted] = {
+                "current": _dig(current_view, dotted, op),
+                "proposed": _dig(proposed_view, dotted, op),
+            }
+        out["requested"] = requested
+    # verify-time warnings: they report, they never block the write (resolve
+    # skips unavailable lanes; a parse-broken merge still exits 5 above)
+    for dotted, val in (override.get("roles") or {}).items():
+        for lid in (val if isinstance(val, list) else []):
+            st = status.get(lid)
+            if st is not None and not st.get("available"):
+                out["warnings"].append(
+                    f"lane {lid} in roles.{dotted} is not available on this machine; "
+                    "it stays listed and is skipped at resolve time")
+    for lid, lane in (cfg.get("lanes") or {}).items():
+        prov = (cfg.get("providers") or {}).get(lane.get("provider", "anthropic") or "")
+        if prov is not None and prov.get("kind") == "anthropic-compatible":
+            name = prov.get("auth_env") or ""
+            if name and not os.environ.get(name):
+                out["warnings"].append(
+                    f"lane {lid} uses provider {lane.get('provider')} (anthropic-compatible) "
+                    f"and {name} is not set in the environment; dispatch will refuse to "
+                    "start until it is")
+    out["doctor"] = rep
+    out["roundtrip"] = res
+    print(json.dumps(out, indent=2))
+    return code
+
+
 # --------------------------------------------------------------------------- cli
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--defaults", help="replace the bundled defaults file (top-level; before the subcommand; every subcommand honors it)")
     ap.add_argument("--config", action="append", help="extra config file (applied last; repeatable)")
     ap.add_argument("--repo", help="project root, for <repo>/.dev-pipeline/lanes.toml")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("detect")
+    s = sub.add_parser("setup")
+    s.add_argument("--check", action="store_true", help="report the effective values and the proposed diff; write nothing")
+    s.add_argument("--project", action="store_true", help="write the PROJECT override (untrusted surface: per-lane model/effort on trusted lanes only)")
+    s.add_argument("--force", action="store_true", help="overwrite an existing override (a timestamped backup keeps the previous content)")
+    s.add_argument("--set", action="extend", nargs="+", metavar="KEY=VALUE",
+                   help="deep edit on a dot-path the defaults define (repeatable; lists are comma-separated; an empty VALUE on a list leaf sets the empty list)")
+    s.add_argument("--unset", action="extend", nargs="+", metavar="KEY", help="remove a key set by a previous override (repeatable)")
+    s.add_argument("--quick", action="extend", nargs="+", metavar="KEY=VALUE",
+                   help="quick-setup keys: roles.coder, roles.reviewers, lanes.<id>.model (repeatable)")
+    s.add_argument("--repo", action="store", help="project root (with --project)",
+                   default=argparse.SUPPRESS)
+    s.epilog = SETUP_EXIT_HELP
     r = sub.add_parser("resolve")
     r.add_argument("--tier", required=True, choices=["T0", "T1", "T2", "T3"])
     r.add_argument("--gate", action="store_true", help="size the panel for the deploy gate")
@@ -673,8 +1351,19 @@ def main(argv=None) -> int:
             c.add_argument("--timeout", type=int, default=3600)
     sub.add_parser("doctor")
 
+    global _DEFAULTS_OVERRIDE
     a = ap.parse_args(argv)
+    _DEFAULTS_OVERRIDE = Path(a.defaults).expanduser() if a.defaults else None
     try:
+        if a.cmd == "setup":
+            try:
+                return setup_cmd(a)
+            except SetupRefused as e:
+                payload: dict = {"refused": str(e), "code": e.code}
+                if e.diff:
+                    payload["diff"] = e.diff
+                print(json.dumps(payload), file=sys.stderr)
+                return e.code
         cfg, used = load_config(a.config, a.repo)
         if a.cmd == "detect":
             print(json.dumps({"schema": SCHEMA, "config": used, "lanes": detect(cfg)}, indent=2))
