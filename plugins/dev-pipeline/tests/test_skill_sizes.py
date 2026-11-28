@@ -22,6 +22,18 @@ def test_repo_context_skill_cites_engine():
     for probe in ("scripts/inventory.py", "survey", "check", "survey stamp"):
         assert probe in body, f"repo-context/SKILL.md missing {probe!r}"
 
+def test_bootstrap_route_wired():
+    """v0.6.1: the orchestrator routes existing-repo starts to the repo-context
+    bootstrap before spec/build planning."""
+    body = _skill_md("orchestrator").read_text()
+    assert "repo-context" in body and "bootstrap" in body
+
+def test_maintenance_wired():
+    """v0.6.1: review-commit's commit-gate step runs the inventory check and
+    carries the named-skip rule — at the gate, not post-ship."""
+    body = _skill_md("review-commit").read_text()
+    assert "inventory.py check" in body and "skip" in body
+
 def test_router_skills_do_not_grow_past_their_drift_allowance():
     """orchestrator and review-commit were 'not the problem' per the signed brief
     (0.5.0 sizes 8,598 / 9,761 bytes incl. frontmatter). The debug route and the

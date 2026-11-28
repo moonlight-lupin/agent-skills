@@ -113,6 +113,7 @@ answer, then continues.
 2. Goldfish spec review runs for S2/S3 after the approved plan — without prompting (`references/unattended.md`).
 3. Tests start RED where behavior changes; verify GREEN plus full acceptance after fixes; never let an exhausted budget conceal failing tests.
 4. Escalate risk on any new trust boundary; user-specified reviewers may add scrutiny; live deploy always retains the three-reviewer gate.
+5. An existing (non-blank) repo without a stamped context doc → `repo-context` bootstrap before spec/build planning begins (`../repo-context/SKILL.md`); at the commit gate a `stale` verdict is that skill's maintenance, not a routing question.
 
 ## Goal binding
 
