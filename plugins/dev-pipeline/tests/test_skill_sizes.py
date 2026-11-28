@@ -11,9 +11,16 @@ def test_always_loaded_skill_files_stay_under_the_hard_cap():
     test-evals are at or under the 8 KB hard cap (bytes asserted, not timestamps,
     so a re-inlined rule re-fails the cap). Debug ships small by design."""
     budget = 8192
-    for skill in ("build", "spec", "test-evals", "debug"):
+    for skill in ("build", "spec", "test-evals", "debug", "repo-context"):
         size = _skill_md(skill).stat().st_size
         assert size <= budget, f"{skill}/SKILL.md is {size} bytes (cap {budget})"
+
+def test_repo_context_skill_cites_engine():
+    """v0.6.1: the skill must reference its deterministic engine by path and
+    by BOTH modes, plus the survey-stamp wording it shares with review-commit."""
+    body = _skill_md("repo-context").read_text()
+    for probe in ("scripts/inventory.py", "survey", "check", "survey stamp"):
+        assert probe in body, f"repo-context/SKILL.md missing {probe!r}"
 
 def test_router_skills_do_not_grow_past_their_drift_allowance():
     """orchestrator and review-commit were 'not the problem' per the signed brief
