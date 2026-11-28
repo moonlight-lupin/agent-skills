@@ -71,11 +71,12 @@ do not guess paths. Inline tables are addressed deepest
 
 ## Write rules
 
-- Machine scope is the default: the first of `$DEV_PIPELINE_LANES`,
-  `$HOME/.hermes/dev-pipeline/lanes.toml` is written.
+- Machine scope writes the ACTIVE machine override: `$DEV_PIPELINE_LANES`
+  if set, else the first of `$HOME/.hermes/dev-pipeline/lanes.toml` and
+  `$HOME/.config/dev-pipeline/lanes.toml` that exists (else the first).
 - `--project --repo <root>` writes `<repo>/.dev-pipeline/lanes.toml` —
   the UNTRUSTED surface. It accepts ONLY per-lane model/effort on lanes
-  defined by trusted sources; anything else is refused wholy and pointed
+  defined by trusted sources; anything else is refused whole and pointed
   at the machine scope. Never try to smuggle a trusted key through a
   project file.
 - An existing override is never clobbered silently: without `--force`

@@ -125,7 +125,7 @@ def write_defaults(tmp_path: Path, name: str = "defaults") -> Path:
     return p
 
 
-def run_lanes(*args: str, home: Path | None = None, timeout: float = 120) -> subprocess.CompletedProcess:
+def run_lanes(*args: str, home: Path | None = None, timeout: float = 120, env_extra: dict | None = None) -> subprocess.CompletedProcess:
     env = {
         **__import__("os").environ.copy(),
         "TMPDIR": tempfile.gettempdir(),          # suite isolation
@@ -135,6 +135,7 @@ def run_lanes(*args: str, home: Path | None = None, timeout: float = 120) -> sub
     env.pop("DEV_PIPELINE_LANES", None)           # no machine config leakage either
     if home is not None:
         env["HOME"] = str(home)
+    env.update(env_extra or {})
     return subprocess.run(
         [sys.executable, str(LANES), *args],
         capture_output=True, text=True, timeout=timeout, env=env,
@@ -402,3 +403,111 @@ def test_setup_defaults_untouched(_FIXTURES, tmp_path):
     assert proc.returncode == 2, proc.stderr  # adjudicated NO-LANE exit; file write stands
     after = (defaults.read_bytes(), defaults.stat().st_mtime_ns)
     assert after == before
+
+
+# ── R3 regression rows: mechanisms fixed in review rounds, pinned here ────
+
+
+def test_r3_string_list_scalar_shorthand_refused(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    proc = run_setup("--set", "lanes.codex.binary=42", home=home)
+    assert proc.returncode == 2
+    assert "string list" in err_json(proc)["refused"]
+
+
+def test_r3_quoted_keys_survive_rewrite(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    p = default_path(home)
+    p.write_text('schema = "dev-pipeline-lanes.v1"\n[providers."z.ai"]\nkind = "anthropic-login"\n')
+    proc = run_setup("--force", "--set", "roles.coder=claude", home=home)
+    assert proc.returncode == 0, proc.stderr
+    text = p.read_text()
+    assert 'providers."z.ai"' in text  # one provider, not a restructured nesting
+    assert '[providers.z.ai]' not in text
+
+
+def test_r3_dynamic_surfaces_reachable(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    run_setup("--force", "--set", "review.dispatch.claude=controller", home=home)
+    run_setup("--force", "--set", "lanes.claude.blinding=config-dir", home=home)
+    p = run_setup("--force", "--set", "providers.compat.kind=anthropic-login", home=home)
+    assert p.returncode == 0, p.stderr
+    merged = tomllib.loads(default_path(home).read_text())
+    assert merged["review"]["dispatch"]["claude"] == "controller"
+    assert merged["lanes"]["claude"]["blinding"] == "config-dir"
+    assert merged["providers"]["compat"]["kind"] == "anthropic-login"
+
+
+def test_r3_dynamic_unknown_leaf_refused(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    proc = run_setup("--set", "lanes.codex.nonsense=hello", home=home)
+    assert proc.returncode == 2
+    assert "unknown key" in err_json(proc)["refused"]
+
+
+def test_r3_machine_active_config_target_wins(_FIXTURES, tmp_path):
+    # the loader uses ~/.config when ~/.hermes is absent: setup must write it,
+    # not create a shadowing ~/.hermes file (codex R1-on-fixed-tree finding 5)
+    home = make_home(tmp_path)
+    home.chmod(0o777)
+    cfg_dir = home / ".config" / "dev-pipeline"
+    cfg_dir.mkdir(parents=True)
+    cfg = cfg_dir / "lanes.toml"
+    cfg.write_text('[lanes.codex]\nmodel = "old"\n')
+    proc = run_setup("--force", "--set", "lanes.codex.model=new", home=home)
+    assert proc.returncode == 0, proc.stderr
+    assert 'model = "new"' in cfg.read_text()
+    assert not (home / ".hermes" / "dev-pipeline" / "lanes.toml").exists()
+
+
+def test_r3_env_var_new_file_first_time_setup(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    env_file = tmp_path / "brand-new" / "lanes.toml"
+    proc = run_lanes("--defaults", str(_FX_STATE["defaults"]), "setup",
+                     "--set", "roles.coder=claude", home=home,
+                     env_extra={"DEV_PIPELINE_LANES": str(env_file)})
+    assert proc.returncode == 0, proc.stderr
+    assert env_file.exists()
+
+
+def test_r3_unparseable_machine_file_refused_upfront(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    default_path(home).write_text("[lanes\nbroken ===")
+    proc = run_setup("--project", "--repo", str(tmp_path),
+                     "--set", "lanes.claude.model=probe", home=home)
+    assert proc.returncode == 5
+    assert "does not parse" in err_json(proc)["refused"]
+
+
+def test_r3_project_write_refuses_hostile_content(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    repo = tmp_path / "proj"
+    (repo / ".dev-pipeline").mkdir(parents=True)
+    (repo / ".dev-pipeline" / "lanes.toml").write_text(
+        'schema = "dev-pipeline-lanes.v1"\n[harness]\ncoding = "controller"\n'
+        '[lanes.codex]\nmodel = "old"\n')
+    proc = run_setup("--project", "--repo", str(repo), "--force",
+                     "--set", "lanes.codex.model=new", home=home)
+    assert proc.returncode == 3  # whole-write refusal: nothing silently dropped
+    assert "outside the untrusted surface" in err_json(proc)["refused"]
+
+
+def test_r3_project_symlink_escape_refused(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    home.chmod(0o777)
+    repo = tmp_path / "proj"
+    repo.mkdir(parents=True)
+    (repo / ".dev-pipeline").symlink_to(home / ".hermes" / "dev-pipeline")
+    proc = run_setup("--project", "--repo", str(repo), "--force",
+                     "--set", "lanes.claude.model=x", home=home)
+    assert proc.returncode == 3
+    assert not default_path(home).exists()  # the machine file was never touched
+
+
+def test_r3_check_reports_requested_values(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    body = out_json(run_setup("--check", "--set", "roles.coder=codex", home=home))
+    req = body.get("requested", {})
+    assert req["roles.coder"]["proposed"] == ["codex"]
+    assert req["roles.coder"]["current"] == ["claude", "controller"]
+    assert body.get("state") == "current-on-disk"

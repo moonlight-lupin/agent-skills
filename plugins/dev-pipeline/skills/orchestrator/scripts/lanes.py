@@ -699,7 +699,7 @@ def _to_toml_value(v) -> str:
     if isinstance(v, str):
         if any(ord(ch) < 0x20 for ch in v):
             raise ConfigError("string values must not contain control characters")
-        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        return '"' + v.replace("\\", "\\\\").replace('"', '\\"').replace(chr(0x7F), "\\u007F") + '"'
     if isinstance(v, list):
         return "[" + ", ".join(_to_toml_value(x) for x in v) + "]"
     raise ConfigError(f"cannot serialize TOML value of type {type(v).__name__}")
@@ -859,12 +859,12 @@ def _machine_active_path() -> Path:
 
 def _trusted_base(defaults: dict) -> dict:
     """The trusted config state (defaults + machine/env override) that project
-    scope types against — the same view the loader strips against. Stops at
-    the first existing candidate like the loader and refuses up front when it
-    does not parse (R2 finding 4)."""
+    scope types against — the same view the loader strips against. A missing
+    $DEV_PIPELINE_LANES file is a legal first-time setup target (empty base);
+    an EXISTING file that does not parse is refused up front (R3 finding B)."""
     base = copy.deepcopy(defaults)
     p = _machine_active_path()
-    if os.environ.get(MACHINE_TARGET_ENV) or p.is_file():
+    if p.is_file():
         try:
             data = tomllib.loads(p.read_text(encoding="utf-8"))
         except (tomllib.TOMLDecodeError, OSError) as e:
@@ -890,31 +890,34 @@ def _validate_typed_value(dotted: str, raw: str, schema: dict):
     if not isinstance(table, dict):
         raise SetupRefused(2, f"unexpected path: {dotted!r} is not a defined surface")
     def_leaf = table.get(leaf)
-    if isinstance(def_leaf, list):
+    if isinstance(def_leaf, list) or def_leaf == []:
+        # dispatch-facing lists are string lists (roles, argv templates, tools)
         if isinstance(value, list):
-            if not all(isinstance(x, (str, bool, int, float)) for x in value):
-                raise SetupRefused(2, f"{dotted!r}: list values must be scalars, got {raw!r}")
-            if def_leaf and all(isinstance(x, str) for x in def_leaf) \
-                    and not all(isinstance(x, str) for x in value):
+            if not all(isinstance(x, str) for x in value):
                 raise SetupRefused(2, f"{dotted!r}: list elements must be strings, got {raw!r}")
-        elif isinstance(value, (str, bool, int, float)):
+        elif isinstance(value, str):
             value = [value]
         else:
-            raise SetupRefused(2, f"{dotted!r}: a list is expected, got {raw!r}")
+            raise SetupRefused(2, f"{dotted!r}: string list expected, got {raw!r}")
     elif isinstance(def_leaf, str):
-        # string-typed schema leaves (incl. every model/effort) accept only strings
-        if not isinstance(value, str):
-            raise SetupRefused(2, f"{dotted!r}: a string is expected, got {raw!r}")
+        # string-typed schema leaves accept the RAW input (model names may
+        # contain commas; version pins parse as floats — R3 finding G)
+        value = raw
     elif isinstance(def_leaf, bool):
         if not isinstance(value, bool):
             raise SetupRefused(2, f"{dotted!r}: true or false expected, got {raw!r}")
     elif isinstance(def_leaf, (int, float)) and not isinstance(def_leaf, bool):
         if isinstance(value, list) or not isinstance(value, (int, float)) or isinstance(value, bool):
-            raise SetupRefused(2, f"{dotted!r}: a number is expected, got {raw!r}")
+            raise SetupRefused(2, f"{dotted!r}: a finite number is expected, got {raw!r}")
+        if value != value or value in (float("inf"), float("-inf")):
+            raise SetupRefused(2, f"{dotted!r}: a finite number is expected, got {raw!r}")
     elif def_leaf is None:
-        # dynamic surface (dispatch name, lane option, provider key): string-or-list
-        if not isinstance(value, (str, list)) \
-                or (isinstance(value, list) and not all(isinstance(x, str) for x in value)):
+        # dynamic surface (dispatch name, whitelisted lane/provider key)
+        if isinstance(value, str):
+            value = raw
+        elif isinstance(value, list) and all(isinstance(x, str) for x in value):
+            pass
+        else:
             raise SetupRefused(2, f"{dotted!r}: a string or string list is expected, got {raw!r}")
     elif not isinstance(value, (str, bool, int, float)):
         raise SetupRefused(2, f"{dotted!r}: a scalar is expected, got {raw!r}")
@@ -945,24 +948,31 @@ def _setup_project_surface(tree: dict, trusted_lanes: set) -> dict:
     return _prune(out)
 
 
+_PROVIDER_LEAVES = ("kind", "base_url", "auth_env")
+
+
 def _dynamic_surface_tree(dotted: str, defaults: dict, existing: dict) -> dict | None:
-    """Three schema surfaces may take NEW keys (spec US-2: review dispatch,
-    per-lane options such as blinding, and new provider definitions). Returns
-    a synthetic typing tree for the edit, or None when the path is neither a
-    defaults key nor one of these surfaces."""
+    """Two schema surfaces may take NEW content (spec US-2: review dispatch
+    by lane, and new provider definitions) plus whitelisted lane options
+    (blinding). Returns a synthetic typing tree for the edit, or None when
+    the path is neither a defaults key nor one of these surfaces — the
+    caller then refuses with the nearest candidates (R3 finding 2)."""
     parts = dotted.split(".")
     if len(parts) == 3 and parts[0] == "review" and parts[1] == "dispatch":
-        merged_dispatch = {**(defaults.get("review", {}).get("dispatch", {})),
-                           **(existing.get("review", {}).get("dispatch", {}))}
+        merged_dispatch = deep_merge(defaults.get("review", {}).get("dispatch", {}),
+                                     existing.get("review", {}).get("dispatch", {}))
         return {"review": {"dispatch": merged_dispatch}}
     if len(parts) == 3 and parts[0] == "lanes" and parts[1] in _known_lane_ids(defaults, existing):
-        lane_def = deep_merge((existing.get("lanes", {}).get(parts[1]) or {}),
-                              (defaults.get("lanes", {}).get(parts[1]) or {}))
-        lane_def.update(existing.get("lanes", {}).get(parts[1]) or {})
+        lane_def = deep_merge(defaults.get("lanes", {}).get(parts[1]) or {},
+                              existing.get("lanes", {}).get(parts[1]) or {})
+        if parts[2] not in lane_def and parts[2] != "blinding":
+            return None  # per-lane options are whitelisted (R3 finding 2)
         return {"lanes": {parts[1]: lane_def}}
     if len(parts) == 3 and parts[0] == "providers":
-        prov_def = deep_merge((existing.get("providers", {}).get(parts[1]) or {}),
-                              (defaults.get("providers", {}).get(parts[1]) or {}))
+        prov_def = deep_merge(defaults.get("providers", {}).get(parts[1]) or {},
+                              existing.get("providers", {}).get(parts[1]) or {})
+        if parts[2] not in _PROVIDER_LEAVES:
+            return None
         return {"providers": {parts[1]: prov_def}}
     return None
 
@@ -979,8 +989,8 @@ def _validate_and_apply_edits(edits, existing: dict, defaults: dict, project: bo
     trusted_lanes = set(defaults.get("lanes", {})) if not project else \
         _known_lane_ids(trusted_base or {}, {})
     for dotted, raw, op in edits:
-        for part in dotted.split(".")[:-1] or dotted.split("."):
-            if not _SETUP_KEY_RE.match(part):
+        for part in dotted.split("."):
+            if not _SETUP_KEY_RE.match(part or " "):
                 raise SetupRefused(2, f"invalid key segment {part!r} in {dotted!r}")
         top = dotted.split(".", 1)[0]
         if project:
@@ -1017,14 +1027,18 @@ def _validate_and_apply_edits(edits, existing: dict, defaults: dict, project: bo
                     f"nearest keys at that table: {_nearest_candidates(defaults, dotted)}",
                 )
             if op == "set" and dotted.startswith("review.dispatch."):
-                if raw.strip() not in ("runner", "controller"):
+                val = raw.strip()
+                if val not in ("runner", "controller"):
                     raise SetupRefused(2, "review.dispatch.<lane> must be runner or controller")
-                _apply_set(tree, dotted, raw.strip().lower())
+                _apply_set(tree, dotted, val)
                 continue
-            if op == "set" and dotted.startswith("providers.") and leaf == "kind" \
-                    and raw.strip() not in ("anthropic-login", "anthropic-compatible"):
-                raise SetupRefused(
-                    2, "provider kind must be anthropic-login or anthropic-compatible")
+            if op == "set" and dotted.startswith("providers.") and leaf == "kind":
+                val = raw.strip()
+                if val not in ("anthropic-login", "anthropic-compatible"):
+                    raise SetupRefused(
+                        2, "provider kind must be anthropic-login or anthropic-compatible")
+                _apply_set(tree, dotted, val)
+                continue
             if op == "set":
                 value = _validate_typed_value(dotted, raw, dynamic)
                 _apply_set(tree, dotted, value)
@@ -1089,8 +1103,7 @@ def _dig(tree: dict, dotted: str, op: str):
     node = tree
     for part in dotted.split(".")[:-1]:
         node = node.get(part) if isinstance(node, dict) else {}
-    got = node.get(dotted.split(".")[-1]) if isinstance(node, dict) else None
-    return None if (op == "unset" and got is None) else got
+    return node.get(dotted.split(".")[-1]) if isinstance(node, dict) else None
 
 
 def setup_cmd(a) -> int:
@@ -1127,21 +1140,31 @@ def setup_cmd(a) -> int:
     existing = _read_existing(target)
     edits = _collect_edits(a)
     tbase = _trusted_base(defaults)
+    if project and existing:
+        # decision line 3: a project write REFUSES when the existing file
+        # carries content outside the untrusted surface — never silent-drop
+        stripped = _setup_project_surface(existing, set(tbase.get("lanes", {})))
+        if stripped != _prune(existing):
+            raise SetupRefused(
+                3, "the existing project file already carries content outside the "
+                "untrusted surface; setup refuses whole — remove it by hand first")
     override = _validate_and_apply_edits(edits, existing, defaults, project=project,
                                          trusted_base=tbase)
     if project:
         # project files carry the untrusted surface only, whatever was in them
         override = _setup_project_surface(override, set(tbase.get("lanes", {})))
-    # pre-write validation (R1/R2: no write of a config that fails validate()):
-    if not a.check:
-        base_view = deep_merge(tbase, override) if not project else deep_merge(
-            tbase, strip_untrusted(override, tbase))
-        try:
-            validate(base_view)
-        except ConfigError as e:
-            raise SetupRefused(
-                2, f"the proposed configuration does not validate: {e}; "
-                "nothing was written — fix or remove the flagged keys") from e
+    # pre-write validation (R1-R3: no write, and no viable-looking --check,
+    # of a config that fails validate()). Machine scope merges DEFAULTS with
+    # the override — the old machine file being replaced must not put its
+    # keys back (R3 finding 3 / opus finding A).
+    base_view = deep_merge(tbase, strip_untrusted(override, tbase)) if project \
+        else deep_merge(defaults, override)
+    try:
+        validate(base_view)
+    except ConfigError as e:
+        raise SetupRefused(
+            2, f"the proposed configuration does not validate: {e}; "
+            "nothing was written — fix or remove the flagged keys") from e
     out: dict = {"wrote": None, "schema": SCHEMA, "warnings": []}
     if a.check:
         old_text = target.read_text(encoding="utf-8") if target.is_file() else ""
@@ -1168,13 +1191,19 @@ def setup_cmd(a) -> int:
         out["wrote"] = str(target)
     out["backup"] = backup
     rep, res = _setup_roundtrip(project, repo)
-    # verification propagation (R2 finding 1): a config whose primary coder
-    # cannot resolve is reported with a nonzero exit; the write itself stands
-    if res.get("roles", {}).get("coder") is None:
-        code = 2
-        out["verification"] = "failed: no coder lane resolves for the proposed configuration"
+    code = 0
+    if a.check:
+        # --check reports the CURRENT on-disk state; the proposal itself was
+        # already validated above (R2 finding 6 / codex finding 5)
+        out["state"] = "current-on-disk"
     else:
-        code = 0
+        # verification propagation (R2 finding 1): a config whose primary coder
+        # cannot resolve is reported with a nonzero exit; the write stands
+        if res.get("roles", {}).get("coder") is None:
+            code = 2
+            out["verification"] = "failed: no coder lane resolves for the proposed configuration"
+        else:
+            code = 0
     # requested-key effective values for --check (R2 finding 6)
     if a.check and (a.set or a.quick or a.unset):
         current_view = deep_merge(tbase, strip_untrusted(existing, tbase)) if project \
