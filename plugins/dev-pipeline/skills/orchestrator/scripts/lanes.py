@@ -1243,16 +1243,28 @@ def setup_cmd(a) -> int:
     out["backup"] = backup
     rep, res = _setup_roundtrip(project, repo)
     code = 0
+    cfg, _used = _load_current(project, repo)
+    status = {d["lane"]: d for d in detect(cfg)}
     if a.check:
         # --check reports the CURRENT on-disk state; the proposal itself was
         # already validated above (R2 finding 6 / codex finding 5)
         out["state"] = "current-on-disk"
     else:
-        # verification propagation (R2 finding 1): a config whose primary coder
-        # cannot resolve is reported with a nonzero exit; the write stands
+        # verification report (R2 finding 1 as re-adjudicated 2026-11-28: a
+        # landed write returns 0; the rc must never encode machine tooling —
+        # CI runners have no lane binaries, and a tool-lane coder then refused
+        # EVERY write). Availability stays in the report: notice + warnings +
+        # roundtrip verdict; the resolve subcommand keeps its NO-LANE exit 2.
+        coder_lanes = ((cfg.get("roles") or {}).get("coder") or [])
         if res.get("roles", {}).get("coder") is None:
-            code = 2
-            out["verification"] = "failed: no coder lane resolves for the proposed configuration"
+            if not any((status.get(ln) or {}).get("available") for ln in coder_lanes):
+                out["verification"] = (
+                    "notice: no coder lane in roles.coder is available on this machine; "
+                    "the write stands and resolve reports NO-LANE until one is "
+                    "(per-lane availability is in warnings)")
+            else:
+                code = 2
+                out["verification"] = "failed: no coder lane resolves for the proposed configuration"
         else:
             code = 0
     # requested-key effective values for --check (R2 finding 6)
@@ -1268,8 +1280,6 @@ def setup_cmd(a) -> int:
                 "proposed": _dig(proposed_view, dotted, op),
             }
         out["requested"] = requested
-    cfg, _used = _load_current(project, repo)
-    status = {d["lane"]: d for d in detect(cfg)}
     # verify-time warnings: they report, they never block the write (resolve
     # skips unavailable lanes; a parse-broken merge still exits 5 above)
     for dotted, val in (override.get("roles") or {}).items():

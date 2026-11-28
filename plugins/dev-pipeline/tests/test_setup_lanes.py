@@ -345,14 +345,15 @@ def test_project_scope_refuses_unknown_lane(_FIXTURES, tmp_path):
 
 def test_unavailable_lane_warns(_FIXTURES, tmp_path):
     home = make_home(tmp_path)
-    # US-4 acceptance (adjudicated over the edge-case prose): a coder list
-    # with no resolvable lane still writes, warns, and exits NONZERO
+    # US-4 acceptance (re-adjudicated 2026-11-28, CI lesson: the rc from a
+    # write must never depend on machine tooling): a coder list with no
+    # resolvable lane still writes, warns, and returns 0 with a notice
     proc = run_setup("--quick", "roles.coder=codex", home=home)
-    assert proc.returncode == 2, proc.stderr
+    assert proc.returncode == 0, proc.stderr
     body = out_json(proc)
     assert body["wrote"]  # the write stands; the problem is reported, not hidden
     assert any("codex" in w for w in body.get("warnings", []))
-    assert "no coder lane resolves" in body.get("verification", "")
+    assert body.get("verification", "").startswith("notice:")
 
 
 def test_provider_env_warns(_FIXTURES, tmp_path):
@@ -379,11 +380,12 @@ def test_verify_roundtrip_prints_roles(_FIXTURES, tmp_path):
 
 def test_setup_deterministic_quick(_FIXTURES, tmp_path):
     home_a, home_b = make_home(tmp_path, "home-a"), make_home(tmp_path, "home-b")
-    # roles.coder=codex resolves to NO-LANE on the fixture (adjudicated rc 2);
-    # determinism is still the claim: identical inputs -> identical bytes
+    # roles.coder=codex resolves to NO-LANE on the fixture (adjudicated rc 0 —
+    # a write's rc never depends on machine tooling); determinism is the
+    # claim: identical inputs -> identical bytes
     first = run_setup("--quick", "roles.coder=codex", "roles.reviewers=codex,claude", "lanes.codex.model=gpt-6-sol", home=home_a)
     second = run_setup("--quick", "roles.coder=codex", "roles.reviewers=codex,claude", "lanes.codex.model=gpt-6-sol", home=home_b)
-    assert first.returncode == second.returncode == 2, (first.stderr, second.stderr)
+    assert first.returncode == second.returncode == 0, (first.stderr, second.stderr)
     assert default_path(home_a).read_bytes() == default_path(home_b).read_bytes()
 
 
@@ -401,7 +403,7 @@ def test_setup_defaults_untouched(_FIXTURES, tmp_path):
     defaults = _FIXTURES["defaults"]
     before = (defaults.read_bytes(), defaults.stat().st_mtime_ns)
     proc = run_setup("--quick", "roles.coder=codex", home=home)
-    assert proc.returncode == 2, proc.stderr  # adjudicated NO-LANE exit; file write stands
+    assert proc.returncode == 0, proc.stderr  # adjudicated 2026-11-28: write rc 0; file write stands
     after = (defaults.read_bytes(), defaults.stat().st_mtime_ns)
     assert after == before
 
@@ -591,6 +593,21 @@ def test_gate_backup_mode_not_broader_than_source(_FIXTURES, tmp_path):
     baks = sorted(file.parent.glob("lanes.toml.bak-*"))
     assert baks
     assert baks[-1].stat().st_mode & 0o7777 == 0o600
+
+
+def test_gate_write_rc0_when_no_coder_lane_available(_FIXTURES, tmp_path):
+    """CI runner case: no lane binary on PATH -> the write lands and returns 0
+    with a verification notice (machine availability, never rc 2)."""
+    home = make_home(tmp_path)
+    bin_dir = tmp_path / "emptybin"
+    bin_dir.mkdir()  # PATH with nothing in it: every lane binary is missing
+    proc = run_lanes("--defaults", str(_FX_STATE["defaults"]), "setup", "--force",
+                     "--set", "roles.coder=claude", home=home,
+                     env_extra={"PATH": str(bin_dir)})
+    assert proc.returncode == 0, proc.stderr
+    body = out_json(proc)
+    assert body.get("verification", "").startswith("notice:")
+    assert body["wrote"]
 
 
 # ── gate-round regression rows (codex panel findings, verified) ────────────

@@ -24,7 +24,9 @@ single writer (`setup` subcommand) and the single reader (`detect`,
 `resolve`, `doctor`). Its path anchors on `$HERMES_HOME` (the plugin
 install), never the working directory. Exit codes are subcommand-scoped:
 0 ok; 2 validation refusal; 3 trust-boundary refusal; 4 force required;
-5 parse/config error.
+5 parse/config error. A landed write is always ok (0): when no coder
+lane resolves because the machine lacks the tooling, the write stands
+and the JSON carries the notice — the rc never encodes machine state.
 
 Facts first, every time:
 
