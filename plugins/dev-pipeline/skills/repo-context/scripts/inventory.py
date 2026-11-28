@@ -239,7 +239,7 @@ def _churn(root: Path, stamp_date: str) -> tuple[list[str], bool]:
     try:
         raw = _git(root, "log", "--name-only", "--pretty=format:", "--since", since, "-n", "1000")
     except _EngineError:
-        return []
+        return [], False  # unborn branch / no repo history: empty churn, honestly flagged
     counts: dict[str, int] = {}
     for line in raw.splitlines():  # --pretty=format: leaves file paths only
         line = line.strip()

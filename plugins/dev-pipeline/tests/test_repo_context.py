@@ -186,6 +186,22 @@ def test_survey_overflow_flags(tmp_path):
     assert len(payload["test_commands"]) == 20 and payload["test_commands_truncated"] is True
 
 
+def test_survey_unborn_branch(tmp_path):
+    """Codex+muse gate reproduction: survey on an unborn branch (no commits)
+    must exit 0 with the stamp head named 'none' — never a crash (spec edge
+    case: the script names it instead of stamping a fake or half-broken SHA)."""
+    repo = tmp_path / "unborn"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "README.md").write_text("# unborn\n")
+    out = run_inventory("survey", str(repo), "--stamp-date", STAMP_DATE)
+    assert out.returncode == 0, out.stdout + out.stderr
+    payload = json.loads(out.stdout)
+    assert payload["stamp"]["head_sha"] is None
+    assert "head_sha=none" in payload["doc_skeleton"]
+    assert payload["churn"] == []
+
+
 def test_survey_fast(tmp_path):
     repo = make_repo(tmp_path, name="fastrepo2", ci=False)
     mods = repo / "alpha"
