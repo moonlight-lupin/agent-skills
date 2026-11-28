@@ -136,6 +136,6 @@ Load one stage skill at a time — each is separate for context economy.
 ## Outside-skill pointers
 
 - **Kanban orchestration** — `kanban-orchestrator` (devops).
-- **Model pins** — `config/lanes.default.toml` is the single source (machine overrides merge on top); `references/lanes.md` has lane roles only; outside `model-routing` covers provider/budget choices — reconcile before relying on its pins.
+- **Model pins** — `config/lanes.default.toml` is the single source (machine overrides merge on top); `references/lanes.md` has lane roles only; `setup-lanes` (this plugin) interviews and writes them; outside `model-routing` covers provider/budget choices — reconcile before relying on its pins.
 - **Architecture health** — `improve-codebase-architecture`; **mid-build doubt** — `doubt-driven-development` (both outside skills).
 - **Briefs and case tables** — `briefs` (this plugin); **lessons** — `review-lessons` (this plugin; by case, on demand).
