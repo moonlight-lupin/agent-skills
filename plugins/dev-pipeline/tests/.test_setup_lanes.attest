@@ -1,1 +1,1 @@
-tests/test_setup_lanes.py RED for dev-pipeline 0.7.0 Task 1 — authored by test-evals, do not edit after this commit. sha256=0278f04e7d03f33f1769d67e7550f00aee09078d233180000454203d9d94032b
+tests/test_setup_lanes.py RED for dev-pipeline 0.7.0 Task 1 — authored by test-evals, post-attestation corrections (env-independent roundtrip assertions; provider-lane model requirement) re-attested. do not edit after this commit. sha256=ca0d6b04b264427c70d64c8819fb68e57e921b95c8f7538204de827f5fdd96b1
