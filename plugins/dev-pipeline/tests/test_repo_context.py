@@ -8,6 +8,7 @@ edit this file (attested).
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import time
@@ -232,7 +233,7 @@ def test_check_stamp_unresolvable(tmp_path):
     doc = write_stamped_doc(repo, survey.stdout)
     foreign = "f" * 64
     stamp_line = next(ln for ln in doc.read_text().splitlines() if STAMP_MARK in ln)
-    rewritten = stamp_line.split("head_sha=")[0] + f"head_sha={foreign}" + stamp_line.split("head_sha=")[1][64:]
+    rewritten = re.sub(r"(?<=head_sha=)[0-9a-f]+", foreign, stamp_line)
     doc.write_text(doc.read_text().replace(stamp_line, rewritten))
     out = run_inventory("check", str(repo))
     assert out.returncode == 1, out.stdout
