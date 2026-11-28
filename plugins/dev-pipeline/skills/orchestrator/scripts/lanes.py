@@ -211,6 +211,9 @@ def validate(cfg: dict) -> None:
     for where, val in checks:
         if val not in ("config-dir", "no-memory"):
             raise ConfigError(f"{where} must be config-dir | no-memory")
+    for tier, seats in cfg.get("review", {}).get("seats", {}).items():
+        if isinstance(seats, bool) or not isinstance(seats, int) or seats < 0:
+            raise ConfigError(f"review.seats.{tier} must be a nonnegative integer, got {seats!r}")
 
 
 # --------------------------------------------------------------------------- detect
@@ -892,7 +895,9 @@ def _validate_typed_value(dotted: str, raw: str, schema: dict):
     def_leaf = table.get(leaf)
     if isinstance(def_leaf, list) or def_leaf == []:
         # dispatch-facing lists are string lists (roles, argv templates, tools)
-        if isinstance(value, list):
+        if raw == "":
+            value = []  # explicit empty list (P3: reachable valid value)
+        elif isinstance(value, list):
             if not all(isinstance(x, str) for x in value):
                 raise SetupRefused(2, f"{dotted!r}: list elements must be strings, got {raw!r}")
         elif isinstance(value, str):
@@ -911,6 +916,9 @@ def _validate_typed_value(dotted: str, raw: str, schema: dict):
             raise SetupRefused(2, f"{dotted!r}: a finite number is expected, got {raw!r}")
         if value != value or value in (float("inf"), float("-inf")):
             raise SetupRefused(2, f"{dotted!r}: a finite number is expected, got {raw!r}")
+        if isinstance(def_leaf, int) and not float(value).is_integer():
+            # integer-typed leaves (seat counts) reject fractional input
+            raise SetupRefused(2, f"{dotted!r}: an integer is expected, got {raw!r}")
     elif def_leaf is None:
         # dynamic surface (dispatch name, whitelisted lane/provider key)
         if isinstance(value, str):
@@ -1090,8 +1098,26 @@ def _setup_machine_write(target: Path, new_text: str, force: bool) -> str | None
     return backup
 
 
+def _load_current(project: bool, repo: str | None):
+    """load_config with the first-time machine surface: when the active
+    machine override does not exist yet, the state is defaults-only (gate
+    finding 2 — --check must report, not refuse, on a not-yet-created file)."""
+    try:
+        return load_config(None, repo if project else None)
+    except ConfigError as e:
+        if "config file not found" not in str(e) or repo:
+            raise
+        data = tomllib.loads(defaults_src().read_text(encoding="utf-8"))
+        validate(data)
+        return data, [str(defaults_src())]
+
+
 def _setup_roundtrip(project: bool, repo: str | None) -> tuple[dict, dict]:
-    cfg, used = load_config(None, repo if project else None)
+    """doctor + resolve-T2 over the CURRENT config state. A machine override
+    that does not exist YET (first-time $DEV_PIPELINE_LANES target) loads as
+    defaults-only, in memory — the roundtrip still reports real state instead
+    of refusing (gate finding 2)."""
+    cfg, used = _load_current(project, repo)
     _code, rep = doctor(cfg, used)
     ns = argparse.Namespace(tier="T2", gate=False, usage=None, failed=[], rate_limited=[],
                             approved=False, reuse_last=False, ledger=None, round="")
@@ -1217,7 +1243,7 @@ def setup_cmd(a) -> int:
                 "proposed": _dig(proposed_view, dotted, op),
             }
         out["requested"] = requested
-    cfg, _used = load_config(None, repo if project else None)
+    cfg, _used = _load_current(project, repo)
     status = {d["lane"]: d for d in detect(cfg)}
     # verify-time warnings: they report, they never block the write (resolve
     # skips unavailable lanes; a parse-broken merge still exits 5 above)
@@ -1258,7 +1284,7 @@ def main(argv=None) -> int:
     s.add_argument("--project", action="store_true", help="write the PROJECT override (untrusted surface: per-lane model/effort on trusted lanes only)")
     s.add_argument("--force", action="store_true", help="overwrite an existing override (a timestamped backup keeps the previous content)")
     s.add_argument("--set", action="extend", nargs="+", metavar="KEY=VALUE",
-                   help="deep edit on a dot-path the defaults define (repeatable; lists are comma-separated)")
+                   help="deep edit on a dot-path the defaults define (repeatable; lists are comma-separated; an empty VALUE on a list leaf sets the empty list)")
     s.add_argument("--unset", action="extend", nargs="+", metavar="KEY", help="remove a key set by a previous override (repeatable)")
     s.add_argument("--quick", action="extend", nargs="+", metavar="KEY=VALUE",
                    help="quick-setup keys: roles.coder, roles.reviewers, lanes.<id>.model (repeatable)")

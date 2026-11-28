@@ -511,3 +511,36 @@ def test_r3_check_reports_requested_values(_FIXTURES, tmp_path):
     assert req["roles.coder"]["proposed"] == ["codex"]
     assert req["roles.coder"]["current"] == ["claude", "controller"]
     assert body.get("state") == "current-on-disk"
+
+
+# ── gate-round regression rows (codex panel findings, verified) ────────────
+
+
+def test_gate_seats_reject_negative_and_fractional(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    proc = run_setup("--set", "review.seats.T2=-1", home=home)
+    assert proc.returncode == 2, proc.stderr
+    assert "nonnegative integer" in err_json(proc)["refused"]
+    proc = run_setup("--set", "review.seats.T2=2.9", home=home)
+    assert proc.returncode == 2
+    assert "an integer is expected" in err_json(proc)["refused"]
+
+
+def test_gate_check_roundtrip_on_missing_env_target(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    proc = run_lanes("--defaults", str(_FX_STATE["defaults"]), "setup", "--check",
+                     "--set", "roles.coder=controller", home=home,
+                     env_extra={"DEV_PIPELINE_LANES": str(tmp_path / "not-yet" / "lanes.toml")})
+    assert proc.returncode == 0, proc.stderr  # spec: a no-override check is a report, exit 0
+    body = out_json(proc)
+    assert body["doctor"]["schema"] == "dev-pipeline-lanes.v1"
+
+
+def test_gate_empty_list_encoding(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    proc = run_setup("--set", "roles.reviewers=", home=home)
+    assert proc.returncode == 0, proc.stderr
+    text = default_path(home).read_text()
+    assert "reviewers = []" in text
+    merged = tomllib.loads(text)
+    assert merged["roles"]["reviewers"] == []

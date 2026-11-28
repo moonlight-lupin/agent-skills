@@ -74,6 +74,8 @@ do not guess paths. Inline tables are addressed deepest
 - Machine scope writes the ACTIVE machine override: `$DEV_PIPELINE_LANES`
   if set, else the first of `$HOME/.hermes/dev-pipeline/lanes.toml` and
   `$HOME/.config/dev-pipeline/lanes.toml` that exists (else the first).
+  A not-yet-created target is a legal first-time setup.
+- List leaves take `KEY=` for the EMPTY list (e.g. `--set roles.goldfish=`).
 - `--project --repo <root>` writes `<repo>/.dev-pipeline/lanes.toml` —
   the UNTRUSTED surface. It accepts ONLY per-lane model/effort on lanes
   defined by trusted sources; anything else is refused whole and pointed
