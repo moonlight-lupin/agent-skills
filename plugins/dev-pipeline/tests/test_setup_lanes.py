@@ -581,6 +581,18 @@ def test_gate_machine_symlink_target_preserved(_FIXTURES, tmp_path):
     assert real.stat().st_mode & 0o7777 == 0o640  # mode preserved
 
 
+def test_gate_backup_mode_not_broader_than_source(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    file = default_path(home)
+    file.write_text('schema = "dev-pipeline-lanes.v1"\n')
+    os.chmod(file, 0o600)
+    proc = run_setup("--force", "--set", "roles.coder=claude", home=home)
+    assert proc.returncode == 0, proc.stderr
+    baks = sorted(file.parent.glob("lanes.toml.bak-*"))
+    assert baks
+    assert baks[-1].stat().st_mode & 0o7777 == 0o600
+
+
 # ── gate-round regression rows (codex panel findings, verified) ────────────
 
 

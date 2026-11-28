@@ -1097,6 +1097,7 @@ def _setup_machine_write(target: Path, new_text: str, force: bool) -> str | None
         stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
         bak = real.with_name(real.name + f".bak-{stamp}")
         bak.write_bytes(real.read_bytes())
+        os.chmod(bak, real.stat().st_mode & 0o7777)  # no broader than the source
         backup = str(bak)
     fd, tmpname = tempfile.mkstemp(dir=str(real.parent), prefix=".lanes-setup-", suffix=".toml")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
