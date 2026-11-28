@@ -94,6 +94,7 @@ _BUNDLED_SKILLS = (
     "review-lessons",   # v0.2: lessons library split out of review-commit
     "briefs",           # v0.3.1: brief templates, case tables, stamp script
     "debug",            # v0.6.0: bug-shaped work — reproduce, failing test, minimal fix, tiered review
+    "repo-context",     # v0.6.1: deterministic repo inventory to a maintained context doc
 )
 
 _PLUGIN_SKILL_NAMESPACE = "dev-pipeline"

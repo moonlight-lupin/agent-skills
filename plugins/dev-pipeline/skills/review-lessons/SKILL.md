@@ -34,6 +34,7 @@ context, not as pointers to read.
 ### Adjudicating findings and fix rounds
 | Case | File |
 |---|---|
+| A recurring correction needs mechanical enforcement | `references/rule-to-enforcer.md` |
 | Reviewer BLOCKING contradicts the dispatch spec or a contract test; deferred findings as design questions | `references/review-findings-adjudication.md` |
 | Fix at the wrong layer, red-test triage, two-sided fixes, live verification | `references/pitfalls-fix-round-verification.md` |
 | Builder self-report, regressions from fixes, mid-build user steers, brief races | `references/loop-pitfalls.md` |

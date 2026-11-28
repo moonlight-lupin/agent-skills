@@ -99,6 +99,7 @@ Mechanics:
   lanes SHIP on the net diff, run once after the loop converges
   (`confirm-round-protocol.md` § Three-reviewer deployment gate). This is the
   user's standing instruction and applies at every tier.
+- **Repo context at the gate:** run the repo-context inventory (`python3 "$HERMES_HOME/plugins/dev-pipeline/skills/repo-context/scripts/inventory.py" check <repo>`) before closing the gate. `fresh` → note it in the review record. `stale` → delta-update the doc inside this same reviewed change (re-survey, new survey stamp, refresh the affected fill sections) or record a NAMED skip — allowed only when the change provably touches none of the doc's claims. `doc-edited` or a missing survey stamp → never bless as fresh; report it (`../repo-context/SKILL.md` § Maintenance).
 - **Before tagging or releasing:** `references/release-hygiene.md`.
 - **Under a session goal:** the goal is not done while a gate fails or open BLOCKING/MAJOR findings exist; the CI/PR rules apply the same (`../orchestrator/references/goal-binding.md`).
 - **After push:** the CI watch-and-fix loop + PR hygiene rules (draft PR, split early, body = intent/test-evidence/risk tier, no force-push to shared branches, pre-existing failures stay named): `references/ci-loop-and-pr-hygiene.md`.

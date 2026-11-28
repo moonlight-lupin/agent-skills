@@ -11,9 +11,65 @@ def test_always_loaded_skill_files_stay_under_the_hard_cap():
     test-evals are at or under the 8 KB hard cap (bytes asserted, not timestamps,
     so a re-inlined rule re-fails the cap). Debug ships small by design."""
     budget = 8192
-    for skill in ("build", "spec", "test-evals", "debug"):
+    for skill in ("build", "spec", "test-evals", "debug", "repo-context"):
         size = _skill_md(skill).stat().st_size
         assert size <= budget, f"{skill}/SKILL.md is {size} bytes (cap {budget})"
+
+def test_repo_context_skill_cites_engine():
+    """v0.6.1: the skill must reference its deterministic engine by path and
+    by BOTH modes, plus the survey-stamp wording it shares with review-commit."""
+    body = _skill_md("repo-context").read_text()
+    for probe in ("scripts/inventory.py", "survey", "check", "survey stamp"):
+        assert probe in body, f"repo-context/SKILL.md missing {probe!r}"
+
+def test_debug_attack_the_premise():
+    """v0.6.1: attack-the-premise (Lauren Tan's pstack pack, MIT, verified
+    2026-11-28) lands as a stop rule: two failed fixes sharing one premise must
+    test the premise before fix #3 — plus one Red Flag line."""
+    body = _skill_md("debug").read_text()
+    assert "test the premise" in body
+    assert "same premise" in body
+    assert "before fix #3" in body
+    reds = body.split("## Red Flags")[1].split("## ")[0]
+    assert "premise" in reds
+
+def test_principles_index_wired():
+    """v0.6.1: the six-entry pstack principles index exists, carries the
+    attribution line without machine-local paths, and the orchestrator
+    references list points at it."""
+    idx = PLUGIN_DIR / "skills" / "orchestrator" / "references" / "principles-index.md"
+    assert idx.exists()
+    body = idx.read_text()
+    assert "attack-the-premise" in body and "sequence-verifiable-units" in body
+    assert "Lauren Tan" in body and "MIT" in body
+    for forbidden in ("/root/", ".cursor", "192.168.", ".hermes"):
+        assert forbidden not in body
+    assert "references/principles-index.md" in _skill_md("orchestrator").read_text()
+
+def test_rule_to_enforcer_wired():
+    """v0.6.1: the correct-style rule->enforcer ladder lands in review-lessons
+    with the fixed order and an index row; the skill stays under its 8 KB cap."""
+    ref = PLUGIN_DIR / "skills" / "review-lessons" / "references" / "rule-to-enforcer.md"
+    assert ref.exists()
+    body = ref.read_text()
+    for probe in ("architecture", "types", "lint", "CI", "test", "doc"):
+        assert probe in body, f"rule-to-enforcer.md missing {probe!r}"
+    assert "Lauren Tan" in body or "correct" in body
+    assert "rule-to-enforcer" in _skill_md("review-lessons").read_text()
+
+def test_bootstrap_route_wired():
+    """v0.6.1: the orchestrator routes existing-repo starts to the repo-context
+    bootstrap before spec/build planning."""
+    body = _skill_md("orchestrator").read_text()
+    assert "repo-context" in body and "bootstrap" in body
+
+def test_maintenance_wired():
+    """v0.6.1: review-commit's commit-gate step runs the inventory check and
+    carries the named-skip rule — at the gate, not post-ship. Probe accepts both
+    the bare and the $HERMES_HOME-anchored invocation (R1 fix, codex BLOCKING)."""
+    import re
+    body = _skill_md("review-commit").read_text()
+    assert re.search(r'inventory\.py"?\s+check', body) and "skip" in body
 
 def test_router_skills_do_not_grow_past_their_drift_allowance():
     """orchestrator and review-commit were 'not the problem' per the signed brief

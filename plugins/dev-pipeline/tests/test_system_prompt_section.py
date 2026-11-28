@@ -85,7 +85,7 @@ class _FakeCtx:
 def test_section_registered_when_api_exists():
     ctx = _FakeCtx()
     _plugin().register(ctx)
-    assert len(ctx.skills) == 9 and len(ctx.hooks) == 1
+    assert len(ctx.skills) == 10 and len(ctx.hooks) == 1
     assert len(ctx.sections) == 1, "exactly one system-prompt section"
     section_id, content, _kwargs = ctx.sections[0]
     assert section_id == _plugin()._SYSTEM_PROMPT_SECTION_ID
@@ -102,7 +102,7 @@ def test_register_succeeds_when_api_missing():
     """Legacy host (no register_system_prompt_section, no register_tool)."""
     ctx = _FakeCtx(prompt_api=False)
     _plugin().register(ctx)  # must not raise
-    assert len(ctx.skills) == 9 and len(ctx.hooks) == 1
+    assert len(ctx.skills) == 10 and len(ctx.hooks) == 1
     assert ctx.sections == []
 
 
@@ -111,7 +111,7 @@ def test_registration_error_does_not_break_load(caplog):
     ctx = _FakeCtx(prompt_error=ValueError("id already registered"))
     with caplog.at_level(logging.WARNING):
         _plugin().register(ctx)  # must not raise
-    assert len(ctx.skills) == 9 and len(ctx.hooks) == 1
+    assert len(ctx.skills) == 10 and len(ctx.hooks) == 1
     assert ctx.sections == []
     warnings = [r for r in caplog.records
                 if "register_system_prompt_section" in r.getMessage()]
@@ -122,7 +122,7 @@ def test_modern_host_registers_tools_and_section():
     """Modern host: register_tool exists alongside the section API."""
     ctx = _FakeCtx(prompt_api=True, tools=True)
     _plugin().register(ctx)
-    assert len(ctx.skills) == 9 and len(ctx.hooks) == 1
+    assert len(ctx.skills) == 10 and len(ctx.hooks) == 1
     assert len(ctx.tools) == 8, f"expected the 8 engineering tools, got {len(ctx.tools)}"
     assert len(ctx.sections) == 1
 

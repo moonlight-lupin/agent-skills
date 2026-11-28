@@ -30,9 +30,12 @@ Bug-shaped work: a defect with no feature ask. The orchestrator routes here inst
 
 **Unattended:** all five steps run without asking; the only stops are an unresolvable reproduction (report it), an unresolvable ambiguity, or a new important fork. Commit author, message, and the CI/PR rules are `review-commit`'s.
 
+**Attack the premise.** When two fixes fail at the same gate and both rely on the same premise, STOP before a third attempt: write the premise down and test the premise itself, directly, before fix #3. If the premise is false, stop fixing and report the refuted premise — the repair plan is invalid, not the two patches. The premise test is part of the current fix round, never an extra one (it consumes this round's budget, not the next).
+
 ## Red Flags — Never Do These
 
 - "Fix" without a reproduction or a named reproducible claim
+- A third fix attempt without testing the premise the first two shared
 - Edit a failing test into passing, or delete a failing test, as a "fix"
 - Skip the full suite after the named test passes
 - Expand the fix into a refactor, or delete unrelated dead code

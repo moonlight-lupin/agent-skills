@@ -1,0 +1,7 @@
+{
+  "schema": "btl-attest.v1",
+  "file": "test_repo_context.py",
+  "sha256": "b3b564c89b5210271e32602b61b2839abdd52735654c949aef99e79051e8ca11",
+  "attestedAt": "2026-11-28T03:58:27+00:00",
+  "note": null
+}

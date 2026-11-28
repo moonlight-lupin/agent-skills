@@ -1,6 +1,7 @@
 """stamp_brief.py: briefs get their facts from commands (v0.3.1)."""
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -65,10 +66,18 @@ def test_refuses_unfilled_placeholders(tmp_path, repo):
 
 def test_refuses_a_stale_sha(tmp_path, repo):
     r, shas = repo
-    body = "base {{BASE}}, fixes landed at " + shas[1][:7] + "\n"
+    # the engine skips sha-like tokens lacking a digit AND a hex letter (junk
+    # filter for prose numbers); commit shas are timestamp-seeded, so pick the
+    # first prefix that survives the filter deterministically
+    tok = next(
+        s for L in range(7, 41)
+        for s in (shas[1][:L],)
+        if re.search(r"\d", s) and re.search(r"[a-f]", s)
+    )
+    body = "base {{BASE}}, fixes landed at " + tok + "\n"
     code, out = stamp(tmp_path, body, "--repo", r, "--base", shas[0])
     assert code == 3 and out is None
-    code, out = stamp(tmp_path, body, "--repo", r, "--base", shas[0], "--allow-sha", shas[1][:7])
+    code, out = stamp(tmp_path, body, "--repo", r, "--base", shas[0], "--allow-sha", tok)
     assert code == 0
 
 
