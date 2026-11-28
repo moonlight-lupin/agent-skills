@@ -17,6 +17,7 @@ paths, so identical inputs write identical bytes anywhere.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -511,6 +512,73 @@ def test_r3_check_reports_requested_values(_FIXTURES, tmp_path):
     assert req["roles.coder"]["proposed"] == ["codex"]
     assert req["roles.coder"]["current"] == ["claude", "controller"]
     assert body.get("state") == "current-on-disk"
+
+
+# ── panel-round-2 regression rows (codex P1-P2, opus 1-4, verified) ────────
+
+
+def test_gate_project_write_and_check_on_missing_env_target(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    repo = tmp_path / "proj"
+    repo.mkdir(parents=True)
+    env_extra = {"DEV_PIPELINE_LANES": str(tmp_path / "nowhere" / "lanes.toml")}
+    proc = run_lanes("--defaults", str(_FX_STATE["defaults"]), "setup", "--project",
+                     "--repo", str(repo), "--set", "lanes.claude.model=x",
+                     home=home, env_extra=env_extra)
+    assert proc.returncode == 0, proc.stderr  # no exit-5 after the write
+    assert out_json(proc)["wrote"]
+    check = run_lanes("--defaults", str(_FX_STATE["defaults"]), "setup", "--check",
+                      "--project", "--repo", str(repo), home=home, env_extra=env_extra)
+    assert check.returncode == 0, check.stderr
+
+
+def test_gate_project_model_value_is_verbatim(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    repo = tmp_path / "proj"
+    (repo / ".dev-pipeline").mkdir(parents=True)
+    proc = run_setup("--project", "--repo", str(repo), "--force",
+                     "--set", "lanes.claude.model=a,b", home=home)
+    assert proc.returncode == 0, proc.stderr
+    merged = tomllib.loads((repo / ".dev-pipeline" / "lanes.toml").read_text())
+    assert merged["lanes"]["claude"]["model"] == "a,b"  # stored, never dropped
+
+
+def test_gate_provider_leaves_are_strings(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    proc = run_setup("--force", "--set", "providers.cx.kind=fred", home=home)
+    assert proc.returncode == 2
+    proc = run_setup("--force", "--set", "providers.cx.kind=anthropic-compatible",
+                     "--set", "providers.cx.base_url=https://a", "--set",
+                     "providers.cx.auth_env=KX", home=home)
+    assert proc.returncode == 0, proc.stderr
+    merged = tomllib.loads(default_path(home).read_text())
+    assert isinstance(merged["providers"]["cx"]["base_url"], str)
+
+
+def test_gate_int_leaf_stores_int(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    proc = run_setup("--force", "--set", "claude_code.max_turns=80.0", home=home)
+    assert proc.returncode == 0, proc.stderr
+    assert "max_turns = 80\n" in default_path(home).read_text()
+    proc = run_setup("--force", "--set", "ladder.max_rate_limits=1.5", home=home)
+    assert proc.returncode == 2
+
+
+def test_gate_machine_symlink_target_preserved(_FIXTURES, tmp_path):
+    home = make_home(tmp_path)
+    home.chmod(0o777)
+    real_dir = home / "dotfiles"
+    real_dir.mkdir(parents=True)
+    real = real_dir / "lanes.toml"
+    real.write_text('schema = "dev-pipeline-lanes.v1"\n')
+    os.chmod(real, 0o640)
+    link_dir = home / ".hermes" / "dev-pipeline"
+    link_dir.mkdir(parents=True, exist_ok=True)
+    (link_dir / "lanes.toml").symlink_to(real)
+    proc = run_setup("--force", "--set", "roles.coder=claude", home=home)
+    assert proc.returncode == 0, proc.stderr
+    assert (link_dir / "lanes.toml").is_symlink()  # the dotfiles link survives
+    assert real.stat().st_mode & 0o7777 == 0o640  # mode preserved
 
 
 # ── gate-round regression rows (codex panel findings, verified) ────────────

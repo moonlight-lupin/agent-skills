@@ -84,7 +84,8 @@ do not guess paths. Inline tables are addressed deepest
 - An existing override is never clobbered silently: without `--force`
   you get the unified diff (exit 4) — read it to the user, then rerun
   with `--force` only after they agree. `--force` keeps a timestamped
-  backup; the two most recent survive.
+  backup; the two most recent survive. Project backups land inside the
+  repo's `.dev-pipeline/` — keep `*.bak-*` out of git there.
 - `--check` reports the effective values and the would-be diff and
   writes nothing. Run it to preview, or to show the current state.
 

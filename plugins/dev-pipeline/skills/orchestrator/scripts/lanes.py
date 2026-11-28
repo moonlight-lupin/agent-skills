@@ -919,6 +919,8 @@ def _validate_typed_value(dotted: str, raw: str, schema: dict):
         if isinstance(def_leaf, int) and not float(value).is_integer():
             # integer-typed leaves (seat counts) reject fractional input
             raise SetupRefused(2, f"{dotted!r}: an integer is expected, got {raw!r}")
+        if isinstance(def_leaf, int):
+            value = int(value)  # store an int, not a trailing .0 (panel finding 4)
     elif def_leaf is None:
         # dynamic surface (dispatch name, whitelisted lane/provider key)
         if isinstance(value, str):
@@ -981,6 +983,9 @@ def _dynamic_surface_tree(dotted: str, defaults: dict, existing: dict) -> dict |
                               existing.get("providers", {}).get(parts[1]) or {})
         if parts[2] not in _PROVIDER_LEAVES:
             return None
+        # provider keys are single strings (base_url/auth_env are never lists —
+        # codex panel P1)
+        prov_def[parts[2]] = ""
         return {"providers": {parts[1]: prov_def}}
     return None
 
@@ -1010,10 +1015,14 @@ def _validate_and_apply_edits(edits, existing: dict, defaults: dict, project: bo
                     f"untrusted project scope: {dotted!r} is not writable there; the only "
                     "untrusted surface is per-lane model/effort on lanes already defined by "
                     "trusted sources — everything else belongs to the machine override "
-                    "(~/.hermes/dev-pipeline/lanes.toml)",
+                    "(the active machine override file)",
                 )
             if op == "set":
-                value = _validate_typed_value(dotted, raw, trusted_base or {})
+                # model/effort are single strings (comma-splitting would produce a
+                # value the project filter then drops — panel finding 2/p2)
+                value = raw
+                if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
+                    raise SetupRefused(2, f"{dotted!r}: control characters are not valid values")
                 _apply_set(tree, dotted, value)
             else:
                 _remove_key(tree, dotted)
@@ -1075,7 +1084,8 @@ def _setup_machine_write(target: Path, new_text: str, force: bool) -> str | None
     """Writes atomically (temp file + os.replace). Returns the backup path or
     None; enforces the diff+force rule and keeps the 2 most recent backups."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    old_text = target.read_text(encoding="utf-8") if target.is_file() else ""
+    real = target.resolve(strict=False)  # symlinked overrides rewrite the real file
+    old_text = real.read_text(encoding="utf-8") if real.is_file() else ""
     if old_text.strip() and old_text != new_text and not force:
         diff = "\n".join(difflib.unified_diff(
             old_text.splitlines(), new_text.splitlines(),
@@ -1085,14 +1095,19 @@ def _setup_machine_write(target: Path, new_text: str, force: bool) -> str | None
     backup: str | None = None
     if old_text.strip() and old_text != new_text:
         stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-        bak = target.with_name(target.name + f".bak-{stamp}")
-        bak.write_bytes(target.read_bytes())
+        bak = real.with_name(real.name + f".bak-{stamp}")
+        bak.write_bytes(real.read_bytes())
         backup = str(bak)
-    fd, tmpname = tempfile.mkstemp(dir=str(target.parent), prefix=".lanes-setup-", suffix=".toml")
+    fd, tmpname = tempfile.mkstemp(dir=str(real.parent), prefix=".lanes-setup-", suffix=".toml")
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(new_text)
-    os.replace(tmpname, target)
-    baks = sorted(target.parent.glob(target.name + ".bak-*"))
+    old_mode = None
+    if real.is_file():
+        old_mode = real.stat().st_mode & 0o7777  # preserve the replaced file's mode
+    os.replace(tmpname, real)
+    if old_mode:
+        os.chmod(real, old_mode)
+    baks = sorted(real.parent.glob(real.name + ".bak-*"))
     for stale in baks[:-2]:
         stale.unlink()
     return backup
@@ -1100,14 +1115,23 @@ def _setup_machine_write(target: Path, new_text: str, force: bool) -> str | None
 
 def _load_current(project: bool, repo: str | None):
     """load_config with the first-time machine surface: when the active
-    machine override does not exist yet, the state is defaults-only (gate
-    finding 2 — --check must report, not refuse, on a not-yet-created file)."""
+    machine override does not exist yet, the state is defaults plus whatever
+    trusted content exists (project scope adds the repo file) — gate finding 2
+    and opus panel finding 1: no exit-5 after a write, for either scope."""
     try:
         return load_config(None, repo if project else None)
     except ConfigError as e:
-        if "config file not found" not in str(e) or repo:
+        if "config file not found" not in str(e):
             raise
         data = tomllib.loads(defaults_src().read_text(encoding="utf-8"))
+        if project and repo:
+            p = Path(repo) / ".dev-pipeline" / "lanes.toml"
+            if p.is_file():
+                try:
+                    raw = tomllib.loads(p.read_text(encoding="utf-8"))
+                except tomllib.TOMLDecodeError as e2:
+                    raise ConfigError(f"{p}: {e2}") from e2  # the loader owns this failure
+                data = deep_merge(data, strip_untrusted(raw, data))
         validate(data)
         return data, [str(defaults_src())]
 
@@ -1288,7 +1312,8 @@ def main(argv=None) -> int:
     s.add_argument("--unset", action="extend", nargs="+", metavar="KEY", help="remove a key set by a previous override (repeatable)")
     s.add_argument("--quick", action="extend", nargs="+", metavar="KEY=VALUE",
                    help="quick-setup keys: roles.coder, roles.reviewers, lanes.<id>.model (repeatable)")
-    s.add_argument("--repo", action="store", help="project root (with --project)")
+    s.add_argument("--repo", action="store", help="project root (with --project)",
+                   default=argparse.SUPPRESS)
     s.epilog = SETUP_EXIT_HELP
     r = sub.add_parser("resolve")
     r.add_argument("--tier", required=True, choices=["T0", "T1", "T2", "T3"])
