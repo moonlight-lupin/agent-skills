@@ -32,9 +32,21 @@ CAPS = {
     "test_commands": 20,
     "standards_sources": 30,
     "churn": 10,
+    "frameworks": 12,
 }
+FRAMEWORK_RULES = [
+    ("next.config.js", "next"), ("next.config.mjs", "next"), ("next.config.ts", "next"),
+    ("nuxt.config.js", "nuxt"), ("nuxt.config.ts", "nuxt"),
+    ("vite.config.js", "vite"), ("vite.config.ts", "vite"),
+    ("tailwind.config.js", "tailwind"), ("tailwind.config.ts", "tailwind"),
+    ("angular.json", "angular"),
+    ("svelte.config.js", "svelte"), ("vue.config.js", "vue"),
+    ("astro.config.js", "astro"), ("astro.config.mjs", "astro"),
+    ("manage.py", "django"),
+    ("ember-cli-build.js", "ember"),
+]
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", ".pytest_cache", "dist", "build"}
-KEY_ORDER = ["tree", "languages", "entry_points", "test_commands", "standards_sources", "churn"]
+KEY_ORDER = ["tree", "languages", "frameworks", "entry_points", "test_commands", "standards_sources", "churn"]
 
 LANGUAGE_RULES = [
     ("pyproject.toml", "python"),
@@ -73,12 +85,14 @@ CI_TEST_PATTERNS = [
 DET_TITLES = {
     "languages": "Languages",
     "entry_points": "Entry points",
+    "frameworks": "Frameworks",
     "test_commands": "Test commands",
     "standards_sources": "Standards sources",
     "churn": "Recent churn",
 }
 DET_SENTINELS = {  # python manifest markers, section -> label used in the det line
     "languages": "languages",
+    "frameworks": "frameworks",
     "entry_points": "entry points",
     "test_commands": "test commands",
     "standards_sources": "standards sources",
@@ -128,7 +142,7 @@ def _tree(root: Path) -> tuple[list[str], bool]:
     return _capped(sorted(entries), "tree")
 
 
-def _languages(root: Path) -> list[str]:
+def _languages(root: Path) -> tuple[list[str], bool]:
     found: list[str] = []
     for manifest, language in LANGUAGE_RULES:
         if language in found:
@@ -139,8 +153,7 @@ def _languages(root: Path) -> list[str]:
             hit = (root / manifest).is_file()
         if hit:
             found.append(language)
-    capped, _ = _capped(found, "languages")
-    return capped
+    return _capped(found, "languages")
 
 
 def _packages_json(root: Path) -> dict:
@@ -151,6 +164,16 @@ def _packages_json(root: Path) -> dict:
         return json.loads(package.read_text(encoding="utf-8"))
     except ValueError:
         return {}
+
+
+def _frameworks(root: Path) -> tuple[list[str], bool]:
+    found: list[str] = []
+    for marker, framework in FRAMEWORK_RULES:
+        if framework in found:
+            continue
+        if (root / marker).is_file():
+            found.append(framework)
+    return _capped(found, "frameworks")
 
 
 def _entry_points(root: Path) -> list[str]:
@@ -172,24 +195,31 @@ def _entry_points(root: Path) -> list[str]:
         block = data.get(section)
         if isinstance(block, dict):
             points.extend(str(k) for k in block)
-    capped, _ = _capped(sorted(set(points)), "entry_points")
-    return capped
+    return _capped(sorted(set(points)), "entry_points")
 
 
-def _test_commands(root: Path) -> list[str]:
+def _test_commands(root: Path) -> tuple[list[str], bool]:
+    """Full runnable lines from CI `run:` statements (keeps targets and flags),
+    deduplicated in first-appearance order."""
     found: list[str] = []
     workflows = root / ".github" / "workflows"
     if workflows.is_dir():
-        text = "\n".join(
-            p.read_text(encoding="utf-8", errors="replace")
-            for p in sorted(workflows.glob("*"))
-            if p.suffix in (".yml", ".yaml")
-        )
-        for pattern in CI_TEST_PATTERNS:
-            for match in re.findall(pattern, text):
-                cmd = match.strip()
-                if cmd and cmd not in found:
-                    found.append(cmd)
+        for p in sorted(workflows.glob("*")):
+            if p.suffix not in (".yml", ".yaml"):
+                continue
+            for raw in p.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = raw.strip()
+                if line.startswith("- "):
+                    line = line[2:]
+                line = re.sub(r'^(?:run\s*:\s*|run\s*:[^"\']*["\'])', "", line).strip().rstrip("\'\"")
+                if not line:
+                    continue
+                for pattern in CI_TEST_PATTERNS:
+                    match = re.search(pattern, line)
+                    if match and line not in found:
+                        found.append(line)
+                    if match:
+                        break
     scripts = _packages_json(root).get("scripts")
     if isinstance(scripts, dict):
         for name in sorted(scripts):
@@ -197,64 +227,53 @@ def _test_commands(root: Path) -> list[str]:
                 cmd = f"npm run {name}"
                 if cmd not in found:
                     found.append(cmd)
-    capped, _ = _capped(found, "test_commands")
-    return capped
+    return _capped(found, "test_commands")
 
 
-def _standards_sources(root: Path) -> list[str]:
-    capped, _ = _capped([c for c in STANDARDS_CANDIDATES if (root / c).is_file()], "standards_sources")
-    return capped
+def _standards_sources(root: Path) -> tuple[list[str], bool]:
+    return _capped([c for c in STANDARDS_CANDIDATES if (root / c).is_file()], "standards_sources")
 
 
-def _churn(root: Path, stamp_date: str) -> list[str]:
+def _churn(root: Path, stamp_date: str) -> tuple[list[str], bool]:
     since = (date.fromisoformat(stamp_date) - timedelta(days=90)).isoformat()
     try:
-        raw = _git(root, "log", "--name-only", "--since", since, "-n", "1000")
+        raw = _git(root, "log", "--name-only", "--pretty=format:", "--since", since, "-n", "1000")
     except _EngineError:
         return []
     counts: dict[str, int] = {}
-    for line in raw.splitlines():
+    for line in raw.splitlines():  # --pretty=format: leaves file paths only
         line = line.strip()
-        if not line or line.startswith(("commit ", "Merge:", "Author:", "Date:")):
+        if not line:
             continue
         counts[line] = counts.get(line, 0) + 1
     ranked = sorted(counts, key=lambda p: (-counts[p], p))
-    capped, _ = _capped(ranked, "churn")
-    return capped
+    return _capped(ranked, "churn")
 
 
-def _det_lines(payload: dict[str, list[str]]) -> list[str]:
-    lines = []
-    for key in KEY_ORDER[1:]:  # tree is capped separately and shown as a count
-        label = DET_SENTINELS[key]
-        values = payload[key]
-        lines.append(f"- {label}: {', '.join(values) if values else '(none detected)'}")
-    return lines
-
-
-def _payload(repo: Path, stamp_date: str) -> tuple[dict, bool]:
-    """Raw lists keyed by section; returns (payload, tree_truncated)."""
+def _payload(repo: Path, stamp_date: str) -> tuple[dict, dict]:
+    """Producer results as (key -> capped list) plus (key -> truncated flag),
+    flags taken from each producer so re-capping can never flatten them."""
     tree, tree_trunc = _tree(repo)
-    payload = {
-        "tree": tree,
+    produced = {
         "languages": _languages(repo),
+        "frameworks": _frameworks(repo),
         "entry_points": _entry_points(repo),
         "test_commands": _test_commands(repo),
         "standards_sources": _standards_sources(repo),
         "churn": _churn(repo, stamp_date),
     }
-    return payload, tree_trunc
+    payload = {"tree": tree}
+    flags = {"tree": tree_trunc}
+    for key, (items, truncated) in produced.items():
+        payload[key] = items
+        flags[key] = truncated
+    return payload, flags
 
 
 def _payload_keyed(repo: Path, stamp_date: str) -> dict:
     """Survey payload in the test-contract key order:
     value keys (KEY_ORDER), stamp, doc_skeleton, then every *_truncated flag."""
-    payload, tree_trunc = _payload(repo, stamp_date)
-    flags = {"tree": tree_trunc}
-    for key in KEY_ORDER[1:]:
-        capped, truncated = _capped(payload[key], key)
-        payload[key] = capped
-        flags[key] = truncated
+    payload, flags = _payload(repo, stamp_date)
     _head_sha = _head(repo)
     det_text = _det_block_text(payload)
     head_field = _head_sha if _head_sha else "none"
@@ -285,9 +304,14 @@ def _payload_keyed(repo: Path, stamp_date: str) -> dict:
 
 def _det_block_text(payload: dict) -> str:
     body = []
-    for key in ("languages", "entry_points", "test_commands", "standards_sources", "churn"):
+    body.append("## Layout\n")
+    tree = payload.get("tree") or []
+    top = [e for e in tree if e.endswith("/")]
+    body.append(f"- layout: {len(tree)} entries at depth <= 2; top level: {', '.join(top[:8]) or '(none)'}\n")
+    for key in ("languages", "frameworks", "entry_points", "test_commands", "standards_sources", "churn"):
         body.append(f"## {DET_TITLES[key]}\n")
-        body.append(f"- {DET_SENTINELS[key]}: {', '.join(payload[key]) if payload[key] else '(none detected)'}\n")
+        label = DET_SENTINELS.get(key, key.replace("_", " "))
+        body.append(f"- {label}: {', '.join(payload[key]) if payload[key] else '(none detected)'}\n")
     return "\n".join(body)
 
 

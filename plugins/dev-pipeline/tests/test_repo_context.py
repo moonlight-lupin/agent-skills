@@ -57,6 +57,7 @@ def make_repo(tmp_path: Path, *, name: str = "repo", ci: bool = True) -> Path:
         '[project]\nname = "demo"\nversion = "0.1.0"\n\n[project.scripts]\ndemo-cli = "demo.cli:main"\n'
     )
     (repo / "CLAUDE.md").write_text("# Convention\n\n- Use pytest for tests.\n- Keep modules deep.\n")
+    (repo / "tailwind.config.js").write_text("export default {}\n")
     (repo / "README.md").write_text("# demo\n")
     pkg = repo / "packages" / "demo"
     pkg.mkdir(parents=True)
@@ -125,11 +126,13 @@ def test_survey_content(tmp_path):
     out = run_inventory("survey", str(repo), "--stamp-date", STAMP_DATE)
     assert out.returncode == 0, out.stderr
     payload = json.loads(out.stdout)
-    expected_keys = ["tree", "languages", "entry_points", "test_commands", "standards_sources", "churn", "stamp", "doc_skeleton"]
+    expected_keys = ["tree", "languages", "frameworks", "entry_points", "test_commands", "standards_sources", "churn", "stamp", "doc_skeleton"]
     assert list(payload.keys()) == expected_keys + [k for k in payload if k.endswith("_truncated")]
     assert "python" in payload["languages"]
+    assert "tailwind" in payload["frameworks"]
+    assert "Layout" in payload["doc_skeleton"]
     assert any(p.endswith("CLAUDE.md") for p in payload["standards_sources"])
-    assert any("pytest" in c for c in payload["test_commands"])
+    assert any(c.startswith("pytest") for c in payload["test_commands"])
     assert payload["stamp"]["survey_date"] == STAMP_DATE
     assert payload["stamp"]["head_sha"] == head_sha(repo)
     assert "det_hash" in payload["stamp"] and len(payload["stamp"]["det_hash"]) == 64
@@ -157,12 +160,34 @@ def test_survey_caps(tmp_path):
     payload = json.loads(out.stdout)
     assert len(payload["tree"]) == TREE_CAP
     assert payload["tree_truncated"] is True
-    for key in ("languages", "entry_points", "test_commands", "churn", "standards_sources"):
+    # churn is honestly truncated here: the fill commit touches 320 files (cap 10)
+    assert payload["churn_truncated"] is True
+    for key in ("languages", "entry_points", "test_commands", "standards_sources", "frameworks"):
         assert payload[f"{key}_truncated"] is False
 
 
+def test_survey_overflow_flags(tmp_path):
+    """Codex R1 reproduction pinned: a capped list short of tree must carry a
+    TRUE truncation flag — entry_points and test_commands at 25 entries."""
+    repo = make_repo(tmp_path, name="overflow", ci=False)
+    scripts = "\n".join(f'demo-{i} = "demo.cli:main"' for i in range(25))
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\n\n[project.scripts]\n' + scripts + "\n"
+    )
+    package = repo / "package.json"
+    tests = ",\n".join(f'"test-{i}": "node t{i}.js"' for i in range(25))
+    package.write_text('{\n  "scripts": {\n    ' + tests + "\n  }\n}\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "overflow")
+    out = run_inventory("survey", str(repo), "--stamp-date", STAMP_DATE)
+    assert out.returncode == 0, out.stderr
+    payload = json.loads(out.stdout)
+    assert len(payload["entry_points"]) == 20 and payload["entry_points_truncated"] is True
+    assert len(payload["test_commands"]) == 20 and payload["test_commands_truncated"] is True
+
+
 def test_survey_fast(tmp_path):
-    repo = make_repo(tmp_path, name="fastrepo", ci=False)
+    repo = make_repo(tmp_path, name="fastrepo2", ci=False)
     mods = repo / "alpha"
     mods.mkdir()
     for i in range(TREE_CAP + 30):

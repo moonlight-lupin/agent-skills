@@ -65,9 +65,11 @@ def test_bootstrap_route_wired():
 
 def test_maintenance_wired():
     """v0.6.1: review-commit's commit-gate step runs the inventory check and
-    carries the named-skip rule — at the gate, not post-ship."""
+    carries the named-skip rule — at the gate, not post-ship. Probe accepts both
+    the bare and the $HERMES_HOME-anchored invocation (R1 fix, codex BLOCKING)."""
+    import re
     body = _skill_md("review-commit").read_text()
-    assert "inventory.py check" in body and "skip" in body
+    assert re.search(r'inventory\.py"?\s+check', body) and "skip" in body
 
 def test_router_skills_do_not_grow_past_their_drift_allowance():
     """orchestrator and review-commit were 'not the problem' per the signed brief
