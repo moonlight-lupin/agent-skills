@@ -697,6 +697,8 @@ def _to_toml_value(v) -> str:
     if isinstance(v, (int, float)):
         return repr(v)
     if isinstance(v, str):
+        if any(ord(ch) < 0x20 for ch in v):
+            raise ConfigError("string values must not contain control characters")
         return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
     if isinstance(v, list):
         return "[" + ", ".join(_to_toml_value(x) for x in v) + "]"
@@ -824,14 +826,98 @@ def _collect_edits(a) -> list[tuple[str, str, str]]:
     return edits
 
 
-def _validate_and_apply_edits(edits, existing: dict, defaults: dict, project: bool) -> dict:
+_SETUP_KEY_RE = re.compile(r"^[A-Za-z0-9_\-+@.]+$")
+
+
+def _trusted_base(defaults: dict) -> dict:
+    """The trusted config state (defaults + machine/env override) that project
+    scope types against — the same view the loader strips against."""
+    base = copy.deepcopy(defaults)
+    env = os.environ.get(MACHINE_TARGET_ENV)
+    if env:
+        cand = [Path(env).expanduser()]
+    else:
+        cand = [Path(c).expanduser() for c in MACHINE_CANDIDATES]
+    for p in cand:
+        if p.is_file():
+            try:
+                data = tomllib.loads(p.read_text(encoding="utf-8"))
+            except tomllib.TOMLDecodeError:
+                continue  # machine file parse errors surface in the roundtrip
+            data.pop("schema", None)
+            base = deep_merge(base, data)
+            break
+    return base
+
+
+def _validate_typed_value(dotted: str, raw: str, schema: dict):
+    """Coerce and type-check --set/--quick against the schema leaf at
+    dotted (list-typed leaves accept bare scalars as one-element lists)
+    and RETURN the coerced value."""
+    table: dict = schema
+    for part in dotted.split(".")[:-1]:
+        nxt = table.get(part) if isinstance(table, dict) else None
+        if not isinstance(nxt, dict):
+            table = None
+            break
+        table = nxt
+    leaf = dotted.split(".")[-1]
+    value = _parse_value(raw)
+    if not isinstance(table, dict):
+        return  # free-form surface (never reached for validated keys)
+    def_leaf = table.get(leaf)
+    if isinstance(def_leaf, list):
+        if isinstance(value, list):
+            if not all(isinstance(x, (str, bool, int, float)) for x in value):
+                raise SetupRefused(2, f"{dotted!r}: list values must be scalars, got {raw!r}")
+        elif isinstance(value, (str, bool, int, float)):
+            value = [value]
+        else:
+            raise SetupRefused(2, f"{dotted!r}: a list is expected, got {raw!r}")
+    elif isinstance(def_leaf, bool):
+        if not isinstance(value, bool):
+            raise SetupRefused(2, f"{dotted!r}: true or false expected, got {raw!r}")
+    elif isinstance(def_leaf, (int, float)) and not isinstance(def_leaf, bool):
+        if isinstance(value, list) or not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise SetupRefused(2, f"{dotted!r}: a number is expected, got {raw!r}")
+    elif def_leaf is None:
+        if not isinstance(value, str):
+            raise SetupRefused(2, f"{dotted!r}: a string is expected, got {raw!r}")
+    elif not isinstance(value, (str, bool, int, float)):
+        raise SetupRefused(2, f"{dotted!r}: a scalar is expected, got {raw!r}")
+    if isinstance(value, str) and any(ord(ch) < 0x20 for ch in value):
+        raise SetupRefused(2, f"{dotted!r}: control characters are not valid values")
+    return value
+
+
+def _setup_project_surface(tree: dict, trusted_lanes: set) -> dict:
+    """Project files may contain ONLY the untrusted surface: per-lane
+    model/effort on lanes defined by trusted sources."""
+    out: dict = {}
+    for lid, lane in (tree.get("lanes") or {}).items():
+        if lid not in trusted_lanes:
+            continue
+        keep = {k: v for k, v in lane.items() if k in _TRUST_EDITABLE_LANE_KEYS}
+        if keep:
+            out.setdefault("lanes", {})[lid] = keep
+    return _prune(out)
+
+
+def _validate_and_apply_edits(edits, existing: dict, defaults: dict, project: bool,
+                              trusted_base: dict | None = None) -> dict:
     """Machine writes edit the existing override (preserving its other
-    customizations); project writes are filtered by the trust boundary
-    (per-lane model/effort on trusted-defined lanes only) and refused
+    customizations), validated against the DEFAULTS schema. Project writes
+    are typed against the trusted base, filtered to the trusted surface
+    (per-lane model/effort on lanes defined by TRUSTED sources — defaults
+    and the machine override, never the project file itself), and refused
     WHOLE on any violation."""
     tree = copy.deepcopy(existing)
-    trusted_lanes = _known_lane_ids(defaults, existing)
+    trusted_lanes = set(defaults.get("lanes", {})) if not project else \
+        _known_lane_ids(trusted_base or {}, {})
     for dotted, raw, op in edits:
+        for part in dotted.split(".")[:-1] or dotted.split("."):
+            if not _SETUP_KEY_RE.match(part):
+                raise SetupRefused(2, f"invalid key segment {part!r} in {dotted!r}")
         top = dotted.split(".", 1)[0]
         if project:
             rest = dotted.split(".")
@@ -845,7 +931,8 @@ def _validate_and_apply_edits(edits, existing: dict, defaults: dict, project: bo
                     "(~/.hermes/dev-pipeline/lanes.toml)",
                 )
             if op == "set":
-                _apply_set(tree, dotted, _parse_value(raw))
+                value = _validate_typed_value(dotted, raw, trusted_base or {})
+                _apply_set(tree, dotted, value)
             else:
                 _remove_key(tree, dotted)
             continue
@@ -864,25 +951,7 @@ def _validate_and_apply_edits(edits, existing: dict, defaults: dict, project: bo
                 f"nearest keys at that table: {_nearest_candidates(defaults, dotted)}",
             )
         if op == "set":
-            value = _parse_value(raw)
-            def_leaf = table.get(leaf)
-            if isinstance(def_leaf, list):
-                # list-typed schema leaf: a bare scalar becomes a one-element list
-                if isinstance(value, list):
-                    if not all(isinstance(x, (str, bool, int, float)) for x in value):
-                        raise SetupRefused(2, f"{dotted!r}: list values must be scalars, got {raw!r}")
-                elif isinstance(value, (str, bool, int, float)):
-                    value = [value]
-                else:
-                    raise SetupRefused(2, f"{dotted!r}: a list is expected, got {raw!r}")
-            elif isinstance(def_leaf, bool):
-                if not isinstance(value, bool):
-                    raise SetupRefused(2, f"{dotted!r}: true or false expected, got {raw!r}")
-            elif isinstance(def_leaf, (int, float)) and not isinstance(def_leaf, bool):
-                if isinstance(value, list) or not isinstance(value, (int, float)) or isinstance(value, bool):
-                    raise SetupRefused(2, f"{dotted!r}: a number is expected, got {raw!r}")
-            elif not isinstance(value, (str, bool, int, float)):
-                raise SetupRefused(2, f"{dotted!r}: a scalar is expected, got {raw!r}")
+            value = _validate_typed_value(dotted, raw, defaults)
             if top == "roles" and isinstance(value, list):
                 known = _known_lane_ids(defaults, existing)
                 bad = [x for x in value if x not in known]
@@ -954,7 +1023,12 @@ def setup_cmd(a) -> int:
         target = Path(env).expanduser() if env else Path(MACHINE_CANDIDATES[0]).expanduser()
     existing = _read_existing(target)
     edits = _collect_edits(a)
-    override = _validate_and_apply_edits(edits, existing, defaults, project=project)
+    tbase = _trusted_base(defaults) if project else None
+    override = _validate_and_apply_edits(edits, existing, defaults, project=project,
+                                         trusted_base=tbase)
+    if project:
+        # project files carry the untrusted surface only, whatever was in them
+        override = _setup_project_surface(override, set(tbase.get("lanes", {})))
     out: dict = {"wrote": None, "schema": SCHEMA, "warnings": []}
     if a.check:
         old_text = target.read_text(encoding="utf-8") if target.is_file() else ""
@@ -970,6 +1044,10 @@ def setup_cmd(a) -> int:
         backup = None
     else:
         new_text = _serialize_override(override)
+        try:
+            tomllib.loads(new_text)  # parse proof: no write of unparseable TOML
+        except tomllib.TOMLDecodeError as e:  # pragma: no cover — serializer contract
+            raise SetupRefused(5, f"internal: serialized override failed to parse ({e})") from e
         backup = _setup_machine_write(target, new_text, a.force)
         out["wrote"] = str(target)
     out["backup"] = backup
