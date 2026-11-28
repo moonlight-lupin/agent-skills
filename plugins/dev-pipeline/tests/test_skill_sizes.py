@@ -22,6 +22,17 @@ def test_repo_context_skill_cites_engine():
     for probe in ("scripts/inventory.py", "survey", "check", "survey stamp"):
         assert probe in body, f"repo-context/SKILL.md missing {probe!r}"
 
+def test_debug_attack_the_premise():
+    """v0.6.1: attack-the-premise (Lauren Tan's pstack pack, MIT, verified
+    2026-11-28) lands as a stop rule: two failed fixes sharing one premise must
+    test the premise before fix #3 — plus one Red Flag line."""
+    body = _skill_md("debug").read_text()
+    assert "test the premise" in body
+    assert "same premise" in body
+    assert "before fix #3" in body
+    reds = body.split("## Red Flags")[1].split("## ")[0]
+    assert "premise" in reds
+
 def test_bootstrap_route_wired():
     """v0.6.1: the orchestrator routes existing-repo starts to the repo-context
     bootstrap before spec/build planning."""
