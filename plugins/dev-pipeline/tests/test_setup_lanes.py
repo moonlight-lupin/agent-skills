@@ -343,10 +343,14 @@ def test_project_scope_refuses_unknown_lane(_FIXTURES, tmp_path):
 
 def test_unavailable_lane_warns(_FIXTURES, tmp_path):
     home = make_home(tmp_path)
+    # US-4 acceptance (adjudicated over the edge-case prose): a coder list
+    # with no resolvable lane still writes, warns, and exits NONZERO
     proc = run_setup("--quick", "roles.coder=codex", home=home)
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 2, proc.stderr
     body = out_json(proc)
+    assert body["wrote"]  # the write stands; the problem is reported, not hidden
     assert any("codex" in w for w in body.get("warnings", []))
+    assert "no coder lane resolves" in body.get("verification", "")
 
 
 def test_provider_env_warns(_FIXTURES, tmp_path):
@@ -373,9 +377,11 @@ def test_verify_roundtrip_prints_roles(_FIXTURES, tmp_path):
 
 def test_setup_deterministic_quick(_FIXTURES, tmp_path):
     home_a, home_b = make_home(tmp_path, "home-a"), make_home(tmp_path, "home-b")
+    # roles.coder=codex resolves to NO-LANE on the fixture (adjudicated rc 2);
+    # determinism is still the claim: identical inputs -> identical bytes
     first = run_setup("--quick", "roles.coder=codex", "roles.reviewers=codex,claude", "lanes.codex.model=gpt-6-sol", home=home_a)
     second = run_setup("--quick", "roles.coder=codex", "roles.reviewers=codex,claude", "lanes.codex.model=gpt-6-sol", home=home_b)
-    assert first.returncode == second.returncode == 0, (first.stderr, second.stderr)
+    assert first.returncode == second.returncode == 2, (first.stderr, second.stderr)
     assert default_path(home_a).read_bytes() == default_path(home_b).read_bytes()
 
 
@@ -393,6 +399,6 @@ def test_setup_defaults_untouched(_FIXTURES, tmp_path):
     defaults = _FIXTURES["defaults"]
     before = (defaults.read_bytes(), defaults.stat().st_mtime_ns)
     proc = run_setup("--quick", "roles.coder=codex", home=home)
-    assert proc.returncode == 0, proc.stderr
+    assert proc.returncode == 2, proc.stderr  # adjudicated NO-LANE exit; file write stands
     after = (defaults.read_bytes(), defaults.stat().st_mtime_ns)
     assert after == before
