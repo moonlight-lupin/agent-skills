@@ -46,6 +46,17 @@ def test_principles_index_wired():
         assert forbidden not in body
     assert "references/principles-index.md" in _skill_md("orchestrator").read_text()
 
+def test_rule_to_enforcer_wired():
+    """v0.6.1: the correct-style rule->enforcer ladder lands in review-lessons
+    with the fixed order and an index row; the skill stays under its 8 KB cap."""
+    ref = PLUGIN_DIR / "skills" / "review-lessons" / "references" / "rule-to-enforcer.md"
+    assert ref.exists()
+    body = ref.read_text()
+    for probe in ("architecture", "types", "lint", "CI", "test", "doc"):
+        assert probe in body, f"rule-to-enforcer.md missing {probe!r}"
+    assert "Lauren Tan" in body or "correct" in body
+    assert "rule-to-enforcer" in _skill_md("review-lessons").read_text()
+
 def test_bootstrap_route_wired():
     """v0.6.1: the orchestrator routes existing-repo starts to the repo-context
     bootstrap before spec/build planning."""
