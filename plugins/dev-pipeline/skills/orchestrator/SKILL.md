@@ -25,6 +25,7 @@ stage points to:
 - `references/coding-principles.md` — how code gets written (think first,
   simplicity, surgical changes, goal-driven), the S0/S1 plan format, the
   unreachable-scenario definition, and the builder block every brief carries
+- `references/principles-index.md` — external one-principle skills (pstack), load on demand
 
 The chain diagram lives in `references/flow-map.md`.
 

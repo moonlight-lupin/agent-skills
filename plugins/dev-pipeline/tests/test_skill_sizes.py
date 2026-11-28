@@ -33,6 +33,19 @@ def test_debug_attack_the_premise():
     reds = body.split("## Red Flags")[1].split("## ")[0]
     assert "premise" in reds
 
+def test_principles_index_wired():
+    """v0.6.1: the six-entry pstack principles index exists, carries the
+    attribution line without machine-local paths, and the orchestrator
+    references list points at it."""
+    idx = PLUGIN_DIR / "skills" / "orchestrator" / "references" / "principles-index.md"
+    assert idx.exists()
+    body = idx.read_text()
+    assert "attack-the-premise" in body and "sequence-verifiable-units" in body
+    assert "Lauren Tan" in body and "MIT" in body
+    for forbidden in ("/root/", ".cursor", "192.168.", ".hermes"):
+        assert forbidden not in body
+    assert "references/principles-index.md" in _skill_md("orchestrator").read_text()
+
 def test_bootstrap_route_wired():
     """v0.6.1: the orchestrator routes existing-repo starts to the repo-context
     bootstrap before spec/build planning."""
