@@ -42,7 +42,7 @@ def test_authoritative_stage_router_links_risk_reference():
 
 def test_manifest_version_and_review_budget_unchanged():  # deliberate pin: the bump must be a visible release move
     manifest = (BASE / "plugin.yaml").read_text(encoding="utf-8")
-    assert re.search(r"(?m)^version: 0\.6\.1$", manifest)
+    assert re.search(r"(?m)^version: 0\.7\.0$", manifest)
     tiers = (REF / "size-tiers.md").read_text(encoding="utf-8")
     for expected in ("| T1 ", "| T2 ", "| T3 ", "three-reviewer gate"):
         assert expected in tiers

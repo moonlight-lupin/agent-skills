@@ -1,3 +1,21 @@
+## 0.7.0 — setup-lanes: coder configuration and reviewer lanes as a first-class flow
+
+New `setup-lanes` skill (eleventh bundled skill) with a deterministic writer:
+- `skills/orchestrator/scripts/lanes.py` gains the `setup` subcommand — quick
+  setup keys (`roles.coder`, `roles.reviewers`, per-lane model pins), deep
+  `--set`/`--unset` edits on any dot-path the defaults define (schema-typed
+  values: comma-lists, true/false, numbers), and `--check` report-only preview.
+  Every write is atomic (temp file + rename), refuses an existing override
+  without `--force` (unified diff shown first), keeps the two most recent
+  timestamped backups, and ends with a doctor + resolve-T2 roundtrip in one
+  JSON report. `--defaults PATH` (top-level) replaces the bundled defaults for
+  any subcommand — the testability seam.
+- Trust boundary upheld at write time: project scope (`--project --repo`)
+  is the untrusted surface — per-lane model/effort on trusted-defined lanes
+  only; anything else is refused whole and pointed at the machine scope.
+- The skill carries the interview judgment (one pass, three questions),
+  maps answers to flags, and reports the effective roles table.
+
 ## 0.6.1 — repo-context and the pstack principle adoptions
 
 New `repo-context` skill (tenth bundled skill) with a deterministic engine:
